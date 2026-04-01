@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sqlx::{Row, SqlitePool};
 use tauri::{AppHandle, Manager};
 use uuid::Uuid;
@@ -17,6 +18,15 @@ pub struct HistoryMessage {
     pub role: String,
     pub content: String,
     pub token_usage: Option<i64>,
+    pub cost: Option<Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationMemory {
+    pub summary: String,
+    pub key_facts: Vec<String>,
+    pub updated_at: i64,
 }
 
 fn derive_title_from_message(content: &str) -> String {
@@ -80,7 +90,16 @@ async fn ensure_schema(pool: &SqlitePool) -> Result<(), String> {
             role TEXT NOT NULL,
             content TEXT NOT NULL,
             token_usage INTEGER,
+            cost_json TEXT,
             created_at INTEGER NOT NULL,
+            FOREIGN KEY (conversation_id) REFERENCES conversations(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS conversation_memory (
+            conversation_id TEXT PRIMARY KEY,
+            summary TEXT NOT NULL,
+            key_facts_json TEXT NOT NULL,
+            updated_at INTEGER NOT NULL,
             FOREIGN KEY (conversation_id) REFERENCES conversations(id)
         );
         "#,
@@ -97,6 +116,19 @@ async fn ensure_schema(pool: &SqlitePool) -> Result<(), String> {
     .await;
 
     if let Err(e) = alter_result {
+        let msg = e.to_string().to_lowercase();
+        if !msg.contains("duplicate column") {
+            return Err(e.to_string());
+        }
+    }
+
+    let alter_cost_result = sqlx::query(
+        "ALTER TABLE conversation_messages ADD COLUMN cost_json TEXT",
+    )
+    .execute(pool)
+    .await;
+
+    if let Err(e) = alter_cost_result {
         let msg = e.to_string().to_lowercase();
         if !msg.contains("duplicate column") {
             return Err(e.to_string());
@@ -172,7 +204,7 @@ pub async fn load_history(
     ensure_schema(&pool).await?;
 
     let rows = sqlx::query(
-        "SELECT role, content, token_usage FROM conversation_messages WHERE conversation_id = ? ORDER BY created_at ASC, id ASC",
+        "SELECT role, content, token_usage, cost_json FROM conversation_messages WHERE conversation_id = ? ORDER BY created_at ASC, id ASC",
     )
     .bind(conversation_id)
     .fetch_all(&pool)
@@ -185,6 +217,9 @@ pub async fn load_history(
             role: row.get::<String, _>("role"),
             content: row.get::<String, _>("content"),
             token_usage: row.get::<Option<i64>, _>("token_usage"),
+            cost: row
+                .get::<Option<String>, _>("cost_json")
+                .and_then(|s| serde_json::from_str::<Value>(&s).ok()),
         })
         .collect();
 
@@ -204,14 +239,16 @@ pub async fn append_history(
     let role = message.role.clone();
     let content = message.content.clone();
     let token_usage = message.token_usage;
+    let cost_json = message.cost.and_then(|v| serde_json::to_string(&v).ok());
 
     sqlx::query(
-        "INSERT INTO conversation_messages (conversation_id, role, content, token_usage, created_at) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO conversation_messages (conversation_id, role, content, token_usage, cost_json, created_at) VALUES (?, ?, ?, ?, ?, ?)",
     )
         .bind(&conversation_id)
         .bind(&role)
         .bind(&content)
         .bind(token_usage)
+        .bind(cost_json)
         .bind(now)
         .execute(&pool)
         .await
@@ -298,11 +335,79 @@ pub async fn delete_conversation(app: AppHandle, conversation_id: String) -> Res
         .await
         .map_err(|e| e.to_string())?;
 
+    sqlx::query("DELETE FROM conversation_memory WHERE conversation_id = ?")
+        .bind(&conversation_id)
+        .execute(&pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
     sqlx::query("DELETE FROM conversations WHERE id = ?")
         .bind(&conversation_id)
         .execute(&pool)
         .await
         .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_conversation_memory(
+    app: AppHandle,
+    conversation_id: String,
+) -> Result<Option<ConversationMemory>, String> {
+    let pool = get_pool(&app).await?;
+    ensure_schema(&pool).await?;
+
+    let row = sqlx::query(
+        "SELECT summary, key_facts_json, updated_at FROM conversation_memory WHERE conversation_id = ?",
+    )
+    .bind(conversation_id)
+    .fetch_optional(&pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let Some(row) = row else {
+        return Ok(None);
+    };
+
+    let key_facts_raw = row.get::<String, _>("key_facts_json");
+    let key_facts = serde_json::from_str::<Vec<String>>(&key_facts_raw).unwrap_or_default();
+
+    Ok(Some(ConversationMemory {
+        summary: row.get::<String, _>("summary"),
+        key_facts,
+        updated_at: row.get::<i64, _>("updated_at"),
+    }))
+}
+
+#[tauri::command]
+pub async fn upsert_conversation_memory(
+    app: AppHandle,
+    conversation_id: String,
+    summary: String,
+    key_facts: Vec<String>,
+) -> Result<(), String> {
+    let pool = get_pool(&app).await?;
+    ensure_schema(&pool).await?;
+
+    let now = chrono::Utc::now().timestamp();
+    let key_facts_json = serde_json::to_string(&key_facts).map_err(|e| e.to_string())?;
+
+    sqlx::query(
+        r#"
+        INSERT INTO conversation_memory (conversation_id, summary, key_facts_json, updated_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(conversation_id)
+        DO UPDATE SET summary=excluded.summary, key_facts_json=excluded.key_facts_json, updated_at=excluded.updated_at
+        "#,
+    )
+    .bind(conversation_id)
+    .bind(summary)
+    .bind(key_facts_json)
+    .bind(now)
+    .execute(&pool)
+    .await
+    .map_err(|e| e.to_string())?;
 
     Ok(())
 }

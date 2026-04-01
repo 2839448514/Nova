@@ -1,10 +1,94 @@
 use reqwest::Client;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
+use tauri::Manager;
 use futures_util::StreamExt;
+use std::path::PathBuf;
 
-use crate::llm::types::{AnthropicRequest, StreamEvent, Message, Content, ContentBlock, Role};
+use crate::llm::types::{AnthropicRequest, StreamEvent, Message, Content, ContentBlock, Role, Tool};
 use crate::llm::tools;
+
+const FALLBACK_SYSTEM_PROMPT: &str = "You are a helpful coding assistant running in a local Tauri desktop app. You will answer questions briefly and write accurate code.";
+
+fn read_non_empty_file(path: &PathBuf) -> Option<String> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    Some(trimmed.to_string())
+}
+
+fn load_system_prompt(app: &AppHandle) -> String {
+    let mut candidates: Vec<PathBuf> = Vec::new();
+
+    if let Ok(app_dir) = app.path().app_data_dir() {
+        candidates.push(app_dir.join("system_prompt.md"));
+    }
+
+    if let Ok(cwd) = std::env::current_dir() {
+        candidates.push(cwd.join("src-tauri").join("prompts").join("system_prompt.md"));
+        candidates.push(cwd.join("prompts").join("system_prompt.md"));
+    }
+
+    for path in candidates {
+        if let Some(prompt) = read_non_empty_file(&path) {
+            return prompt;
+        }
+    }
+
+    FALLBACK_SYSTEM_PROMPT.to_string()
+}
+
+fn parse_mcp_tool_name(name: &str) -> Option<(String, String)> {
+    let raw = name.strip_prefix("mcp/")?;
+    let mut parts = raw.splitn(2, '/');
+    let server = parts.next()?.trim();
+    let tool = parts.next()?.trim();
+    if server.is_empty() || tool.is_empty() {
+        return None;
+    }
+    Some((server.to_string(), tool.to_string()))
+}
+
+async fn collect_mcp_tools(app: &AppHandle) -> Vec<Tool> {
+    let mut statuses = match crate::command::mcp::get_mcp_server_statuses(app.clone()).await {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
+    };
+
+    let has_enabled = statuses.iter().any(|s| s.enabled);
+    let has_connected = statuses.iter().any(|s| s.enabled && s.status == "connected");
+    if has_enabled && !has_connected {
+        let _ = crate::command::mcp::reload_all_mcp_servers(app.clone()).await;
+        statuses = match crate::command::mcp::get_mcp_server_statuses(app.clone()).await {
+            Ok(v) => v,
+            Err(_) => return Vec::new(),
+        };
+    }
+
+    let mut tools_vec = Vec::new();
+    for status in statuses.into_iter().filter(|s| s.enabled && s.status == "connected") {
+        let listed = match crate::command::mcp::list_mcp_tools(app.clone(), status.name.clone()).await {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+
+        for t in listed {
+            tools_vec.push(Tool {
+                name: format!("mcp/{}/{}", status.name, t.name),
+                description: t
+                    .description
+                    .unwrap_or_else(|| format!("MCP tool '{}' from server '{}'.", t.name, status.name)),
+                input_schema: t
+                    .input_schema
+                    .unwrap_or_else(|| serde_json::json!({ "type": "object", "properties": {} })),
+            });
+        }
+    }
+
+    tools_vec
+}
 
 fn has_needs_user_input(messages: &[Message]) -> bool {
     messages.iter().any(|m| {
@@ -53,12 +137,15 @@ pub async fn send_request(
         return Err("API error: No API key configured. Please set it in Settings.".to_string());
     }
 
+    let mut available_tools = tools::get_available_tools();
+    available_tools.extend(collect_mcp_tools(app).await);
+
     let request = AnthropicRequest {
         model: settings.model,
         max_tokens: 4096,
-        system: Some("You are a helpful coding assistant running in a local Tauri desktop app. You will answer questions briefly and write accurate code.".to_string()),
+        system: Some(load_system_prompt(app)),
         messages: messages.clone(),
-        tools: tools::get_available_tools(),
+        tools: available_tools,
         stream: true,
     };
 
@@ -172,7 +259,21 @@ pub async fn send_request(
                                             });
 
                                             // Execute Tool
-                                            let tool_result_str = tools::execute_tool(&name, input_value);
+                                            let tool_result_str = if let Some((server_name, tool_name)) = parse_mcp_tool_name(&name) {
+                                                match crate::command::mcp::call_mcp_tool(
+                                                    app.clone(),
+                                                    server_name,
+                                                    tool_name,
+                                                    input_value,
+                                                )
+                                                .await
+                                                {
+                                                    Ok(v) => v.to_string(),
+                                                    Err(e) => serde_json::json!({ "ok": false, "error": e }).to_string(),
+                                                }
+                                            } else {
+                                                tools::execute_tool(&name, input_value)
+                                            };
                                             
                                             app.emit("chat-stream", ChatMessageEvent {
                                                 r#type: "tool-result".into(),
@@ -184,16 +285,23 @@ pub async fn send_request(
                                                 token_usage: current_output_tokens,
                                             }).ok();
 
-                                            // Tool results that require user input should end this turn immediately.
-                                            app.emit("chat-stream", ChatMessageEvent {
-                                                r#type: "stop".into(),
-                                                text: None,
-                                                tool_use_id: None,
-                                                tool_use_name: None,
-                                                tool_use_input: None,
-                                                tool_result: None,
-                                                token_usage: current_output_tokens,
-                                            }).ok();
+                                            let needs_user_input = serde_json::from_str::<serde_json::Value>(&tool_result_str)
+                                                .ok()
+                                                .and_then(|v| v.get("type").and_then(|t| t.as_str()).map(|s| s == "needs_user_input"))
+                                                .unwrap_or(false);
+
+                                            // Only stop early when the tool explicitly asks for user input.
+                                            if needs_user_input {
+                                                app.emit("chat-stream", ChatMessageEvent {
+                                                    r#type: "stop".into(),
+                                                    text: None,
+                                                    tool_use_id: None,
+                                                    tool_use_name: None,
+                                                    tool_use_input: None,
+                                                    tool_result: None,
+                                                    token_usage: current_output_tokens,
+                                                }).ok();
+                                            }
 
                                             // We append the tool result to another message directly
                                             return Ok(vec![

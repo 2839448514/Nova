@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::time::Duration;
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::sync::Mutex;
 use tokio::time::timeout;
@@ -52,21 +52,13 @@ struct StdioMcpConnection {
 
 impl StdioMcpConnection {
     async fn send_message(&mut self, value: &Value) -> Result<(), String> {
-        let bytes = serde_json::to_vec(value).map_err(|e| e.to_string())?;
-        let header = format!("Content-Length: {}\r\n\r\n", bytes.len());
-        self.writer
-            .write_all(header.as_bytes())
-            .await
-            .map_err(|e| e.to_string())?;
-        self.writer
-            .write_all(&bytes)
-            .await
-            .map_err(|e| e.to_string())?;
+        let mut bytes = serde_json::to_vec(value).map_err(|e| e.to_string())?;
+        bytes.push(b'\n');
+        self.writer.write_all(&bytes).await.map_err(|e| e.to_string())?;
         self.writer.flush().await.map_err(|e| e.to_string())
     }
 
     async fn read_message(&mut self) -> Result<Value, String> {
-        let mut content_length = None::<usize>;
         loop {
             let mut line = String::new();
             let n = self
@@ -78,29 +70,19 @@ impl StdioMcpConnection {
                 return Err("MCP stdio stream closed".into());
             }
 
-            let line = line.trim_end_matches(['\r', '\n']);
+            let line = line.trim();
             if line.is_empty() {
-                break;
+                continue;
             }
 
-            let lower = line.to_ascii_lowercase();
-            if lower.starts_with("content-length:") {
-                let raw = line.split(':').nth(1).unwrap_or("").trim();
-                let len = raw
-                    .parse::<usize>()
-                    .map_err(|_| format!("Invalid Content-Length header: {}", raw))?;
-                content_length = Some(len);
+            match serde_json::from_str::<Value>(line) {
+                Ok(v) => return Ok(v),
+                Err(_) => {
+                    // Some servers may print startup logs on stdout before JSON-RPC messages.
+                    continue;
+                }
             }
         }
-
-        let len = content_length.ok_or_else(|| "Missing Content-Length header".to_string())?;
-        let mut buf = vec![0u8; len];
-        self.reader
-            .read_exact(&mut buf)
-            .await
-            .map_err(|e| e.to_string())?;
-
-        serde_json::from_slice::<Value>(&buf).map_err(|e| e.to_string())
     }
 
     async fn send_request(&mut self, method: &str, params: Value) -> Result<Value, String> {
@@ -117,7 +99,10 @@ impl StdioMcpConnection {
 
         loop {
             let msg = self.read_message().await?;
-            if msg.get("id").and_then(|v| v.as_u64()) != Some(id) {
+            let msg_id = msg
+                .get("id")
+                .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse::<u64>().ok())));
+            if msg_id != Some(id) {
                 continue;
             }
             if let Some(err) = msg.get("error") {
@@ -201,7 +186,7 @@ struct PersistedServer {
 
 static MCP_RUNTIME: OnceLock<Mutex<HashMap<String, RegisteredServer>>> = OnceLock::new();
 static MCP_LOADED: OnceLock<Mutex<bool>> = OnceLock::new();
-const MCP_CONNECT_TIMEOUT: Duration = Duration::from_secs(120);
+const MCP_CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 
 fn runtime() -> &'static Mutex<HashMap<String, RegisteredServer>> {
     MCP_RUNTIME.get_or_init(|| Mutex::new(HashMap::new()))
@@ -311,7 +296,7 @@ async fn connect_stdio(command: &str, args: &[String], env_map: &HashMap<String,
         Ok(Err(e)) => return Err(e),
         Err(_) => {
             let _ = conn.shutdown().await;
-            return Err("MCP server initialize timeout (120s). First-time npx install may be slow; please retry or pre-run `npx -y @playwright/mcp@latest --help` in terminal.".to_string());
+            return Err("MCP server initialize timeout (30s). First-time npx install may be slow; please retry or pre-run `npx -y @playwright/mcp@latest --help` in terminal.".to_string());
         }
     }
 
@@ -373,7 +358,7 @@ async fn connect_server(config: &McpServerConfig) -> (String, usize, Option<Stri
                         return (
                             "error".to_string(),
                             0,
-                            Some("MCP tools/list timeout (120s). Server may still be downloading dependencies or stuck during startup.".to_string()),
+                            Some("MCP tools/list timeout (30s). Server may still be downloading dependencies or stuck during startup.".to_string()),
                             None,
                         )
                     }
@@ -661,4 +646,19 @@ pub async fn call_mcp_tool(
         }
         None => Err("Server is not connected".into()),
     }
+}
+
+pub async fn warmup_runtime(app: AppHandle) -> Result<(), String> {
+    ensure_runtime_loaded(&app).await;
+
+    let has_enabled = {
+        let map = runtime().lock().await;
+        map.values().any(|s| s.enabled)
+    };
+
+    if has_enabled {
+        let _ = reload_all_mcp_servers(app.clone()).await;
+    }
+
+    Ok(())
 }

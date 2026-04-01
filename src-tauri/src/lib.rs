@@ -11,6 +11,13 @@ fn greet(name: &str) -> String {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .setup(|app| {
+            let app_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let _ = crate::command::mcp::warmup_runtime(app_handle).await;
+            });
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             greet, 
             llm::client::send_chat_message,
@@ -22,6 +29,8 @@ pub fn run() {
             command::history::append_history,
             command::history::clear_history,
             command::history::delete_conversation,
+            command::history::get_conversation_memory,
+            command::history::upsert_conversation_memory,
             command::mcp::add_mcp_server,
             command::mcp::remove_mcp_server,
             command::mcp::get_mcp_server_statuses,

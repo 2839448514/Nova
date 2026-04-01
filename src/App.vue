@@ -10,12 +10,27 @@ interface Message {
   role: "user" | "assistant";
   content: string;
   tokenUsage?: number;
+  cost?: TurnCost;
 }
 
 interface PersistedMessage {
   role: string;
   content: string;
   tokenUsage?: number;
+  cost?: TurnCost;
+}
+
+interface TurnCost {
+  inputTokens: number;
+  outputTokens: number;
+  toolCalls: number;
+  toolDurationMs: number;
+}
+
+interface ConversationMemory {
+  summary: string;
+  keyFacts: string[];
+  updatedAt: number;
 }
 
 interface ConversationMeta {
@@ -46,9 +61,16 @@ const messages = ref<Message[]>([]);
 const isGenerating = ref(false);
 const assistantResponse = ref("");
 const assistantTokenUsage = ref<number | undefined>(undefined);
+const assistantTurnCost = ref<TurnCost | undefined>(undefined);
 const conversations = ref<ConversationMeta[]>([]);
 const activeConversationId = ref("");
 const pendingQuestion = ref<NeedsUserInputPayload | null>(null);
+const conversationMemory = ref<ConversationMemory | null>(null);
+const currentToolStartedAt = ref<number | null>(null);
+const currentToolCalls = ref(0);
+const currentToolDurationMs = ref(0);
+const currentInputTokens = ref(0);
+const currentOutputTokens = ref(0);
 
 let unlisten: UnlistenFn | null = null;
 const isSidebarOpen = ref(true);
@@ -59,12 +81,89 @@ function buildConversationTitle(source: string): string {
   return t.length > 24 ? `${t.slice(0, 24)}...` : t;
 }
 
+function estimateTokens(text: string): number {
+  const n = text.trim().length;
+  if (n <= 0) return 0;
+  return Math.ceil(n / 4);
+}
+
+function estimateInputTokensForTurn(userText: string): number {
+  const historyText = messages.value
+    .slice(-12)
+    .map((m) => m.content)
+    .join("\n");
+  const memoryText = conversationMemory.value
+    ? `Summary: ${conversationMemory.value.summary}\nFacts: ${conversationMemory.value.keyFacts.join("; ")}`
+    : "";
+  return estimateTokens(`${historyText}\n${memoryText}\n${userText}`);
+}
+
+function buildAssistantCost(): TurnCost {
+  return {
+    inputTokens: currentInputTokens.value,
+    outputTokens: currentOutputTokens.value,
+    toolCalls: currentToolCalls.value,
+    toolDurationMs: currentToolDurationMs.value,
+  };
+}
+
+function extractSessionMemory(): { summary: string; keyFacts: string[] } {
+  const recent = messages.value.slice(-12);
+  const summaryParts = recent.slice(-6).map((m) => `${m.role === "user" ? "用户" : "Nova"}: ${m.content.replace(/\s+/g, " ").slice(0, 120)}`);
+  const summary = summaryParts.join(" | ").slice(0, 800);
+
+  const facts: string[] = [];
+  for (const m of recent) {
+    const lines = m.content.split(/\n+/).map((s) => s.trim()).filter(Boolean);
+    for (const line of lines) {
+      if (facts.length >= 8) break;
+      if (line.length >= 12 && line.length <= 120) {
+        facts.push(line);
+      }
+    }
+    if (facts.length >= 8) break;
+  }
+
+  return { summary, keyFacts: facts };
+}
+
+async function loadConversationMemory(conversationId: string) {
+  try {
+    const mem = await invoke<ConversationMemory | null>("get_conversation_memory", { conversationId });
+    conversationMemory.value = mem;
+  } catch (err) {
+    console.error("Failed to load conversation memory:", err);
+    conversationMemory.value = null;
+  }
+}
+
+async function persistConversationMemory(conversationId: string) {
+  const { summary, keyFacts } = extractSessionMemory();
+  if (!summary.trim()) return;
+  try {
+    await invoke("upsert_conversation_memory", {
+      conversationId,
+      summary,
+      keyFacts,
+    });
+    conversationMemory.value = {
+      summary,
+      keyFacts,
+      updatedAt: Date.now(),
+    };
+  } catch (err) {
+    console.error("Failed to persist conversation memory:", err);
+  }
+}
+
 function renderToolResult(raw: string): string {
   const trimmed = raw.trim();
   if (!trimmed) return "";
 
   try {
-    const parsed = JSON.parse(trimmed) as NeedsUserInputPayload;
+    const parsed = JSON.parse(trimmed) as NeedsUserInputPayload & {
+      content?: Array<{ type?: string; text?: string }>;
+    };
     if (parsed?.type === "needs_user_input") {
       const lines: string[] = [];
       if (parsed.context) {
@@ -85,6 +184,17 @@ function renderToolResult(raw: string): string {
         lines.push("也可以直接描述你的具体需求。");
       }
       return lines.join("\n");
+    }
+
+    // MCP tools often return Anthropic-style content blocks; extract readable text.
+    if (Array.isArray(parsed?.content)) {
+      const texts = parsed.content
+        .filter((b) => b && (b.type === "text" || typeof b.text === "string"))
+        .map((b) => (b.text ?? "").trim())
+        .filter(Boolean);
+      if (texts.length > 0) {
+        return texts.join("\n\n");
+      }
     }
 
     // Generic JSON prettify for non-needs_user_input tool outputs.
@@ -146,7 +256,9 @@ async function loadConversation(id: string) {
         role: m.role as "user" | "assistant",
         content: m.content,
         tokenUsage: m.tokenUsage,
+        cost: m.cost,
       }));
+    await loadConversationMemory(id);
   } catch (err) {
     console.error("Failed to load conversation messages:", err);
     messages.value = [];
@@ -181,32 +293,45 @@ onMounted(async () => {
         assistantResponse.value += payload.text;
         chatScreenRef.value?.scrollToBottom();
       } else if (payload.type === "tool-use-start") {
-        assistantResponse.value += `\n> Using tool: ${payload.tool_use_name ?? "unknown"}...\n`;
+        currentToolCalls.value += 1;
+        currentToolStartedAt.value = Date.now();
+        const toolName = payload.tool_use_name ?? "unknown";
+        // Tool calls are rendered as a dedicated panel in ChatScreen.
+        assistantResponse.value += `\n> Using tool: ${toolName}...\n`;
         chatScreenRef.value?.scrollToBottom();
       } else if (payload.type === "tool-result") {
+        if (currentToolStartedAt.value) {
+          currentToolDurationMs.value += Math.max(0, Date.now() - currentToolStartedAt.value);
+          currentToolStartedAt.value = null;
+        }
         const result = (payload.tool_result ?? "").trim();
         if (result) {
           const needsUserInput = parseNeedsUserInput(result);
           if (needsUserInput) {
             pendingQuestion.value = needsUserInput;
             isGenerating.value = false;
+            const rendered = renderToolResult(result);
+            const preview = rendered.length > 1200 ? `${rendered.slice(0, 1200)}\n...(truncated)` : rendered;
+            assistantResponse.value += `\n${preview}\n`;
           }
-          const rendered = renderToolResult(result);
-          const preview = rendered.length > 1200 ? `${rendered.slice(0, 1200)}\n...(truncated)` : rendered;
-          assistantResponse.value += `\n${preview}\n`;
         }
         chatScreenRef.value?.scrollToBottom();
       } else if (payload.type === "token-usage") {
         assistantTokenUsage.value = payload.token_usage;
+        currentOutputTokens.value = payload.token_usage ?? currentOutputTokens.value;
       } else if (payload.type === "stop") {
         const finalText = assistantResponse.value.trim();
+        const cost = buildAssistantCost();
+        assistantTurnCost.value = cost;
         const assistantMsg: Message = {
           role: "assistant",
           content: finalText || "（本轮没有返回可显示的文本内容）",
           tokenUsage: payload.token_usage ?? assistantTokenUsage.value,
+          cost,
         };
         messages.value.push(assistantMsg);
         void persistMessage(assistantMsg);
+        void persistConversationMemory(activeConversationId.value);
         assistantResponse.value = "";
         assistantTokenUsage.value = undefined;
         isGenerating.value = false;
@@ -239,23 +364,37 @@ async function handleSendMessage(userText: string) {
   isGenerating.value = true;
   assistantResponse.value = "";
   assistantTokenUsage.value = undefined;
+  assistantTurnCost.value = undefined;
+  currentToolStartedAt.value = null;
+  currentToolCalls.value = 0;
+  currentToolDurationMs.value = 0;
+  currentOutputTokens.value = 0;
+  currentInputTokens.value = estimateInputTokensForTurn(userText);
 
   const rustMessages = messages.value.map(msg => ({
     role: msg.role,
     content: msg.content
   }));
 
+  const memoryPrelude = conversationMemory.value
+    ? [{ role: "user", content: `[Session memory]\nSummary: ${conversationMemory.value.summary}\nKey facts: ${conversationMemory.value.keyFacts.join("; ")}` }]
+    : [];
+
   try {
-    await invoke("send_chat_message", { messages: rustMessages });
+    await invoke("send_chat_message", { messages: [...memoryPrelude, ...rustMessages] });
     if (isGenerating.value) {
       const finalText = assistantResponse.value.trim();
+      const cost = buildAssistantCost();
+      assistantTurnCost.value = cost;
       const assistantMsg: Message = {
         role: "assistant",
         content: finalText || "（本轮没有返回可显示的文本内容）",
         tokenUsage: assistantTokenUsage.value,
+        cost,
       };
       messages.value.push(assistantMsg);
       await persistMessage(assistantMsg);
+      await persistConversationMemory(activeConversationId.value);
       assistantResponse.value = "";
       assistantTokenUsage.value = undefined;
       isGenerating.value = false;
@@ -353,6 +492,7 @@ async function handleDeleteConversation(id: string) {
         :isGenerating="isGenerating"
         :assistantResponse="assistantResponse"
         :assistantTokenUsage="assistantTokenUsage"
+        :assistantTurnCost="assistantTurnCost"
         :pendingQuestion="pendingQuestion"
         @send="handleSendMessage" 
       />
