@@ -54,6 +54,28 @@ pub struct CompactContext {
     pub updated_at: i64,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CompactBoundary {
+    pub id: i64,
+    pub conversation_id: String,
+    pub context_text: String,
+    pub summary: String,
+    pub key_facts: Vec<String>,
+    pub recent_limit: i64,
+    pub omitted_message_count: i64,
+    pub total_message_count: i64,
+    pub estimated_tokens: i64,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ResumeContext {
+    pub boundary: CompactBoundary,
+    pub messages_since_boundary: Vec<HistoryMessage>,
+}
+
 fn derive_title_from_message(content: &str) -> String {
     let first_line = content.lines().next().unwrap_or("").trim();
     let source = if first_line.is_empty() { content.trim() } else { first_line };
@@ -242,6 +264,20 @@ async fn ensure_schema(pool: &SqlitePool) -> Result<(), String> {
             summary TEXT NOT NULL,
             key_facts_json TEXT NOT NULL,
             updated_at INTEGER NOT NULL,
+            FOREIGN KEY (conversation_id) REFERENCES conversations(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS conversation_compact_boundaries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            conversation_id TEXT NOT NULL,
+            context_text TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            key_facts_json TEXT NOT NULL,
+            recent_limit INTEGER NOT NULL,
+            omitted_message_count INTEGER NOT NULL,
+            total_message_count INTEGER NOT NULL,
+            estimated_tokens INTEGER NOT NULL,
+            created_at INTEGER NOT NULL,
             FOREIGN KEY (conversation_id) REFERENCES conversations(id)
         );
         "#,
@@ -485,6 +521,12 @@ pub async fn delete_conversation(app: AppHandle, conversation_id: String) -> Res
         .await
         .map_err(|e| e.to_string())?;
 
+    sqlx::query("DELETE FROM conversation_compact_boundaries WHERE conversation_id = ?")
+        .bind(&conversation_id)
+        .execute(&pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
     sqlx::query("DELETE FROM conversations WHERE id = ?")
         .bind(&conversation_id)
         .execute(&pool)
@@ -667,6 +709,144 @@ pub async fn get_conversation_compact_context(
         estimated_tokens: estimate_tokens(&final_text),
         updated_at: handover.updated_at,
     })
+}
+
+pub async fn record_compact_boundary(
+    app: AppHandle,
+    compact: &CompactContext,
+    summary: &str,
+    key_facts: &[String],
+) -> Result<CompactBoundary, String> {
+    let pool = get_pool(&app).await?;
+    ensure_schema(&pool).await?;
+
+    let created_at = chrono::Utc::now().timestamp();
+    let key_facts_json = serde_json::to_string(key_facts).map_err(|e| e.to_string())?;
+
+    let result = sqlx::query(
+        r#"
+        INSERT INTO conversation_compact_boundaries (
+            conversation_id, context_text, summary, key_facts_json, recent_limit,
+            omitted_message_count, total_message_count, estimated_tokens, created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        "#,
+    )
+    .bind(&compact.conversation_id)
+    .bind(&compact.context_text)
+    .bind(summary)
+    .bind(&key_facts_json)
+    .bind(compact.recent_limit)
+    .bind(compact.omitted_message_count)
+    .bind(compact.total_message_count)
+    .bind(compact.estimated_tokens)
+    .bind(created_at)
+    .execute(&pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    Ok(CompactBoundary {
+        id: result.last_insert_rowid(),
+        conversation_id: compact.conversation_id.clone(),
+        context_text: compact.context_text.clone(),
+        summary: summary.to_string(),
+        key_facts: key_facts.to_vec(),
+        recent_limit: compact.recent_limit,
+        omitted_message_count: compact.omitted_message_count,
+        total_message_count: compact.total_message_count,
+        estimated_tokens: compact.estimated_tokens,
+        created_at,
+    })
+}
+
+#[tauri::command]
+pub async fn get_latest_compact_boundary(
+    app: AppHandle,
+    conversation_id: String,
+) -> Result<Option<CompactBoundary>, String> {
+    let pool = get_pool(&app).await?;
+    ensure_schema(&pool).await?;
+
+    let row = sqlx::query(
+        r#"
+        SELECT id, conversation_id, context_text, summary, key_facts_json,
+               recent_limit, omitted_message_count, total_message_count,
+               estimated_tokens, created_at
+        FROM conversation_compact_boundaries
+        WHERE conversation_id = ?
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1
+        "#,
+    )
+    .bind(&conversation_id)
+    .fetch_optional(&pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let Some(row) = row else {
+        return Ok(None);
+    };
+
+    let key_facts_raw = row.get::<String, _>("key_facts_json");
+    let key_facts = serde_json::from_str::<Vec<String>>(&key_facts_raw).unwrap_or_default();
+
+    Ok(Some(CompactBoundary {
+        id: row.get::<i64, _>("id"),
+        conversation_id: row.get::<String, _>("conversation_id"),
+        context_text: row.get::<String, _>("context_text"),
+        summary: row.get::<String, _>("summary"),
+        key_facts,
+        recent_limit: row.get::<i64, _>("recent_limit"),
+        omitted_message_count: row.get::<i64, _>("omitted_message_count"),
+        total_message_count: row.get::<i64, _>("total_message_count"),
+        estimated_tokens: row.get::<i64, _>("estimated_tokens"),
+        created_at: row.get::<i64, _>("created_at"),
+    }))
+}
+
+#[tauri::command]
+pub async fn get_conversation_resume_context(
+    app: AppHandle,
+    conversation_id: String,
+) -> Result<Option<ResumeContext>, String> {
+    let boundary = match get_latest_compact_boundary(app.clone(), conversation_id.clone()).await? {
+        Some(v) => v,
+        None => return Ok(None),
+    };
+
+    let pool = get_pool(&app).await?;
+    ensure_schema(&pool).await?;
+
+    let rows = sqlx::query(
+        r#"
+        SELECT role, content, token_usage, cost_json
+        FROM conversation_messages
+        WHERE conversation_id = ? AND created_at >= ?
+        ORDER BY created_at ASC, id ASC
+        "#,
+    )
+    .bind(&conversation_id)
+    .bind(boundary.created_at)
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let messages_since_boundary = rows
+        .into_iter()
+        .map(|row| HistoryMessage {
+            role: row.get::<String, _>("role"),
+            content: row.get::<String, _>("content"),
+            token_usage: row.get::<Option<i64>, _>("token_usage"),
+            cost: row
+                .get::<Option<String>, _>("cost_json")
+                .and_then(|s| serde_json::from_str::<Value>(&s).ok()),
+        })
+        .collect::<Vec<_>>();
+
+    Ok(Some(ResumeContext {
+        boundary,
+        messages_since_boundary,
+    }))
 }
 
 #[tauri::command]

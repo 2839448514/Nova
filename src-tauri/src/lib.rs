@@ -32,6 +32,8 @@ pub fn run() {
             command::history::get_conversation_memory,
             command::history::get_conversation_handover,
             command::history::get_conversation_compact_context,
+            command::history::get_latest_compact_boundary,
+            command::history::get_conversation_resume_context,
             command::history::upsert_conversation_memory,
             command::mcp::add_mcp_server,
             command::mcp::remove_mcp_server,

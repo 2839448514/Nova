@@ -141,6 +141,24 @@ async fn prepare_messages_for_turn(
         Err(_) => return messages.to_vec(),
     };
 
+    let handover = crate::command::history::get_conversation_handover(
+        app.clone(),
+        conversation_id.to_string(),
+        Some(compact.recent_limit),
+    )
+    .await
+    .ok();
+
+    if let Some(handover) = handover {
+        let _ = crate::command::history::record_compact_boundary(
+            app.clone(),
+            &compact,
+            &handover.summary,
+            &handover.key_facts,
+        )
+        .await;
+    }
+
     let keep_count = compact.recent_limit.clamp(4, 24) as usize;
     let recent_messages = if messages.len() > keep_count {
         messages[messages.len() - keep_count..].to_vec()
