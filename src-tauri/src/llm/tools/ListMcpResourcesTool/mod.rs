@@ -4,15 +4,23 @@ use serde_json::{json, Value};
 pub fn tool() -> Tool {
     Tool {
         name: "list_mcp_resources".into(),
-        description: "List MCP resources (scaffold placeholder).".into(),
-        input_schema: json!({ "type": "object", "properties": {} }),
+        description: "List resources exposed by a configured MCP server.".into(),
+        input_schema: json!({
+            "type": "object",
+            "properties": {
+                "server": { "type": "string" }
+            },
+            "required": ["server"]
+        }),
     }
 }
 
-pub fn execute(_input: Value) -> String {
+pub fn execute(input: Value) -> String {
+    let server = input.get("server").and_then(|v| v.as_str()).unwrap_or("");
     json!({
         "ok": false,
-        "message": "list_mcp_resources scaffold exists; runtime bridge to command::mcp is pending."
+        "server": server,
+        "message": "list_mcp_resources requires AppHandle-aware execution and should be routed via execute_tool_with_app."
     })
     .to_string()
 }

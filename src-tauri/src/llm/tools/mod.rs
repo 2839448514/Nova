@@ -47,6 +47,7 @@ pub mod config_tool;
 // they were fully migrated Nova tools.
 
 use crate::llm::types::Tool;
+use tauri::AppHandle;
 use serde_json::Value;
 
 struct RegisteredTool {
@@ -113,6 +114,18 @@ fn registered_tools() -> Vec<RegisteredTool> {
             execute: tool_search_tool::execute,
         },
         RegisteredTool {
+            tool: mcp_tool::tool,
+            execute: mcp_tool::execute,
+        },
+        RegisteredTool {
+            tool: list_mcp_resources_tool::tool,
+            execute: list_mcp_resources_tool::execute,
+        },
+        RegisteredTool {
+            tool: read_mcp_resource_tool::tool,
+            execute: read_mcp_resource_tool::execute,
+        },
+        RegisteredTool {
             tool: ask_user_question_tool::tool,
             execute: ask_user_question_tool::execute,
         },
@@ -139,4 +152,97 @@ pub fn execute_tool(name: &str, input: Value) -> String {
     }
 
     format!("Unknown tool: {}", name)
+}
+
+pub async fn execute_tool_with_app(app: &AppHandle, name: &str, input: Value) -> String {
+    match name {
+        "mcp_tool" => {
+            let server_name = input
+                .get("server")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .trim()
+                .to_string();
+            let tool_name = input
+                .get("tool")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .trim()
+                .to_string();
+            let arguments = input
+                .get("arguments")
+                .cloned()
+                .unwrap_or_else(|| serde_json::json!({}));
+
+            if server_name.is_empty() || tool_name.is_empty() {
+                return serde_json::json!({
+                    "ok": false,
+                    "error": "mcp_tool requires non-empty 'server' and 'tool' fields"
+                })
+                .to_string();
+            }
+
+            match crate::command::mcp::call_mcp_tool(
+                app.clone(),
+                server_name,
+                tool_name,
+                arguments,
+            )
+            .await
+            {
+                Ok(v) => v.to_string(),
+                Err(e) => serde_json::json!({ "ok": false, "error": e }).to_string(),
+            }
+        }
+        "list_mcp_resources" => {
+            let server_name = input
+                .get("server")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .trim()
+                .to_string();
+
+            if server_name.is_empty() {
+                return serde_json::json!({
+                    "ok": false,
+                    "error": "list_mcp_resources requires non-empty 'server'"
+                })
+                .to_string();
+            }
+
+            match crate::command::mcp::list_mcp_resources(app.clone(), server_name).await {
+                Ok(v) => serde_json::json!({ "ok": true, "resources": v }).to_string(),
+                Err(e) => serde_json::json!({ "ok": false, "error": e }).to_string(),
+            }
+        }
+        "read_mcp_resource" => {
+            let server_name = input
+                .get("server")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .trim()
+                .to_string();
+            let uri = input
+                .get("resource")
+                .or_else(|| input.get("uri"))
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .trim()
+                .to_string();
+
+            if server_name.is_empty() || uri.is_empty() {
+                return serde_json::json!({
+                    "ok": false,
+                    "error": "read_mcp_resource requires non-empty 'server' and 'resource'/'uri'"
+                })
+                .to_string();
+            }
+
+            match crate::command::mcp::read_mcp_resource(app.clone(), server_name, uri).await {
+                Ok(v) => v.to_string(),
+                Err(e) => serde_json::json!({ "ok": false, "error": e }).to_string(),
+            }
+        }
+        _ => execute_tool(name, input),
+    }
 }

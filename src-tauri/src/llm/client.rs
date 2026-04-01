@@ -90,6 +90,75 @@ async fn collect_mcp_tools(app: &AppHandle) -> Vec<Tool> {
     tools_vec
 }
 
+fn estimate_message_tokens(messages: &[Message]) -> i64 {
+    messages
+        .iter()
+        .map(|m| match &m.content {
+            Content::Text(text) => text.trim().chars().count() as i64,
+            Content::Blocks(blocks) => blocks
+                .iter()
+                .map(|block| match block {
+                    ContentBlock::Text { text } => text.trim().chars().count() as i64,
+                    ContentBlock::ToolUse { input, .. } => input.to_string().chars().count() as i64,
+                    ContentBlock::ToolResult { content, .. } => content
+                        .iter()
+                        .map(|inner| match inner {
+                            ContentBlock::Text { text } => text.trim().chars().count() as i64,
+                            _ => 0,
+                        })
+                        .sum::<i64>(),
+                })
+                .sum::<i64>(),
+        })
+        .sum::<i64>()
+        / 4
+}
+
+async fn prepare_messages_for_turn(
+    app: &AppHandle,
+    conversation_id: Option<&str>,
+    messages: &[Message],
+) -> Vec<Message> {
+    let Some(conversation_id) = conversation_id.filter(|id| !id.trim().is_empty()) else {
+        return messages.to_vec();
+    };
+
+    let estimated_tokens = estimate_message_tokens(messages);
+    let should_compact = messages.len() > 16 || estimated_tokens > 1800;
+    if !should_compact {
+        return messages.to_vec();
+    }
+
+    let compact = match crate::command::history::get_conversation_compact_context(
+        app.clone(),
+        conversation_id.to_string(),
+        Some(1600),
+        Some(8),
+    )
+    .await
+    {
+        Ok(v) => v,
+        Err(_) => return messages.to_vec(),
+    };
+
+    let keep_count = compact.recent_limit.clamp(4, 24) as usize;
+    let recent_messages = if messages.len() > keep_count {
+        messages[messages.len() - keep_count..].to_vec()
+    } else {
+        messages.to_vec()
+    };
+
+    let compact_message = Message {
+        role: Role::User,
+        content: Content::Text(compact.context_text),
+    };
+
+    let mut prepared = Vec::with_capacity(recent_messages.len() + 1);
+    prepared.push(compact_message);
+    prepared.extend(recent_messages);
+    prepared
+}
+
 fn has_needs_user_input(messages: &[Message]) -> bool {
     messages.iter().any(|m| {
         let Content::Blocks(blocks) = &m.content else {
@@ -124,6 +193,8 @@ pub struct ChatMessageEvent {
     pub tool_use_input: Option<String>, // Partial JSON string
     pub tool_result: Option<String>, // Result from tool execution
     pub token_usage: Option<u32>,
+    pub stop_reason: Option<String>,
+    pub turn_state: Option<String>,
 }
 
 fn is_needs_user_input_payload(raw: &str) -> bool {
@@ -135,7 +206,7 @@ fn is_needs_user_input_payload(raw: &str) -> bool {
 
 pub async fn send_request(
     app: &AppHandle,
-    messages: &Vec<Message>,
+    messages: &[Message],
 ) -> Result<Vec<Message>, String> {
     let settings = crate::command::settings::get_settings(app.clone());
     let api_key = settings.api_key;
@@ -151,7 +222,7 @@ pub async fn send_request(
         model: settings.model,
         max_tokens: 4096,
         system: Some(load_system_prompt(app)),
-        messages: messages.clone(),
+        messages: messages.to_vec(),
         tools: available_tools,
         stream: true,
     };
@@ -196,6 +267,7 @@ pub async fn send_request(
             let mut emitted_stop = false;
             let mut current_output_tokens: Option<u32> = None;
             let mut stop_emitted_for_user_input = false;
+            let mut last_stop_reason: Option<String> = None;
 
             while let Some(chunk) = stream.next().await {
                 if let Ok(bytes) = chunk {
@@ -222,6 +294,8 @@ pub async fn send_request(
                                                     tool_use_input: None,
                                                     tool_result: None,
                                                     token_usage: None,
+                                                    stop_reason: None,
+                                                    turn_state: Some("tool_running".into()),
                                                 }).ok();
                                             }
                                             _ => {}
@@ -239,6 +313,8 @@ pub async fn send_request(
                                                     tool_use_input: None,
                                                     tool_result: None,
                                                     token_usage: None,
+                                                    stop_reason: None,
+                                                    turn_state: Some("streaming_text".into()),
                                                 }).ok();
                                             }
                                             crate::llm::types::StreamDelta::InputJsonDelta { partial_json } => {
@@ -251,6 +327,8 @@ pub async fn send_request(
                                                     tool_use_input: Some(partial_json),
                                                     tool_result: None,
                                                     token_usage: None,
+                                                    stop_reason: None,
+                                                    turn_state: Some("tool_input_streaming".into()),
                                                 }).ok();
                                             }
                                         }
@@ -281,7 +359,7 @@ pub async fn send_request(
                                                     Err(e) => serde_json::json!({ "ok": false, "error": e }).to_string(),
                                                 }
                                             } else {
-                                                tools::execute_tool(&name, input_value)
+                                                tools::execute_tool_with_app(app, &name, input_value).await
                                             };
                                             
                                             app.emit("chat-stream", ChatMessageEvent {
@@ -292,6 +370,8 @@ pub async fn send_request(
                                                 tool_use_input: None,
                                                 tool_result: Some(tool_result_str.clone()),
                                                 token_usage: current_output_tokens,
+                                                stop_reason: None,
+                                                turn_state: Some("tool_completed".into()),
                                             }).ok();
 
                                             let needs_user_input = is_needs_user_input_payload(&tool_result_str);
@@ -307,6 +387,8 @@ pub async fn send_request(
                                                     tool_use_input: None,
                                                     tool_result: None,
                                                     token_usage: current_output_tokens,
+                                                    stop_reason: Some("needs_user_input".into()),
+                                                    turn_state: Some("awaiting_user_input".into()),
                                                 }).ok();
                                             }
 
@@ -324,7 +406,10 @@ pub async fn send_request(
                                             generated_text.clear();
                                         }
                                     }
-                                    StreamEvent::MessageDelta { usage, .. } => {
+                                    StreamEvent::MessageDelta { delta, usage } => {
+                                        if let Some(reason) = delta.stop_reason.clone() {
+                                            last_stop_reason = Some(reason);
+                                        }
                                         current_output_tokens = Some(usage.output_tokens);
                                         app.emit("chat-stream", ChatMessageEvent {
                                             r#type: "token-usage".into(),
@@ -334,6 +419,8 @@ pub async fn send_request(
                                             tool_use_input: None,
                                             tool_result: None,
                                             token_usage: current_output_tokens,
+                                            stop_reason: last_stop_reason.clone(),
+                                            turn_state: Some("streaming".into()),
                                         }).ok();
                                     }
                                     StreamEvent::MessageStop => {
@@ -346,6 +433,8 @@ pub async fn send_request(
                                             tool_use_input: None,
                                             tool_result: None,
                                             token_usage: current_output_tokens,
+                                            stop_reason: last_stop_reason.clone(),
+                                            turn_state: Some("completed".into()),
                                         }).ok();
                                     }
                                     _ => {}
@@ -365,6 +454,8 @@ pub async fn send_request(
                     tool_use_input: None,
                     tool_result: None,
                     token_usage: current_output_tokens,
+                    stop_reason: last_stop_reason.clone(),
+                    turn_state: Some("completed".into()),
                 }).ok();
             }
 
@@ -391,9 +482,11 @@ pub async fn send_request(
 #[tauri::command]
 pub async fn send_chat_message(
     app: AppHandle,
+    conversation_id: Option<String>,
     messages: Vec<crate::llm::types::Message>,
 ) -> Result<(), String> {
-    let mut current_messages = messages.clone();
+    let mut current_messages =
+        prepare_messages_for_turn(&app, conversation_id.as_deref(), &messages).await;
     
     loop {
         let new_messages = send_request(&app, &current_messages).await?;

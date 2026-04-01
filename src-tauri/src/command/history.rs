@@ -42,6 +42,18 @@ pub struct ConversationHandover {
     pub updated_at: i64,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CompactContext {
+    pub conversation_id: String,
+    pub context_text: String,
+    pub recent_limit: i64,
+    pub omitted_message_count: i64,
+    pub total_message_count: i64,
+    pub estimated_tokens: i64,
+    pub updated_at: i64,
+}
+
 fn derive_title_from_message(content: &str) -> String {
     let first_line = content.lines().next().unwrap_or("").trim();
     let source = if first_line.is_empty() { content.trim() } else { first_line };
@@ -61,6 +73,15 @@ fn derive_title_from_message(content: &str) -> String {
 
 fn normalize_inline(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn estimate_tokens(text: &str) -> i64 {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        0
+    } else {
+        ((trimmed.chars().count() as i64) + 3) / 4
+    }
 }
 
 fn build_memory_from_history(messages: &[HistoryMessage], updated_at: i64) -> Option<ConversationMemory> {
@@ -572,6 +593,79 @@ pub async fn get_conversation_handover(
         omitted_message_count: (total_message_count - limit).max(0),
         total_message_count,
         updated_at,
+    })
+}
+
+#[tauri::command]
+pub async fn get_conversation_compact_context(
+    app: AppHandle,
+    conversation_id: String,
+    token_budget: Option<i64>,
+    recent_limit: Option<i64>,
+) -> Result<CompactContext, String> {
+    let handover = get_conversation_handover(app, conversation_id.clone(), recent_limit).await?;
+    let recent_limit = recent_limit.unwrap_or(8).clamp(4, 24);
+    let token_budget = token_budget.unwrap_or(1600).clamp(400, 6000);
+
+    let recent_section = handover
+        .recent_messages
+        .iter()
+        .rev()
+        .take(recent_limit as usize)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .map(|m| {
+            let speaker = if m.role.eq_ignore_ascii_case("user") {
+                "User"
+            } else {
+                "Nova"
+            };
+            format!("{}: {}", speaker, m.content.trim())
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n");
+
+    let facts = if handover.key_facts.is_empty() {
+        String::new()
+    } else {
+        handover
+            .key_facts
+            .iter()
+            .map(|fact| format!("- {}", fact))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+
+    let mut context_text = format!(
+        "[Compact context]\nConversation: {}\nSummary: {}\n{}{}",
+        handover.title,
+        handover.summary,
+        if facts.is_empty() { "" } else { "Key facts:\n" },
+        facts
+    );
+
+    if !recent_section.trim().is_empty() {
+        context_text.push_str("\n\nRecent messages:\n");
+        context_text.push_str(&recent_section);
+    }
+
+    let estimated_tokens = estimate_tokens(&context_text);
+    let final_text = if estimated_tokens > token_budget {
+        let truncated = context_text.chars().take((token_budget * 4) as usize).collect::<String>();
+        truncated
+    } else {
+        context_text
+    };
+
+    Ok(CompactContext {
+        conversation_id,
+        context_text: final_text.clone(),
+        recent_limit,
+        omitted_message_count: handover.omitted_message_count,
+        total_message_count: handover.total_message_count,
+        estimated_tokens: estimate_tokens(&final_text),
+        updated_at: handover.updated_at,
     })
 }
 

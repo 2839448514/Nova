@@ -47,6 +47,8 @@ interface ChatMessageEvent {
   tool_use_input?: string;
   tool_result?: string;
   token_usage?: number;
+  stop_reason?: string;
+  turn_state?: string;
 }
 
 interface NeedsUserInputPayload {
@@ -376,12 +378,11 @@ async function handleSendMessage(userText: string) {
     content: msg.content
   }));
 
-  const memoryPrelude = conversationMemory.value
-    ? [{ role: "user", content: `[Session memory]\nSummary: ${conversationMemory.value.summary}\nKey facts: ${conversationMemory.value.keyFacts.join("; ")}` }]
-    : [];
-
   try {
-    await invoke("send_chat_message", { messages: [...memoryPrelude, ...rustMessages] });
+    await invoke("send_chat_message", {
+      conversationId: activeConversationId.value || null,
+      messages: rustMessages,
+    });
     if (isGenerating.value) {
       const finalText = assistantResponse.value.trim();
       const cost = buildAssistantCost();
