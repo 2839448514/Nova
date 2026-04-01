@@ -1,0 +1,35 @@
+pub mod llm;
+pub mod command;
+
+// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
+#[tauri::command]
+fn greet(name: &str) -> String {
+    format!("Hello, {}! You've been greeted from Rust!", name)
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
+        .invoke_handler(tauri::generate_handler![
+            greet, 
+            llm::client::send_chat_message,
+            command::settings::get_settings,
+            command::settings::save_settings,
+            command::history::create_conversation,
+            command::history::list_conversations,
+            command::history::load_history,
+            command::history::append_history,
+            command::history::clear_history,
+            command::history::delete_conversation,
+            command::mcp::add_mcp_server,
+            command::mcp::remove_mcp_server,
+            command::mcp::get_mcp_server_statuses,
+            command::mcp::reload_all_mcp_servers,
+            command::mcp::set_mcp_server_enabled,
+            command::mcp::list_mcp_tools,
+            command::mcp::call_mcp_tool
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+}

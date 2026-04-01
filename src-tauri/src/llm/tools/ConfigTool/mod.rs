@@ -1,0 +1,152 @@
+use crate::llm::types::Tool;
+use serde_json::{json, Value};
+use std::env;
+use std::fs;
+use std::path::PathBuf;
+
+pub fn tool() -> Tool {
+    Tool {
+        name: "config_tool".into(),
+        description: "Read or update Nova runtime config (model/provider/base_url/api_key) in settings.json.".into(),
+        input_schema: json!({
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["get", "set", "list_keys", "remove"],
+                    "description": "Operation to perform"
+                },
+                "key": {
+                    "type": "string",
+                    "description": "Config key, e.g. model, provider, baseUrl, apiKey"
+                },
+                "value": {
+                    "description": "Value used by set action"
+                }
+            },
+            "required": ["action"]
+        }),
+    }
+}
+
+fn default_settings_path() -> Result<PathBuf, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let appdata = env::var("APPDATA").map_err(|_| "APPDATA is not set".to_string())?;
+        return Ok(PathBuf::from(appdata).join("com.tauri-app.nova").join("settings.json"));
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let home = env::var("HOME").map_err(|_| "HOME is not set".to_string())?;
+        return Ok(PathBuf::from(home).join(".config").join("com.tauri-app.nova").join("settings.json"));
+    }
+}
+
+fn read_settings_json(path: &PathBuf) -> Result<Value, String> {
+    if !path.exists() {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|e| format!("Failed to create config dir: {}", e))?;
+        }
+        let init = json!({
+            "apiKey": "",
+            "baseUrl": "https://api.anthropic.com/v1",
+            "model": "claude-3-5-sonnet-20241022",
+            "provider": "anthropic"
+        });
+        fs::write(path, serde_json::to_string_pretty(&init).unwrap_or_else(|_| "{}".into()))
+            .map_err(|e| format!("Failed to init settings file: {}", e))?;
+        return Ok(init);
+    }
+
+    let content = fs::read_to_string(path).map_err(|e| format!("Failed to read settings file: {}", e))?;
+    serde_json::from_str::<Value>(&content).map_err(|e| format!("Invalid JSON in settings file: {}", e))
+}
+
+fn write_settings_json(path: &PathBuf, value: &Value) -> Result<(), String> {
+    let pretty = serde_json::to_string_pretty(value).map_err(|e| e.to_string())?;
+    fs::write(path, pretty).map_err(|e| format!("Failed to write settings file: {}", e))
+}
+
+pub fn execute(input: Value) -> String {
+    let action = match input.get("action").and_then(|v| v.as_str()) {
+        Some(v) => v,
+        None => return "Error: Missing 'action' argument".into(),
+    };
+
+    let path = match default_settings_path() {
+        Ok(p) => p,
+        Err(e) => return format!("Error: {}", e),
+    };
+
+    let mut settings = match read_settings_json(&path) {
+        Ok(v) => v,
+        Err(e) => return format!("Error: {}", e),
+    };
+
+    match action {
+        "get" => {
+            if let Some(key) = input.get("key").and_then(|v| v.as_str()) {
+                match settings.get(key) {
+                    Some(v) => json!({"ok": true, "key": key, "value": v}).to_string(),
+                    None => format!("Error: key '{}' not found", key),
+                }
+            } else {
+                json!({"ok": true, "config": settings}).to_string()
+            }
+        }
+        "set" => {
+            let key = match input.get("key").and_then(|v| v.as_str()) {
+                Some(k) if !k.trim().is_empty() => k,
+                _ => return "Error: Missing 'key' for set action".into(),
+            };
+
+            let value = match input.get("value") {
+                Some(v) => v.clone(),
+                None => return "Error: Missing 'value' for set action".into(),
+            };
+
+            if !settings.is_object() {
+                settings = json!({});
+            }
+
+            if let Some(obj) = settings.as_object_mut() {
+                obj.insert(key.to_string(), value.clone());
+            }
+
+            match write_settings_json(&path, &settings) {
+                Ok(_) => json!({"ok": true, "action": "set", "key": key, "value": value}).to_string(),
+                Err(e) => format!("Error: {}", e),
+            }
+        }
+        "list_keys" => {
+            if let Some(obj) = settings.as_object() {
+                let keys: Vec<String> = obj.keys().cloned().collect();
+                json!({"ok": true, "keys": keys}).to_string()
+            } else {
+                "Error: settings root is not an object".into()
+            }
+        }
+        "remove" => {
+            let key = match input.get("key").and_then(|v| v.as_str()) {
+                Some(k) if !k.trim().is_empty() => k,
+                _ => return "Error: Missing 'key' for remove action".into(),
+            };
+
+            if let Some(obj) = settings.as_object_mut() {
+                let existed = obj.remove(key).is_some();
+                if !existed {
+                    return format!("Error: key '{}' not found", key);
+                }
+            } else {
+                return "Error: settings root is not an object".into();
+            }
+
+            match write_settings_json(&path, &settings) {
+                Ok(_) => json!({"ok": true, "action": "remove", "key": key}).to_string(),
+                Err(e) => format!("Error: {}", e),
+            }
+        }
+        _ => "Error: action must be one of get | set | list_keys | remove".into(),
+    }
+}

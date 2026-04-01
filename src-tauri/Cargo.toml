@@ -1,0 +1,40 @@
+[package]
+name = "nova"
+version = "0.1.0"
+description = "A Tauri App"
+authors = ["you"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "nova_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri-plugin-fs = "2.4.5"
+tauri-plugin-shell = "2.3.5"
+reqwest = { version = "0.13.2", features = ["json", "stream"] }
+tokio = { version = "1.50.0", features = ["full"] }
+futures-util = "0.3.32"
+sqlx = { version = "0.8.6", features = ["sqlite", "runtime-tokio", "macros"] }
+sqlite-vec = "0.1.9"
+screenshots = "0.8.10"
+enigo = "0.6.1"
+base64 = "0.22.1"
+uuid = { version = "1.23.0", features = ["v4"] }
+chrono = { version = "0.4.44", features = ["serde"] }
+anyhow = "1.0.102"
+tracing = "0.1.44"
+tracing-subscriber = "0.3.23"
+
