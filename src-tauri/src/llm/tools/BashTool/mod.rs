@@ -33,7 +33,7 @@ pub fn execute(input: Value) -> String {
                 } else {
                     format!("Error: {}\nStdout: {}", stderr, stdout)
                 }
-            },
+            }
             Err(e) => format!("Failed to execute command: {}", e),
         }
     } else {

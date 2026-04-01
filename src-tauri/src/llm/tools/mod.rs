@@ -1,6 +1,9 @@
-pub mod execute_bash;
-pub mod write_file;
-pub mod grep_search;
+#[path = "BashTool/mod.rs"]
+pub mod bash_tool;
+#[path = "WriteFileTool/mod.rs"]
+pub mod write_file_tool;
+#[path = "GrepSearchTool/mod.rs"]
+pub mod grep_search_tool;
 pub mod shared;
 #[path = "GlobTool/mod.rs"]
 pub mod glob_tool;
@@ -52,12 +55,12 @@ use serde_json::Value;
 
 pub fn get_available_tools() -> Vec<Tool> {
     vec![
-        execute_bash::tool(),
+        bash_tool::tool(),
         powershell_tool::tool(),
         file_read_tool::tool(),
-        write_file::tool(),
+        write_file_tool::tool(),
         file_edit_tool::tool(),
-        grep_search::tool(),
+        grep_search_tool::tool(),
         glob_tool::tool(),
         web_fetch_tool::tool(),
         web_search_tool::tool(),
@@ -73,12 +76,12 @@ pub fn get_available_tools() -> Vec<Tool> {
 
 pub fn execute_tool(name: &str, input: Value) -> String {
     match name {
-        "execute_bash" => execute_bash::execute(input),
+        "execute_bash" => bash_tool::execute(input),
         "execute_powershell" => powershell_tool::execute(input),
         "read_file" => file_read_tool::execute(input),
-        "write_file" => write_file::execute(input),
+        "write_file" => write_file_tool::execute(input),
         "replace_string_in_file" => file_edit_tool::execute(input),
-        "grep_search" => grep_search::execute(input),
+        "grep_search" => grep_search_tool::execute(input),
         "glob_search" => glob_tool::execute(input),
         "web_fetch" => web_fetch_tool::execute(input),
         "web_search" => web_search_tool::execute(input),

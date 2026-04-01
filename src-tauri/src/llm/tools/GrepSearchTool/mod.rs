@@ -34,14 +34,13 @@ pub fn execute(input: Value) -> String {
                 if result.is_empty() {
                     "No matches found".into()
                 } else {
-                    // Truncate if too long to prevent context overflow
                     if result.len() > 10000 {
                         format!("{}...\n(Result truncated)", &result[..10000])
                     } else {
                         result
                     }
                 }
-            },
+            }
             Err(e) => format!("Failed to search: {}", e),
         }
     } else {
