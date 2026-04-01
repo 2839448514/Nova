@@ -30,6 +30,7 @@ pub fn run() {
             command::history::clear_history,
             command::history::delete_conversation,
             command::history::get_conversation_memory,
+            command::history::get_conversation_handover,
             command::history::upsert_conversation_memory,
             command::mcp::add_mcp_server,
             command::mcp::remove_mcp_server,
@@ -37,6 +38,8 @@ pub fn run() {
             command::mcp::reload_all_mcp_servers,
             command::mcp::set_mcp_server_enabled,
             command::mcp::list_mcp_tools,
+            command::mcp::list_mcp_resources,
+            command::mcp::read_mcp_resource,
             command::mcp::call_mcp_tool
         ])
         .run(tauri::generate_context!())

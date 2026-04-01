@@ -43,6 +43,15 @@ pub struct McpToolInfo {
     pub input_schema: Option<Value>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct McpResourceInfo {
+    pub uri: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub mime_type: Option<String>,
+}
+
 struct StdioMcpConnection {
     child: Child,
     reader: BufReader<ChildStdout>,
@@ -156,6 +165,45 @@ impl StdioMcpConnection {
             }),
         )
         .await
+    }
+
+    async fn list_resources(&mut self) -> Result<Vec<McpResourceInfo>, String> {
+        let result = self.send_request("resources/list", json!({})).await?;
+        let resources = result
+            .get("resources")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+
+        Ok(resources
+            .into_iter()
+            .filter_map(|r| {
+                let uri = r.get("uri").and_then(|v| v.as_str())?.to_string();
+                let name = r
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(&uri)
+                    .to_string();
+                let description = r
+                    .get("description")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                let mime_type = r
+                    .get("mimeType")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                Some(McpResourceInfo {
+                    uri,
+                    name,
+                    description,
+                    mime_type,
+                })
+            })
+            .collect())
+    }
+
+    async fn read_resource(&mut self, uri: &str) -> Result<Value, String> {
+        self.send_request("resources/read", json!({ "uri": uri })).await
     }
 
     async fn shutdown(&mut self) {
@@ -392,6 +440,52 @@ async fn connect_server(config: &McpServerConfig) -> (String, usize, Option<Stri
     }
 }
 
+async fn reconnect_server(app: &AppHandle, name: &str) -> Result<(), String> {
+    ensure_runtime_loaded(app).await;
+
+    let cfg = {
+        let map = runtime().lock().await;
+        let server = map
+            .get(name)
+            .ok_or_else(|| format!("MCP server '{}' not found", name))?;
+        if !server.enabled {
+            return Err(format!("MCP server '{}' is disabled", name));
+        }
+        server.config.clone()
+    };
+
+    let (status, tool_count, error, connection) = connect_server(&cfg).await;
+    let mut map = runtime().lock().await;
+    let server = map
+        .get_mut(name)
+        .ok_or_else(|| format!("MCP server '{}' not found", name))?;
+
+    if let Some(ServerConnection::Stdio(conn)) = server.connection.as_mut() {
+        conn.shutdown().await;
+    }
+
+    server.status = status.clone();
+    server.tool_count = tool_count;
+    server.error = error.clone();
+    server.connection = connection;
+
+    if status == "connected" {
+        Ok(())
+    } else {
+        Err(error.unwrap_or_else(|| format!("MCP server '{}' failed to reconnect", name)))
+    }
+}
+
+async fn mark_server_runtime_error(server_name: &str, error: String) {
+    let mut map = runtime().lock().await;
+    if let Some(server) = map.get_mut(server_name) {
+        server.status = "error".to_string();
+        server.error = Some(error);
+        server.tool_count = 0;
+        server.connection = None;
+    }
+}
+
 async fn ensure_runtime_loaded(app: &AppHandle) {
     let mut loaded = loaded_flag().lock().await;
     if *loaded {
@@ -606,21 +700,170 @@ pub async fn set_mcp_server_enabled(app: AppHandle, name: String, enabled: bool)
 pub async fn list_mcp_tools(app: AppHandle, server_name: String) -> Result<Vec<McpToolInfo>, String> {
     ensure_runtime_loaded(&app).await;
 
+    let needs_reconnect = {
+        let map = runtime().lock().await;
+        let server = map
+            .get(&server_name)
+            .ok_or_else(|| format!("MCP server '{}' not found", server_name))?;
+        server.enabled && server.connection.is_none()
+    };
+
+    if needs_reconnect {
+        reconnect_server(&app, &server_name).await?;
+    }
+
+    let first_attempt = {
+        let mut map = runtime().lock().await;
+        let server = map
+            .get_mut(&server_name)
+            .ok_or_else(|| format!("MCP server '{}' not found", server_name))?;
+
+        match server.connection.as_mut() {
+            Some(ServerConnection::Stdio(conn)) => conn.list_tools().await,
+            None => Err("Server is not connected".into()),
+        }
+    };
+
+    let tools = match first_attempt {
+        Ok(v) => v,
+        Err(e) => {
+            mark_server_runtime_error(&server_name, e.clone()).await;
+            reconnect_server(&app, &server_name).await?;
+
+            let mut map = runtime().lock().await;
+            let server = map
+                .get_mut(&server_name)
+                .ok_or_else(|| format!("MCP server '{}' not found", server_name))?;
+
+            match server.connection.as_mut() {
+                Some(ServerConnection::Stdio(conn)) => conn.list_tools().await?,
+                None => return Err("Server is not connected".into()),
+            }
+        }
+    };
+
     let mut map = runtime().lock().await;
     let server = map
         .get_mut(&server_name)
         .ok_or_else(|| format!("MCP server '{}' not found", server_name))?;
+    server.tool_count = tools.len();
+    server.status = "connected".into();
+    server.error = None;
+    Ok(tools)
+}
 
-    match server.connection.as_mut() {
-        Some(ServerConnection::Stdio(conn)) => {
-            let tools = conn.list_tools().await?;
-            server.tool_count = tools.len();
-            server.status = "connected".into();
-            server.error = None;
-            Ok(tools)
-        }
-        None => Err("Server is not connected".into()),
+#[tauri::command]
+pub async fn list_mcp_resources(app: AppHandle, server_name: String) -> Result<Vec<McpResourceInfo>, String> {
+    ensure_runtime_loaded(&app).await;
+
+    let needs_reconnect = {
+        let map = runtime().lock().await;
+        let server = map
+            .get(&server_name)
+            .ok_or_else(|| format!("MCP server '{}' not found", server_name))?;
+        server.enabled && server.connection.is_none()
+    };
+
+    if needs_reconnect {
+        reconnect_server(&app, &server_name).await?;
     }
+
+    let first_attempt = {
+        let mut map = runtime().lock().await;
+        let server = map
+            .get_mut(&server_name)
+            .ok_or_else(|| format!("MCP server '{}' not found", server_name))?;
+
+        match server.connection.as_mut() {
+            Some(ServerConnection::Stdio(conn)) => conn.list_resources().await,
+            None => Err("Server is not connected".into()),
+        }
+    };
+
+    let resources = match first_attempt {
+        Ok(v) => v,
+        Err(e) => {
+            mark_server_runtime_error(&server_name, e.clone()).await;
+            reconnect_server(&app, &server_name).await?;
+
+            let mut map = runtime().lock().await;
+            let server = map
+                .get_mut(&server_name)
+                .ok_or_else(|| format!("MCP server '{}' not found", server_name))?;
+
+            match server.connection.as_mut() {
+                Some(ServerConnection::Stdio(conn)) => conn.list_resources().await?,
+                None => return Err("Server is not connected".into()),
+            }
+        }
+    };
+
+    let mut map = runtime().lock().await;
+    let server = map
+        .get_mut(&server_name)
+        .ok_or_else(|| format!("MCP server '{}' not found", server_name))?;
+    server.status = "connected".into();
+    server.error = None;
+    Ok(resources)
+}
+
+#[tauri::command]
+pub async fn read_mcp_resource(
+    app: AppHandle,
+    server_name: String,
+    uri: String,
+) -> Result<Value, String> {
+    ensure_runtime_loaded(&app).await;
+
+    let needs_reconnect = {
+        let map = runtime().lock().await;
+        let server = map
+            .get(&server_name)
+            .ok_or_else(|| format!("MCP server '{}' not found", server_name))?;
+        server.enabled && server.connection.is_none()
+    };
+
+    if needs_reconnect {
+        reconnect_server(&app, &server_name).await?;
+    }
+
+    let first_attempt = {
+        let mut map = runtime().lock().await;
+        let server = map
+            .get_mut(&server_name)
+            .ok_or_else(|| format!("MCP server '{}' not found", server_name))?;
+
+        match server.connection.as_mut() {
+            Some(ServerConnection::Stdio(conn)) => conn.read_resource(&uri).await,
+            None => Err("Server is not connected".into()),
+        }
+    };
+
+    let value = match first_attempt {
+        Ok(v) => v,
+        Err(e) => {
+            mark_server_runtime_error(&server_name, e.clone()).await;
+            reconnect_server(&app, &server_name).await?;
+
+            let mut map = runtime().lock().await;
+            let server = map
+                .get_mut(&server_name)
+                .ok_or_else(|| format!("MCP server '{}' not found", server_name))?;
+
+            match server.connection.as_mut() {
+                Some(ServerConnection::Stdio(conn)) => conn.read_resource(&uri).await?,
+                None => return Err("Server is not connected".into()),
+            }
+        }
+    };
+
+    let mut map = runtime().lock().await;
+    let server = map
+        .get_mut(&server_name)
+        .ok_or_else(|| format!("MCP server '{}' not found", server_name))?;
+    server.status = "connected".into();
+    server.error = None;
+    Ok(value)
 }
 
 #[tauri::command]
@@ -632,20 +875,55 @@ pub async fn call_mcp_tool(
 ) -> Result<Value, String> {
     ensure_runtime_loaded(&app).await;
 
+    let needs_reconnect = {
+        let map = runtime().lock().await;
+        let server = map
+            .get(&server_name)
+            .ok_or_else(|| format!("MCP server '{}' not found", server_name))?;
+        server.enabled && server.connection.is_none()
+    };
+
+    if needs_reconnect {
+        reconnect_server(&app, &server_name).await?;
+    }
+
+    let first_attempt = {
+        let mut map = runtime().lock().await;
+        let server = map
+            .get_mut(&server_name)
+            .ok_or_else(|| format!("MCP server '{}' not found", server_name))?;
+
+        match server.connection.as_mut() {
+            Some(ServerConnection::Stdio(conn)) => conn.call_tool(&tool_name, arguments.clone()).await,
+            None => Err("Server is not connected".into()),
+        }
+    };
+
+    let result = match first_attempt {
+        Ok(v) => v,
+        Err(e) => {
+            mark_server_runtime_error(&server_name, e.clone()).await;
+            reconnect_server(&app, &server_name).await?;
+
+            let mut map = runtime().lock().await;
+            let server = map
+                .get_mut(&server_name)
+                .ok_or_else(|| format!("MCP server '{}' not found", server_name))?;
+
+            match server.connection.as_mut() {
+                Some(ServerConnection::Stdio(conn)) => conn.call_tool(&tool_name, arguments).await?,
+                None => return Err("Server is not connected".into()),
+            }
+        }
+    };
+
     let mut map = runtime().lock().await;
     let server = map
         .get_mut(&server_name)
         .ok_or_else(|| format!("MCP server '{}' not found", server_name))?;
-
-    match server.connection.as_mut() {
-        Some(ServerConnection::Stdio(conn)) => {
-            let result = conn.call_tool(&tool_name, arguments).await?;
-            server.status = "connected".into();
-            server.error = None;
-            Ok(result)
-        }
-        None => Err("Server is not connected".into()),
-    }
+    server.status = "connected".into();
+    server.error = None;
+    Ok(result)
 }
 
 pub async fn warmup_runtime(app: AppHandle) -> Result<(), String> {

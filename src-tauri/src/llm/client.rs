@@ -126,6 +126,13 @@ pub struct ChatMessageEvent {
     pub token_usage: Option<u32>,
 }
 
+fn is_needs_user_input_payload(raw: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(raw)
+        .ok()
+        .and_then(|v| v.get("type").and_then(|t| t.as_str()).map(|s| s == "needs_user_input"))
+        .unwrap_or(false)
+}
+
 pub async fn send_request(
     app: &AppHandle,
     messages: &Vec<Message>,
@@ -185,8 +192,10 @@ pub async fn send_request(
             let mut current_tool_input = String::new();
             let mut generated_text = String::new();
             let mut output_blocks: Vec<ContentBlock> = Vec::new();
+            let mut tool_result_blocks: Vec<ContentBlock> = Vec::new();
             let mut emitted_stop = false;
             let mut current_output_tokens: Option<u32> = None;
+            let mut stop_emitted_for_user_input = false;
 
             while let Some(chunk) = stream.next().await {
                 if let Ok(bytes) = chunk {
@@ -285,13 +294,11 @@ pub async fn send_request(
                                                 token_usage: current_output_tokens,
                                             }).ok();
 
-                                            let needs_user_input = serde_json::from_str::<serde_json::Value>(&tool_result_str)
-                                                .ok()
-                                                .and_then(|v| v.get("type").and_then(|t| t.as_str()).map(|s| s == "needs_user_input"))
-                                                .unwrap_or(false);
+                                            let needs_user_input = is_needs_user_input_payload(&tool_result_str);
 
                                             // Only stop early when the tool explicitly asks for user input.
-                                            if needs_user_input {
+                                            if needs_user_input && !stop_emitted_for_user_input {
+                                                stop_emitted_for_user_input = true;
                                                 app.emit("chat-stream", ChatMessageEvent {
                                                     r#type: "stop".into(),
                                                     text: None,
@@ -303,23 +310,13 @@ pub async fn send_request(
                                                 }).ok();
                                             }
 
-                                            // We append the tool result to another message directly
-                                            return Ok(vec![
-                                                Message {
-                                                    role: Role::Assistant,
-                                                    content: Content::Blocks(output_blocks),
-                                                },
-                                                Message {
-                                                    role: Role::User,
-                                                    content: Content::Blocks(vec![ContentBlock::ToolResult {
-                                                        tool_use_id: id,
-                                                        is_error: false,
-                                                        content: vec![ContentBlock::Text {
-                                                            text: tool_result_str,
-                                                        }],
-                                                    }]),
-                                                }
-                                            ]);
+                                            tool_result_blocks.push(ContentBlock::ToolResult {
+                                                tool_use_id: id,
+                                                is_error: false,
+                                                content: vec![ContentBlock::Text {
+                                                    text: tool_result_str,
+                                                }],
+                                            });
                                         } else if !generated_text.is_empty() {
                                             output_blocks.push(ContentBlock::Text {
                                                 text: generated_text.clone(),
@@ -371,10 +368,19 @@ pub async fn send_request(
                 }).ok();
             }
 
-            Ok(vec![Message {
+            let mut result_messages = vec![Message {
                 role: Role::Assistant,
                 content: Content::Blocks(output_blocks),
-            }])
+            }];
+
+            if !tool_result_blocks.is_empty() {
+                result_messages.push(Message {
+                    role: Role::User,
+                    content: Content::Blocks(tool_result_blocks),
+                });
+            }
+
+            Ok(result_messages)
         }
         Err(e) => {
             Err(e.to_string())

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { nextTick, onMounted, ref, watch } from 'vue';
 
 interface PendingQuestion {
   question?: string;
@@ -21,6 +21,10 @@ const currentInput = ref("");
 const textareaRef = ref<HTMLTextAreaElement | null>(null);
 const dismissedQuestionText = ref<string | null>(null);
 
+const focusTextarea = () => {
+  textareaRef.value?.focus();
+};
+
 const autoResize = () => {
   const el = textareaRef.value;
   if (!el) return;
@@ -31,18 +35,26 @@ const autoResize = () => {
 
 const sendMessage = (e?: KeyboardEvent) => {
   if (e && e.shiftKey) return;
+  e?.preventDefault();
   if (!currentInput.value.trim() || props.isGenerating) return;
 
-  emit('send', currentInput.value.trim());
+  const message = currentInput.value.trim();
+  emit('send', message);
   currentInput.value = "";
-  autoResize(); 
+  nextTick(() => {
+    autoResize();
+    focusTextarea();
+  });
 };
 
 const chooseOption = (option: string) => {
   if (!option || props.isGenerating) return;
   emit('send', option);
   currentInput.value = "";
-  autoResize();
+  nextTick(() => {
+    autoResize();
+    focusTextarea();
+  });
 };
 
 const dismissQuestion = () => {
@@ -54,6 +66,27 @@ const isQuestionVisible = () => {
   if (!q) return false;
   return dismissedQuestionText.value !== q;
 };
+
+watch(
+  () => props.isGenerating,
+  () => {
+    nextTick(() => {
+      autoResize();
+      focusTextarea();
+    });
+  }
+);
+
+onMounted(() => {
+  nextTick(() => {
+    autoResize();
+    focusTextarea();
+  });
+});
+
+defineExpose({
+  focusTextarea,
+});
 </script>
 
 <template>
