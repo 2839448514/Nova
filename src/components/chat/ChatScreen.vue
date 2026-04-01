@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, nextTick } from 'vue';
+import { ref, onMounted, nextTick } from 'vue';
 import InputArea from '../layout/InputArea.vue';
 import MarkdownRenderer from './MarkdownRenderer.vue';
 
@@ -9,11 +9,19 @@ interface Message {
   tokenUsage?: number;
 }
 
+interface PendingQuestion {
+  question?: string;
+  context?: string;
+  options?: string[];
+  allow_freeform?: boolean;
+}
+
 const props = defineProps<{
   messages: Message[];
   isGenerating: boolean;
   assistantResponse: string;
   assistantTokenUsage?: number;
+  pendingQuestion?: PendingQuestion | null;
 }>();
 
 const emit = defineEmits<{
@@ -93,7 +101,7 @@ defineExpose({
 
     <!-- Input Box (Chat state) -->
     <div class="p-4 w-full bg-gradient-to-t from-[#fcfcfc] dark:from-[#1a1a1a] pb-6">
-      <InputArea :isGenerating="isGenerating" @send="handleSend" />
+      <InputArea :isGenerating="isGenerating" :pendingQuestion="pendingQuestion" @send="handleSend" />
       <div class="text-center text-[0.7rem] text-muted-foreground mt-2">
         Nova can make mistakes. Please verify important information.
       </div>

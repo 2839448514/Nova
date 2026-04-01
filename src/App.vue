@@ -48,6 +48,7 @@ const assistantResponse = ref("");
 const assistantTokenUsage = ref<number | undefined>(undefined);
 const conversations = ref<ConversationMeta[]>([]);
 const activeConversationId = ref("");
+const pendingQuestion = ref<NeedsUserInputPayload | null>(null);
 
 let unlisten: UnlistenFn | null = null;
 const isSidebarOpen = ref(true);
@@ -91,6 +92,26 @@ function renderToolResult(raw: string): string {
   } catch {
     return trimmed;
   }
+}
+
+function parseNeedsUserInput(raw: string): NeedsUserInputPayload | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  try {
+    const parsed = JSON.parse(trimmed) as NeedsUserInputPayload;
+    if (parsed?.type === "needs_user_input" && parsed.question) {
+      return {
+        type: parsed.type,
+        question: parsed.question,
+        context: parsed.context,
+        options: Array.isArray(parsed.options) ? parsed.options : [],
+        allow_freeform: parsed.allow_freeform ?? true,
+      };
+    }
+  } catch {
+    return null;
+  }
+  return null;
 }
 
 async function refreshConversations() {
@@ -165,6 +186,11 @@ onMounted(async () => {
       } else if (payload.type === "tool-result") {
         const result = (payload.tool_result ?? "").trim();
         if (result) {
+          const needsUserInput = parseNeedsUserInput(result);
+          if (needsUserInput) {
+            pendingQuestion.value = needsUserInput;
+            isGenerating.value = false;
+          }
           const rendered = renderToolResult(result);
           const preview = rendered.length > 1200 ? `${rendered.slice(0, 1200)}\n...(truncated)` : rendered;
           assistantResponse.value += `\n${preview}\n`;
@@ -198,6 +224,7 @@ onUnmounted(() => {
 
 async function handleSendMessage(userText: string) {
   if (!userText.trim() || isGenerating.value) return;
+  pendingQuestion.value = null;
 
   if (!activeConversationId.value) {
     const id = await createNewConversation(userText);
@@ -326,6 +353,7 @@ async function handleDeleteConversation(id: string) {
         :isGenerating="isGenerating"
         :assistantResponse="assistantResponse"
         :assistantTokenUsage="assistantTokenUsage"
+        :pendingQuestion="pendingQuestion"
         @send="handleSendMessage" 
       />
 

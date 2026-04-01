@@ -6,6 +6,31 @@ use futures_util::StreamExt;
 use crate::llm::types::{AnthropicRequest, StreamEvent, Message, Content, ContentBlock, Role};
 use crate::llm::tools;
 
+fn has_needs_user_input(messages: &[Message]) -> bool {
+    messages.iter().any(|m| {
+        let Content::Blocks(blocks) = &m.content else {
+            return false;
+        };
+
+        blocks.iter().any(|b| {
+            let ContentBlock::ToolResult { content, .. } = b else {
+                return false;
+            };
+
+            content.iter().any(|inner| {
+                let ContentBlock::Text { text } = inner else {
+                    return false;
+                };
+
+                serde_json::from_str::<serde_json::Value>(text)
+                    .ok()
+                    .and_then(|v| v.get("type").and_then(|t| t.as_str()).map(|s| s == "needs_user_input"))
+                    .unwrap_or(false)
+            })
+        })
+    })
+}
+
 #[derive(Debug, Serialize, Clone)]
 pub struct ChatMessageEvent {
     pub r#type: String,
@@ -159,6 +184,17 @@ pub async fn send_request(
                                                 token_usage: current_output_tokens,
                                             }).ok();
 
+                                            // Tool results that require user input should end this turn immediately.
+                                            app.emit("chat-stream", ChatMessageEvent {
+                                                r#type: "stop".into(),
+                                                text: None,
+                                                tool_use_id: None,
+                                                tool_use_name: None,
+                                                tool_use_input: None,
+                                                tool_result: None,
+                                                token_usage: current_output_tokens,
+                                            }).ok();
+
                                             // We append the tool result to another message directly
                                             return Ok(vec![
                                                 Message {
@@ -256,6 +292,10 @@ pub async fn send_chat_message(
                 false
             }
         });
+
+        if has_needs_user_input(&new_messages) {
+            break;
+        }
         
         if !has_tool_result {
             break;
