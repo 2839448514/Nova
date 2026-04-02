@@ -35,6 +35,13 @@ pub fn execute(input: Value) -> String {
         "task_create",
         "task_list",
         "task_update",
+        "TaskCreate",
+        "TaskList",
+        "TaskUpdate",
+        "TaskGet",
+        "TaskOutput",
+        "TaskStop",
+        "Skill",
         "todo_write",
         "mcp_tool",
         "list_mcp_resources",
@@ -45,7 +52,7 @@ pub fn execute(input: Value) -> String {
 
     let matched: Vec<&str> = candidates
         .into_iter()
-        .filter(|name| name.contains(&query))
+        .filter(|name| name.to_lowercase().contains(&query))
         .collect();
 
     if matched.is_empty() {

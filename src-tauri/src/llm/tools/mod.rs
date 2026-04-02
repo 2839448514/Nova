@@ -19,6 +19,20 @@ pub mod task_create_tool;
 pub mod task_list_tool;
 #[path = "TaskUpdateTool/mod.rs"]
 pub mod task_update_tool;
+#[path = "TaskGetTool/mod.rs"]
+pub mod task_get_tool;
+#[path = "TaskOutputTool/mod.rs"]
+pub mod task_output_tool;
+#[path = "TaskStopTool/mod.rs"]
+pub mod task_stop_tool;
+#[path = "TaskCreateCompatTool/mod.rs"]
+pub mod task_create_compat_tool;
+#[path = "TaskListCompatTool/mod.rs"]
+pub mod task_list_compat_tool;
+#[path = "TaskUpdateCompatTool/mod.rs"]
+pub mod task_update_compat_tool;
+#[path = "SkillTool/mod.rs"]
+pub mod skill_tool;
 #[path = "TodoWriteTool/mod.rs"]
 pub mod todo_write_tool;
 #[path = "ToolSearchTool/mod.rs"]
@@ -102,12 +116,40 @@ fn registered_tools() -> Vec<RegisteredTool> {
             execute: task_create_tool::execute,
         },
         RegisteredTool {
+            tool: task_create_compat_tool::tool,
+            execute: task_create_compat_tool::execute,
+        },
+        RegisteredTool {
             tool: task_list_tool::tool,
             execute: task_list_tool::execute,
         },
         RegisteredTool {
+            tool: task_list_compat_tool::tool,
+            execute: task_list_compat_tool::execute,
+        },
+        RegisteredTool {
             tool: task_update_tool::tool,
             execute: task_update_tool::execute,
+        },
+        RegisteredTool {
+            tool: task_update_compat_tool::tool,
+            execute: task_update_compat_tool::execute,
+        },
+        RegisteredTool {
+            tool: task_get_tool::tool,
+            execute: task_get_tool::execute,
+        },
+        RegisteredTool {
+            tool: task_output_tool::tool,
+            execute: task_output_tool::execute,
+        },
+        RegisteredTool {
+            tool: task_stop_tool::tool,
+            execute: task_stop_tool::execute,
+        },
+        RegisteredTool {
+            tool: skill_tool::tool,
+            execute: skill_tool::execute,
         },
         RegisteredTool {
             tool: todo_write_tool::tool,

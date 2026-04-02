@@ -62,6 +62,15 @@ pub fn update(
     Some(task.clone())
 }
 
+pub fn get(id: u64) -> Option<TodoItem> {
+    tasks_store()
+        .lock()
+        .expect("TASKS mutex poisoned")
+        .iter()
+        .find(|t| t.id == id)
+        .cloned()
+}
+
 pub fn clear() {
     tasks_store().lock().expect("TASKS mutex poisoned").clear();
 }
