@@ -2,6 +2,7 @@ use futures_util::StreamExt;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::BTreeMap;
 use tauri::{AppHandle, Emitter};
 
 use crate::llm::query_engine::ChatMessageEvent;
@@ -23,7 +24,25 @@ struct OpenAiRequest {
 #[derive(Debug, Serialize, Clone)]
 struct OpenAiMessage {
     role: String,
-    content: Value, // String or array of parts
+    #[serde(skip_serializing_if = "Option::is_none")]
+    content: Option<Value>, // String or array of parts
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_calls: Option<Vec<OpenAiReqToolCall>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_call_id: Option<String>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+struct OpenAiReqToolCall {
+    id: String,
+    r#type: String,
+    function: OpenAiReqFunction,
+}
+
+#[derive(Debug, Serialize, Clone)]
+struct OpenAiReqFunction {
+    name: String,
+    arguments: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -58,6 +77,7 @@ struct OpenAiDelta {
 
 #[derive(Debug, Deserialize)]
 struct OpenAiToolCall {
+    #[allow(dead_code)]
     index: usize,
     id: Option<String>,
     function: Option<OpenAiFunctionCall>,
@@ -70,6 +90,13 @@ struct OpenAiFunctionCall {
 }
 
 pub struct OpenAiProvider;
+
+#[derive(Debug, Default)]
+struct PendingToolCall {
+    id: Option<String>,
+    name: Option<String>,
+    arguments: String,
+}
 
 impl OpenAiProvider {
     pub async fn send_request(
@@ -87,32 +114,94 @@ impl OpenAiProvider {
         
         let mut oai_messages = vec![OpenAiMessage {
             role: "system".into(),
-            content: Value::String(system_prompt),
+            content: Some(Value::String(system_prompt)),
+            tool_calls: None,
+            tool_call_id: None,
         }];
 
         for m in messages {
-            let role = match m.role {
+            let base_role = match m.role {
                 Role::User => "user",
                 Role::Assistant => "assistant",
             };
             
-            // basic content translation
-            let content_val = match &m.content {
-                crate::llm::types::Content::Text(t) => Value::String(t.clone()),
+            match &m.content {
+                crate::llm::types::Content::Text(t) => {
+                    oai_messages.push(OpenAiMessage {
+                        role: base_role.into(),
+                        content: Some(Value::String(t.clone())),
+                        tool_calls: None,
+                        tool_call_id: None,
+                    });
+                }
                 crate::llm::types::Content::Blocks(blocks) => {
                     let mut text_parts = Vec::new();
+                    let mut tool_calls = Vec::new();
+                    let mut tool_results = Vec::new();
+                    
                     for b in blocks {
-                        if let ContentBlock::Text { text } = b {
-                            text_parts.push(text.clone());
+                        match b {
+                            ContentBlock::Text { text } => {
+                                text_parts.push(text.clone());
+                            }
+                            ContentBlock::ToolUse { id, name, input } => {
+                                tool_calls.push(OpenAiReqToolCall {
+                                    id: id.clone(),
+                                    r#type: "function".into(),
+                                    function: OpenAiReqFunction {
+                                        name: name.clone(),
+                                        arguments: input.to_string(), // Input is a Value, we serialize it
+                                    }
+                                });
+                            }
+                            ContentBlock::ToolResult { tool_use_id, is_error: _, content } => {
+                                let mut tr_text = Vec::new();
+                                for tb in content {
+                                    if let ContentBlock::Text { text } = tb {
+                                        tr_text.push(text.clone());
+                                    }
+                                }
+                                tool_results.push((tool_use_id.clone(), tr_text.join("\n")));
+                            }
                         }
                     }
-                    Value::String(text_parts.join("\n"))
+                    
+                    if base_role == "assistant" {
+                        let content_val = if text_parts.is_empty() && !tool_calls.is_empty() {
+                            None // Optional for tool calls in assistant
+                        } else {
+                            Some(Value::String(text_parts.join("\n")))
+                        };
+                        
+                        let tc = if tool_calls.is_empty() { None } else { Some(tool_calls) };
+                        oai_messages.push(OpenAiMessage {
+                            role: "assistant".into(),
+                            content: content_val,
+                            tool_calls: tc,
+                            tool_call_id: None,
+                        });
+                    } else {
+                        // User message might contain text AND tool results
+                        if !text_parts.is_empty() {
+                            oai_messages.push(OpenAiMessage {
+                                role: "user".into(),
+                                content: Some(Value::String(text_parts.join("\n"))),
+                                tool_calls: None,
+                                tool_call_id: None,
+                            });
+                        }
+                        
+                        for (tid, tr_text) in tool_results {
+                            oai_messages.push(OpenAiMessage {
+                                role: "tool".into(),
+                                content: Some(Value::String(tr_text)),
+                                tool_calls: None,
+                                tool_call_id: Some(tid),
+                            });
+                        }
+                    }
                 }
-            };
-            oai_messages.push(OpenAiMessage {
-                role: role.into(),
-                content: content_val,
-            });
+            }
         }
 
         let tools: Option<Vec<OpenAiTool>> = if available_tools.is_empty() {
@@ -180,10 +269,7 @@ impl OpenAiProvider {
     ) -> Result<Vec<Message>, String> {
         let mut stream = response.bytes_stream();
         let mut generated_text = String::new();
-        
-        let mut current_tool_id = None;
-        let mut current_tool_name = None;
-        let mut current_tool_input = String::new();
+        let mut pending_tool_calls: BTreeMap<usize, PendingToolCall> = BTreeMap::new();
         
         let mut output_blocks: Vec<ContentBlock> = Vec::new();
         let mut tool_result_blocks: Vec<ContentBlock> = Vec::new();
@@ -223,38 +309,42 @@ impl OpenAiProvider {
                                 
                                 if let Some(tool_calls) = choice.delta.tool_calls {
                                     for tc in tool_calls {
+                                        let entry = pending_tool_calls.entry(tc.index).or_default();
+
                                         if let Some(id) = tc.id {
-                                            current_tool_id = Some(id.clone());
+                                            entry.id = Some(id);
                                         }
+
                                         if let Some(func) = tc.function {
                                             if let Some(name) = func.name {
-                                                current_tool_name = Some(name.clone());
-                                                current_tool_input.clear();
-                                                
-                                                app.emit(
-                                                    "chat-stream",
-                                                    ChatMessageEvent {
-                                                        r#type: "tool-use-start".into(),
-                                                        text: None,
-                                                        tool_use_id: current_tool_id.clone(),
-                                                        tool_use_name: Some(name),
-                                                        tool_use_input: None,
-                                                        tool_result: None,
-                                                        token_usage: None,
-                                                        stop_reason: None,
-                                                        turn_state: Some("tool_running".into()),
-                                                    },
-                                                )
-                                                .ok();
+                                                if entry.name.is_none() {
+                                                    app.emit(
+                                                        "chat-stream",
+                                                        ChatMessageEvent {
+                                                            r#type: "tool-use-start".into(),
+                                                            text: None,
+                                                            tool_use_id: entry.id.clone(),
+                                                            tool_use_name: Some(name.clone()),
+                                                            tool_use_input: None,
+                                                            tool_result: None,
+                                                            token_usage: None,
+                                                            stop_reason: None,
+                                                            turn_state: Some("tool_running".into()),
+                                                        },
+                                                    )
+                                                    .ok();
+                                                }
+                                                entry.name = Some(name);
                                             }
+
                                             if let Some(args) = func.arguments {
-                                                current_tool_input.push_str(&args);
+                                                entry.arguments.push_str(&args);
                                                 app.emit(
                                                     "chat-stream",
                                                     ChatMessageEvent {
                                                         r#type: "tool-json-delta".into(),
                                                         text: None,
-                                                        tool_use_id: current_tool_id.clone(),
+                                                        tool_use_id: entry.id.clone(),
                                                         tool_use_name: None,
                                                         tool_use_input: Some(args),
                                                         tool_result: None,
@@ -271,8 +361,29 @@ impl OpenAiProvider {
 
                                 if let Some(finish_reason) = choice.finish_reason {
                                     if finish_reason == "tool_calls" {
-                                        if let (Some(id), Some(name)) = (current_tool_id.take(), current_tool_name.take()) {
-                                            let input_value: Value = serde_json::from_str(&current_tool_input)
+                                        let drained_calls: Vec<(usize, PendingToolCall)> =
+                                            pending_tool_calls
+                                                .iter()
+                                                .map(|(k, v)| {
+                                                    (
+                                                        *k,
+                                                        PendingToolCall {
+                                                            id: v.id.clone(),
+                                                            name: v.name.clone(),
+                                                            arguments: v.arguments.clone(),
+                                                        },
+                                                    )
+                                                })
+                                                .collect();
+
+                                        pending_tool_calls.clear();
+
+                                        for (_, tc) in drained_calls {
+                                            let (Some(id), Some(name)) = (tc.id, tc.name) else {
+                                                continue;
+                                            };
+
+                                            let input_value: Value = serde_json::from_str(&tc.arguments)
                                                 .unwrap_or_else(|_| serde_json::json!({}));
 
                                             output_blocks.push(ContentBlock::ToolUse {

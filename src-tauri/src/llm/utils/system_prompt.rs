@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 const SYSTEM_PROMPT_FILE_NAME: &str = "system_prompt.md";
 const FALLBACK_SYSTEM_PROMPT: &str = "You are a helpful coding assistant running in a local Tauri desktop app. You will answer questions briefly and write accurate code.";
@@ -23,7 +23,7 @@ fn read_non_empty_file(path: &PathBuf) -> Option<String> {
     Some(trimmed.to_string())
 }
 
-pub fn load_system_prompt(app: &AppHandle, plan_mode: bool) -> String {
+pub fn load_system_prompt(_app: &AppHandle, plan_mode: bool) -> String {
     if let Ok(cwd) = std::env::current_dir() {
         let path = cwd
             .join("src-tauri")

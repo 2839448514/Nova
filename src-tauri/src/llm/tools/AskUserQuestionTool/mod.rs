@@ -147,18 +147,6 @@ pub fn execute(input: Value) -> String {
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
 
-    let options: Vec<String> = input
-        .get("options")
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|x| x.as_str())
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect()
-        })
-        .unwrap_or_default();
-
     let allow_freeform = input
         .get("allow_freeform")
         .and_then(|v| v.as_bool())

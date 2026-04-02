@@ -14,10 +14,10 @@ impl LlmProvider {
         let settings = crate::command::settings::get_settings(app.clone());
         let provider = settings.provider.to_lowercase();
         
-        if provider == "openai" || provider == "ollama" {
-            LlmProvider::OpenAi(openai::OpenAiProvider)
-        } else {
+        if provider == "anthropic" || provider == "claude" {
             LlmProvider::Anthropic(anthropic::AnthropicProvider)
+        } else {
+            LlmProvider::OpenAi(openai::OpenAiProvider)
         }
     }
 

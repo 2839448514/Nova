@@ -33,6 +33,8 @@ pub async fn send_chat_message(
         let new_messages = provider.send_request(&app, &current_messages, plan_mode).await?;
         current_messages.extend(new_messages.clone());
 
+        eprintln!("[loop] new_messages count={}", new_messages.len());
+
         let has_tool_result = new_messages.iter().any(|m| {
             if let Content::Blocks(blocks) = &m.content {
                 blocks.iter().any(|b| matches!(b, ContentBlock::ToolResult { .. }))
@@ -40,6 +42,8 @@ pub async fn send_chat_message(
                 false
             }
         });
+
+        eprintln!("[loop] has_tool_result={}", has_tool_result);
 
         if compact::has_needs_user_input(&new_messages) {
             break;
