@@ -16,6 +16,8 @@ pub struct AppSettings {
     pub provider: String,
     #[serde(default = "default_custom_models")]
     pub custom_models: HashMap<String, Vec<String>>,
+    #[serde(default)]
+    pub disabled_skills: Vec<String>,
 }
 
 impl Default for AppSettings {
@@ -26,6 +28,7 @@ impl Default for AppSettings {
             model: "".to_string(),
             provider: "anthropic".to_string(),
             custom_models: HashMap::new(),
+            disabled_skills: Vec::new(),
         }
     }
 }

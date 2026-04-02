@@ -1,4 +1,5 @@
 use crate::llm::types::Tool;
+use serde::Serialize;
 use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -9,6 +10,13 @@ struct SkillEntry {
     description: String,
     path: PathBuf,
     content: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SkillSummary {
+    pub name: String,
+    pub description: String,
+    pub path: String,
 }
 
 pub fn tool() -> Tool {
@@ -190,6 +198,17 @@ fn load_skills() -> Vec<SkillEntry> {
     out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     out.dedup_by(|a, b| normalize_name(&a.name) == normalize_name(&b.name));
     out
+}
+
+pub fn list_skill_summaries() -> Vec<SkillSummary> {
+    load_skills()
+        .into_iter()
+        .map(|s| SkillSummary {
+            name: s.name,
+            description: s.description,
+            path: s.path.display().to_string(),
+        })
+        .collect()
 }
 
 fn list_skills(skills: &[SkillEntry]) -> String {

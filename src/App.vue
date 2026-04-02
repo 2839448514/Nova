@@ -245,7 +245,9 @@ onMounted(async () => {
         const stopReason = payload.stop_reason ?? "";
         const turnState = payload.turn_state ?? "";
         const shouldFinalize =
+          turnState === "completed" ||
           turnState === "awaiting_user_input" ||
+          turnState === "needs_user_input" ||
           stopReason === "needs_user_input";
 
         if (shouldFinalize) {
@@ -297,23 +299,6 @@ async function handleSendMessage(userText: string) {
       messages: rustMessages,
       planMode: planMode.value,
     });
-    if (isGenerating.value) {
-      const finalText = assistantResponse.value.trim();
-      const cost = buildAssistantCost();
-      assistantTurnCost.value = cost;
-      const assistantMsg: ChatMessage = {
-        role: "assistant",
-        content: finalText || "（本轮没有返回可显示的文本内容）",
-        tokenUsage: assistantTokenUsage.value,
-        cost,
-      };
-      messages.value.push(assistantMsg);
-      await persistMessage(assistantMsg);
-      await persistConversationMemory(activeConversationId.value);
-      assistantResponse.value = "";
-      assistantTokenUsage.value = undefined;
-      isGenerating.value = false;
-    }
   } catch (err: any) {
     console.error("Chat error:", err);
     const errorMsg: ChatMessage = { role: "assistant", content: `API Error: ${err}` };

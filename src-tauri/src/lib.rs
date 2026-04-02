@@ -43,7 +43,8 @@ pub fn run() {
             command::mcp::list_mcp_tools,
             command::mcp::list_mcp_resources,
             command::mcp::read_mcp_resource,
-            command::mcp::call_mcp_tool
+            command::mcp::call_mcp_tool,
+            command::skill::list_skills
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
