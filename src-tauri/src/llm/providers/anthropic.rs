@@ -1,10 +1,17 @@
 use futures_util::StreamExt;
+use reqwest::Client;
 use tauri::{AppHandle, Emitter};
 
 use crate::llm::query_engine::ChatMessageEvent;
+use crate::llm::services::mcp_tools;
 use crate::llm::services::mcp_tools::parse_mcp_tool_name;
 use crate::llm::tools;
-use crate::llm::types::{ContentBlock, Message, Role, StreamContentBlock, StreamDelta, StreamEvent};
+use crate::llm::types::{
+    AnthropicRequest, ContentBlock, Message, Role, StreamContentBlock, StreamDelta, StreamEvent,
+};
+use crate::llm::utils::system_prompt::load_system_prompt;
+
+pub struct AnthropicProvider;
 
 fn is_needs_user_input_payload(raw: &str) -> bool {
     serde_json::from_str::<serde_json::Value>(raw)
@@ -17,10 +24,72 @@ fn is_needs_user_input_payload(raw: &str) -> bool {
         .unwrap_or(false)
 }
 
-pub async fn process_stream_response(
-    app: &AppHandle,
-    response: reqwest::Response,
-) -> Result<Vec<Message>, String> {
+impl AnthropicProvider {
+    pub async fn send_request(
+        &self,
+        app: &AppHandle,
+        messages: &[Message],
+        plan_mode: bool,
+    ) -> Result<Vec<Message>, String> {
+        let settings = crate::command::settings::get_settings(app.clone());
+        let api_key = settings.api_key;
+
+        if api_key.is_empty() {
+            return Err("API error: No API key configured. Please set it in Settings.".to_string());
+        }
+
+        let mut available_tools = tools::get_available_tools();
+        available_tools.extend(mcp_tools::collect_mcp_tools(app).await);
+
+        let request = AnthropicRequest {
+            model: settings.model.clone(),
+            max_tokens: 4096,
+            system: Some(load_system_prompt(app, plan_mode)),
+            messages: messages.to_vec(),
+            tools: available_tools,
+            stream: true,
+        };
+
+        let client = Client::new();
+        let mut url = settings.base_url.trim_end_matches('/').to_string();
+        if !url.ends_with("/v1/messages") && !url.ends_with("/messages") {
+            if url.ends_with("/v1") {
+                url = format!("{}/messages", url);
+            } else {
+                url = format!("{}/v1/messages", url);
+            }
+        }
+
+        let resp = client
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", api_key))
+            .header("x-api-key", &api_key)
+            .header("anthropic-version", "2023-06-01")
+            .header("content-type", "application/json")
+            .json(&request)
+            .send()
+            .await;
+
+        match resp {
+            Ok(res) => {
+                if !res.status().is_success() {
+                    let status = res.status();
+                    let error_text = res.text().await.unwrap_or_default();
+                    eprintln!("API Error: {}", error_text);
+                    return Err(format!("API Error [{}] {} => {}", status, url, error_text));
+                }
+
+                self.process_stream_response(app, res).await
+            }
+            Err(e) => Err(e.to_string()),
+        }
+    }
+
+    async fn process_stream_response(
+        &self,
+        app: &AppHandle,
+        response: reqwest::Response,
+    ) -> Result<Vec<Message>, String> {
     let mut stream = response.bytes_stream();
     let mut current_tool_id = None;
     let mut current_tool_name = None;
@@ -270,4 +339,5 @@ pub async fn process_stream_response(
     }
 
     Ok(result_messages)
+}
 }

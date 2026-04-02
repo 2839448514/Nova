@@ -1,6 +1,11 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
+
+fn default_custom_models() -> HashMap<String, Vec<String>> {
+    HashMap::new()
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -9,15 +14,18 @@ pub struct AppSettings {
     pub base_url: String,
     pub model: String,
     pub provider: String,
+    #[serde(default = "default_custom_models")]
+    pub custom_models: HashMap<String, Vec<String>>,
 }
 
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
             api_key: "".to_string(),
-            base_url: "https://api.anthropic.com/v1".to_string(),
-            model: "claude-3-5-sonnet-20241022".to_string(),
+            base_url: "".to_string(),
+            model: "".to_string(),
             provider: "anthropic".to_string(),
+            custom_models: HashMap::new(),
         }
     }
 }

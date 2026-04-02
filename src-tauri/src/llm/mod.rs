@@ -4,3 +4,4 @@ pub mod query_engine;
 pub mod services;
 pub mod tools;
 pub mod utils;
+pub mod providers;

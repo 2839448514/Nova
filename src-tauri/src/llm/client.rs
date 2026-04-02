@@ -2,7 +2,7 @@ use tauri::AppHandle;
 
 use crate::llm::types::Message;
 
-pub use crate::llm::query_engine::{send_request, ChatMessageEvent};
+pub use crate::llm::query_engine::ChatMessageEvent;
 
 #[tauri::command]
 pub async fn send_chat_message(

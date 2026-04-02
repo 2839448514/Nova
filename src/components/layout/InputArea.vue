@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { nextTick, onMounted, ref, watch } from 'vue';
+import { nextTick, onMounted, onUnmounted, ref, watch, computed } from 'vue';
+import { invoke } from '@tauri-apps/api/core';
 
 const props = defineProps<{
   isGenerating?: boolean;
@@ -11,6 +12,32 @@ const emit = defineEmits<{
 
 const currentInput = ref("");
 const textareaRef = ref<HTMLTextAreaElement | null>(null);
+
+const settings = ref<any>(null);
+
+const availableModels = computed(() => {
+  if (!settings.value || !settings.value.provider || !settings.value.customModels) return [];
+  return settings.value.customModels[settings.value.provider] || [];
+});
+
+const loadSettings = async () => {
+  try {
+    settings.value = await invoke('get_settings');
+  } catch (error) {
+    console.error('Failed to load settings in InputArea:', error);
+  }
+};
+
+const onModelChange = async (event: Event) => {
+  const select = event.target as HTMLSelectElement;
+  if (!settings.value) return;
+  settings.value.model = select.value;
+  try {
+    await invoke('save_settings', { settings: settings.value });
+  } catch (error) {
+    console.error('Failed to save model change:', error);
+  }
+};
 
 const focusTextarea = () => {
   textareaRef.value?.focus();
@@ -48,11 +75,18 @@ watch(
   }
 );
 
+const handleSettingsUpdate = () => loadSettings();
 onMounted(() => {
+  loadSettings();
+  window.addEventListener('settings-updated', handleSettingsUpdate);
   nextTick(() => {
     autoResize();
     focusTextarea();
   });
+});
+
+onUnmounted(() => {
+  window.removeEventListener('settings-updated', handleSettingsUpdate);
 });
 
 defineExpose({
@@ -74,10 +108,21 @@ defineExpose({
     ></textarea>
     
     <div class="flex items-center justify-between px-3 pb-3 pt-2">
-      <div class="flex gap-2">
+      <div class="flex gap-2 items-center">
         <button class="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-secondary/80 transition-colors">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
         </button>
+
+        <select 
+          v-if="availableModels.length > 0 && settings"
+          v-model="settings.model"
+          @change="onModelChange"
+          class="bg-transparent border border-[#e5e5e5] dark:border-[#3a3a3a] text-xs rounded-md px-2 py-1 outline-none text-muted-foreground hover:bg-secondary/80 transition-colors cursor-pointer max-w-[200px]"
+        >
+          <option v-for="model in availableModels" :key="model" :value="model">
+            {{ model }}
+          </option>
+        </select>
       </div>
       <button 
         class="w-8 h-8 rounded-full flex items-center justify-center transition-colors shadow-sm"
