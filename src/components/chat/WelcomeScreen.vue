@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import InputArea from '../layout/InputArea.vue';
 
-const props = defineProps<{
+defineProps<{
   isGenerating?: boolean;
 }>();
 

@@ -10,7 +10,6 @@ const themeOptions: { value: Theme; label: string }[] = [
 ]
 
 const language = ref('en-US')
-const isSidebarOpen = ref(true)
 
 const setTheme = (val: Theme) => {
   theme.value = val;

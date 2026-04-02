@@ -8,7 +8,7 @@ const global = {
 
 // TODO: Replace with actual backend logic
 const getRAGDocumentCount = async () => 0
-const addRAGData = async (apiKey: string, baseURL: string, content: string[]) => console.log('addRAGData', content)
+const addRAGData = async (_apiKey: string, _baseURL: string, content: string[]) => console.log('addRAGData', content)
 const clearRAGData = async () => console.log('clearRAGData')
 
 const textInput = ref('')

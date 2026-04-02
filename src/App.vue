@@ -2,89 +2,27 @@
 import { ref, onMounted, onUnmounted } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
+import {
+  buildPendingQuestionReply,
+  parseNeedsUserInput,
+  parsePlanModeChange,
+  renderToolResult,
+} from "./lib/chat-payloads";
+import type {
+  AskUserAnswerSubmission,
+  ChatMessage,
+  ChatMessageEvent,
+  ConversationMemory,
+  ConversationMeta,
+  NeedsUserInputPayload,
+  PersistedMessage,
+  TurnCost,
+} from "./lib/chat-types";
 import Sidebar from "./components/layout/Sidebar.vue";
 import WelcomeScreen from "./components/chat/WelcomeScreen.vue";
 import ChatScreen from "./components/chat/ChatScreen.vue";
 
-interface Message {
-  role: "user" | "assistant";
-  content: string;
-  tokenUsage?: number;
-  cost?: TurnCost;
-}
-
-interface PersistedMessage {
-  role: string;
-  content: string;
-  tokenUsage?: number;
-  cost?: TurnCost;
-}
-
-interface TurnCost {
-  inputTokens: number;
-  outputTokens: number;
-  toolCalls: number;
-  toolDurationMs: number;
-}
-
-interface ConversationMemory {
-  summary: string;
-  keyFacts: string[];
-  updatedAt: number;
-}
-
-interface ConversationMeta {
-  id: string;
-  title: string;
-  updatedAt: number;
-}
-
-interface ChatMessageEvent {
-  type: string;
-  text?: string;
-  tool_use_id?: string;
-  tool_use_name?: string;
-  tool_use_input?: string;
-  tool_result?: string;
-  token_usage?: number;
-  stop_reason?: string;
-  turn_state?: string;
-}
-
-interface AskUserOption {
-  label: string;
-  description: string;
-  preview?: string;
-}
-
-interface AskUserQuestionItem {
-  question: string;
-  header: string;
-  options: AskUserOption[];
-  multi_select?: boolean;
-}
-
-interface NeedsUserInputPayload {
-  type?: string;
-  context?: string;
-  allow_freeform?: boolean;
-  questions?: AskUserQuestionItem[];
-}
-
-interface AskUserAnswerSubmission {
-  answers: Record<string, string | string[]>;
-  freeform?: string;
-}
-
-interface PlanModeChangePayload {
-  type?: string;
-  mode?: string;
-  goal?: string;
-  summary?: string;
-  message?: string;
-}
-
-const messages = ref<Message[]>([]);
+const messages = ref<ChatMessage[]>([]);
 const isGenerating = ref(false);
 const assistantResponse = ref("");
 const assistantTokenUsage = ref<number | undefined>(undefined);
@@ -104,34 +42,11 @@ let unlisten: UnlistenFn | null = null;
 const isSidebarOpen = ref(true);
 const chatScreenRef = ref<InstanceType<typeof ChatScreen> | null>(null);
 
-function buildPendingQuestionReply(
-  payload: AskUserAnswerSubmission | null,
-  source: "submit" | "skip",
-): string {
-  if (source === "skip" || !payload) {
-    return "用户跳过了澄清问题，请基于当前上下文继续；如果仍有缺失，请明确说明你做了哪些假设。";
-  }
-
-  const lines: string[] = ["用户补充了以下澄清信息："];
-  for (const [question, answer] of Object.entries(payload.answers)) {
-    const answerText = Array.isArray(answer) ? answer.join("、") : answer;
-    if (answerText.trim()) {
-      lines.push(`- ${question}：${answerText}`);
-    }
-  }
-
-  if (payload.freeform?.trim()) {
-    lines.push(`- 其他补充：${payload.freeform.trim()}`);
-  }
-
-  return lines.join("\n");
-}
-
 function finalizeAssistantTurn(tokenUsage?: number) {
   const finalText = assistantResponse.value.trim();
   const cost = buildAssistantCost();
   assistantTurnCost.value = cost;
-  const assistantMsg: Message = {
+  const assistantMsg: ChatMessage = {
     role: "assistant",
     content: finalText || "（本轮没有返回可显示的文本内容）",
     tokenUsage: tokenUsage ?? assistantTokenUsage.value,
@@ -226,90 +141,6 @@ async function persistConversationMemory(conversationId: string) {
   }
 }
 
-function renderToolResult(raw: string): string {
-  const trimmed = raw.trim();
-  if (!trimmed) return "";
-
-  try {
-    const parsed = JSON.parse(trimmed) as NeedsUserInputPayload & {
-      content?: Array<{ type?: string; text?: string }>;
-    };
-    if (parsed?.type === "needs_user_input") {
-      const lines: string[] = [];
-      if (parsed.context) {
-        lines.push(`需要你补充信息：${parsed.context}`);
-      }
-      if (Array.isArray(parsed.questions) && parsed.questions.length > 0) {
-        lines.push("");
-        for (const item of parsed.questions) {
-          lines.push(`${item.header}: ${item.question}`);
-          for (const opt of item.options ?? []) {
-            lines.push(`- ${opt.label}`);
-          }
-          lines.push("");
-        }
-      }
-      if (parsed.allow_freeform) {
-        lines.push("也可以直接描述你的具体需求。");
-      }
-      return lines.join("\n");
-    }
-
-    // MCP tools often return Anthropic-style content blocks; extract readable text.
-    if (Array.isArray(parsed?.content)) {
-      const texts = parsed.content
-        .filter((b) => b && (b.type === "text" || typeof b.text === "string"))
-        .map((b) => (b.text ?? "").trim())
-        .filter(Boolean);
-      if (texts.length > 0) {
-        return texts.join("\n\n");
-      }
-    }
-
-    // Generic JSON prettify for non-needs_user_input tool outputs.
-    return JSON.stringify(parsed, null, 2);
-  } catch {
-    return trimmed;
-  }
-}
-
-function parseNeedsUserInput(raw: string): NeedsUserInputPayload | null {
-  const trimmed = raw.trim();
-  if (!trimmed) return null;
-  try {
-    const parsed = JSON.parse(trimmed) as NeedsUserInputPayload;
-    if (
-      parsed?.type === "needs_user_input" &&
-      Array.isArray(parsed.questions) &&
-      parsed.questions.length > 0
-    ) {
-      return {
-        type: parsed.type,
-        context: parsed.context,
-        allow_freeform: parsed.allow_freeform ?? true,
-        questions: parsed.questions,
-      };
-    }
-  } catch {
-    return null;
-  }
-  return null;
-}
-
-function parsePlanModeChange(raw: string): PlanModeChangePayload | null {
-  const trimmed = raw.trim();
-  if (!trimmed) return null;
-  try {
-    const parsed = JSON.parse(trimmed) as PlanModeChangePayload;
-    if (parsed?.type === "plan_mode_change" && parsed.mode) {
-      return parsed;
-    }
-  } catch {
-    return null;
-  }
-  return null;
-}
-
 async function refreshConversations() {
   try {
     const items = await invoke<ConversationMeta[]>("list_conversations");
@@ -352,7 +183,7 @@ async function loadConversation(id: string) {
   }
 }
 
-async function persistMessage(msg: Message) {
+async function persistMessage(msg: ChatMessage) {
   if (!activeConversationId.value) return;
   try {
     await invoke("append_history", { conversationId: activeConversationId.value, message: msg });
@@ -442,7 +273,7 @@ async function handleSendMessage(userText: string) {
     messages.value = [];
   }
 
-  const userMsg: Message = { role: "user", content: userText };
+  const userMsg: ChatMessage = { role: "user", content: userText };
   messages.value.push(userMsg);
   await persistMessage(userMsg);
   isGenerating.value = true;
@@ -470,7 +301,7 @@ async function handleSendMessage(userText: string) {
       const finalText = assistantResponse.value.trim();
       const cost = buildAssistantCost();
       assistantTurnCost.value = cost;
-      const assistantMsg: Message = {
+      const assistantMsg: ChatMessage = {
         role: "assistant",
         content: finalText || "（本轮没有返回可显示的文本内容）",
         tokenUsage: assistantTokenUsage.value,
@@ -485,7 +316,7 @@ async function handleSendMessage(userText: string) {
     }
   } catch (err: any) {
     console.error("Chat error:", err);
-    const errorMsg: Message = { role: "assistant", content: `API Error: ${err}` };
+    const errorMsg: ChatMessage = { role: "assistant", content: `API Error: ${err}` };
     messages.value.push(errorMsg);
     await persistMessage(errorMsg);
     assistantResponse.value = "";
