@@ -18,6 +18,19 @@ pub struct ChatMessageEvent {
     pub turn_state: Option<String>,
 }
 
+fn has_session_restore_marker(messages: &[Message]) -> bool {
+    messages.iter().any(|m| match &m.content {
+        Content::Text(t) => t.contains("[Session Restore Context]"),
+        Content::Blocks(blocks) => blocks.iter().any(|b| {
+            if let ContentBlock::Text { text } = b {
+                text.contains("[Session Restore Context]")
+            } else {
+                false
+            }
+        }),
+    })
+}
+
 pub async fn send_chat_message(
     app: AppHandle,
     conversation_id: Option<String>,
@@ -27,9 +40,25 @@ pub async fn send_chat_message(
     let mut current_messages =
         compact::prepare_messages_for_turn(&app, conversation_id.as_deref(), &messages).await;
 
+    if let Some(conversation_id) = conversation_id.as_deref() {
+        if !has_session_restore_marker(&current_messages) {
+            if let Some(restore_msg) =
+                crate::llm::utils::session_restore::build_resume_context_message(&app, conversation_id)
+                    .await
+            {
+                current_messages.insert(0, restore_msg);
+            }
+        }
+    }
+
     let provider = LlmProvider::new(&app);
 
     loop {
+        let consumed = crate::llm::utils::permissions::consume_user_permission_decisions(&current_messages);
+        if consumed > 0 {
+            eprintln!("[permissions] applied user approval decisions={}", consumed);
+        }
+
         let new_messages = provider.send_request(&app, &current_messages, plan_mode).await?;
         current_messages.extend(new_messages.clone());
 

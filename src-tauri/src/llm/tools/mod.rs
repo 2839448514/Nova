@@ -167,6 +167,16 @@ pub fn execute_tool(name: &str, input: Value) -> String {
 }
 
 pub async fn execute_tool_with_app(app: &AppHandle, name: &str, input: Value) -> String {
+    match crate::llm::utils::permissions::enforce_tool_permission(app, name, &input) {
+        crate::llm::utils::permissions::PermissionEnforcement::Allow => {}
+        crate::llm::utils::permissions::PermissionEnforcement::Deny(e) => {
+            return serde_json::json!({ "ok": false, "error": e }).to_string();
+        }
+        crate::llm::utils::permissions::PermissionEnforcement::AskUser(payload) => {
+            return payload;
+        }
+    }
+
     match name {
         "mcp_tool" => {
             let server_name = input
