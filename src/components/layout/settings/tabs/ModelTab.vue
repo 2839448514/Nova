@@ -2,6 +2,12 @@
 import { ref, onMounted } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 
+type ProviderProfile = {
+  apiKey: string
+  baseUrl: string
+  model: string
+}
+
 const apiKeyInput = ref('')
 const apiKeyVisible = ref(false)
 const baseURLInput = ref('')
@@ -17,22 +23,64 @@ const providers = [
 const selectedProvider = ref('anthropic')
 const newModelInput = ref('')
 const customModels = ref<Record<string, string[]>>({})
+const providerProfiles = ref<Record<string, ProviderProfile>>({})
+
+const normalizeProviderKey = (provider: string) => provider.trim().toLowerCase()
+
+const defaultBaseUrl = (provider: string) => {
+  const key = normalizeProviderKey(provider)
+  if (key === 'anthropic') return 'https://api.anthropic.com/v1'
+  if (key === 'openai') return 'https://api.openai.com/v1'
+  if (key === 'ollama') return 'http://localhost:11434/v1'
+  if (key === 'dashscope-anthropic') return 'https://dashscope.aliyuncs.com/api/v1/apps/anthropic'
+  return ''
+}
+
+const ensureProfile = (provider: string, fallback?: Partial<ProviderProfile>): ProviderProfile => {
+  const key = normalizeProviderKey(provider)
+  const existing = providerProfiles.value[key]
+  if (existing) return existing
+
+  const profile: ProviderProfile = {
+    apiKey: fallback?.apiKey ?? '',
+    baseUrl: fallback?.baseUrl ?? defaultBaseUrl(key),
+    model: fallback?.model ?? '',
+  }
+  providerProfiles.value[key] = profile
+  return profile
+}
+
+const readProviderInputs = (provider: string) => {
+  const profile = ensureProfile(provider)
+  apiKeyInput.value = profile.apiKey || ''
+  baseURLInput.value = profile.baseUrl || ''
+}
+
+const writeProviderInputs = (provider: string) => {
+  const profile = ensureProfile(provider)
+  profile.apiKey = apiKeyInput.value.trim()
+  profile.baseUrl = baseURLInput.value.trim()
+}
 
 const selectProvider = (id: string) => {
+  writeProviderInputs(selectedProvider.value)
   selectedProvider.value = id
+  ensureProfile(id)
   if (!customModels.value[id]) {
     customModels.value[id] = []
   }
+  readProviderInputs(id)
 }
 
 onMounted(async () => {
   try {
     const settings: any = await invoke('get_settings')
     if (settings) {
-      if (settings.apiKey) apiKeyInput.value = settings.apiKey
-      if (settings.baseUrl) baseURLInput.value = settings.baseUrl
       if (settings.customModels) {
         customModels.value = settings.customModels
+      }
+      if (settings.providerProfiles && typeof settings.providerProfiles === 'object') {
+        providerProfiles.value = settings.providerProfiles
       }
       if (settings.provider) {
         selectedProvider.value = settings.provider
@@ -41,10 +89,18 @@ onMounted(async () => {
           ? 'dashscope-anthropic'
           : 'anthropic'
       }
+
+      ensureProfile(selectedProvider.value, {
+        apiKey: settings.apiKey || '',
+        baseUrl: settings.baseUrl || defaultBaseUrl(selectedProvider.value),
+        model: settings.model || '',
+      })
       
       if (!customModels.value[selectedProvider.value]) {
         customModels.value[selectedProvider.value] = []
       }
+
+      readProviderInputs(selectedProvider.value)
     }
   } catch (error) {
     console.error('Failed to load settings:', error)
@@ -72,13 +128,17 @@ const removeModel = (m: string) => {
 
 const save = async () => {
   try {
+    writeProviderInputs(selectedProvider.value)
     const prevSettings: any = (await invoke('get_settings')) || {}
+    const active = ensureProfile(selectedProvider.value)
     const settings = {
       ...prevSettings,
-      apiKey: apiKeyInput.value.trim() || '',
-      baseUrl: baseURLInput.value.trim(),
+      apiKey: active.apiKey,
+      baseUrl: active.baseUrl,
+      model: active.model || prevSettings.model || '',
       provider: selectedProvider.value,
-      customModels: customModels.value
+      customModels: customModels.value,
+      providerProfiles: providerProfiles.value,
     }
     await invoke('save_settings', { settings })
     window.dispatchEvent(new CustomEvent('settings-updated'))

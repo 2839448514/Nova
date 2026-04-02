@@ -15,9 +15,41 @@ const textareaRef = ref<HTMLTextAreaElement | null>(null);
 
 const settings = ref<any>(null);
 
+const normalizeProviderKey = (provider: string) => (provider || '').trim().toLowerCase() || 'anthropic';
+
+const ensureActiveProfile = () => {
+  if (!settings.value) return null;
+  const provider = normalizeProviderKey(settings.value.provider || 'anthropic');
+  settings.value.provider = provider;
+  if (!settings.value.providerProfiles || typeof settings.value.providerProfiles !== 'object') {
+    settings.value.providerProfiles = {};
+  }
+  if (!settings.value.providerProfiles[provider]) {
+    settings.value.providerProfiles[provider] = {
+      apiKey: settings.value.apiKey || '',
+      baseUrl: settings.value.baseUrl || '',
+      model: settings.value.model || '',
+    };
+  }
+  return settings.value.providerProfiles[provider];
+};
+
 const availableModels = computed(() => {
   if (!settings.value || !settings.value.provider || !settings.value.customModels) return [];
   return settings.value.customModels[settings.value.provider] || [];
+});
+
+const currentModel = computed({
+  get: () => {
+    const profile = ensureActiveProfile();
+    return profile?.model || settings.value?.model || '';
+  },
+  set: (value: string) => {
+    const profile = ensureActiveProfile();
+    if (!profile) return;
+    profile.model = value;
+    settings.value.model = value;
+  },
 });
 
 const loadSettings = async () => {
@@ -31,7 +63,7 @@ const loadSettings = async () => {
 const onModelChange = async (event: Event) => {
   const select = event.target as HTMLSelectElement;
   if (!settings.value) return;
-  settings.value.model = select.value;
+  currentModel.value = select.value;
   try {
     await invoke('save_settings', { settings: settings.value });
   } catch (error) {
@@ -115,7 +147,7 @@ defineExpose({
 
         <select 
           v-if="availableModels.length > 0 && settings"
-          v-model="settings.model"
+          v-model="currentModel"
           @change="onModelChange"
           class="bg-transparent border border-[#e5e5e5] dark:border-[#3a3a3a] text-xs rounded-md px-2 py-1 outline-none text-muted-foreground hover:bg-secondary/80 transition-colors cursor-pointer max-w-[200px]"
         >

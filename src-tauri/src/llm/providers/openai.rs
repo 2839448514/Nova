@@ -106,6 +106,7 @@ impl OpenAiProvider {
         plan_mode: bool,
     ) -> Result<Vec<Message>, String> {
         let settings = crate::command::settings::get_settings(app.clone());
+        let profile = settings.active_provider_profile();
         
         let mut available_tools = tools::get_available_tools();
         available_tools.extend(mcp_tools::collect_mcp_tools(app).await);
@@ -223,14 +224,14 @@ impl OpenAiProvider {
         };
 
         let request = OpenAiRequest {
-            model: settings.model.clone(),
+            model: profile.model.clone(),
             messages: oai_messages,
             tools,
             stream: true,
         };
 
         let client = Client::new();
-        let mut url = settings.base_url.trim_end_matches('/').to_string();
+        let mut url = profile.base_url.trim_end_matches('/').to_string();
         if !url.ends_with("/v1/chat/completions") && !url.ends_with("/chat/completions") {
             if url.ends_with("/v1") {
                 url = format!("{}/chat/completions", url);
@@ -241,8 +242,8 @@ impl OpenAiProvider {
 
         let mut req_builder = client.post(&url).header("content-type", "application/json");
 
-        if !settings.api_key.is_empty() {
-            req_builder = req_builder.header("Authorization", format!("Bearer {}", settings.api_key));
+        if !profile.api_key.is_empty() {
+            req_builder = req_builder.header("Authorization", format!("Bearer {}", profile.api_key));
         }
 
         let resp = req_builder.json(&request).send().await;

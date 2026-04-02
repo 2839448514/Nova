@@ -32,7 +32,8 @@ impl AnthropicProvider {
         plan_mode: bool,
     ) -> Result<Vec<Message>, String> {
         let settings = crate::command::settings::get_settings(app.clone());
-        let api_key = settings.api_key;
+        let profile = settings.active_provider_profile();
+        let api_key = profile.api_key;
 
         if api_key.is_empty() {
             return Err("API error: No API key configured. Please set it in Settings.".to_string());
@@ -42,7 +43,7 @@ impl AnthropicProvider {
         available_tools.extend(mcp_tools::collect_mcp_tools(app).await);
 
         let request = AnthropicRequest {
-            model: settings.model.clone(),
+            model: profile.model.clone(),
             max_tokens: 4096,
             system: Some(load_system_prompt(app, plan_mode)),
             messages: messages.to_vec(),
@@ -51,7 +52,7 @@ impl AnthropicProvider {
         };
 
         let client = Client::new();
-        let mut url = settings.base_url.trim_end_matches('/').to_string();
+        let mut url = profile.base_url.trim_end_matches('/').to_string();
         if !url.ends_with("/v1/messages") && !url.ends_with("/messages") {
             if url.ends_with("/v1") {
                 url = format!("{}/messages", url);
