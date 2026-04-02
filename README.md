@@ -5,9 +5,17 @@ Nova is a local coding assistant desktop app built with Tauri, Vue 3, TypeScript
 It is designed for an in-editor workflow where the model can:
 
 - read and edit files in the current workspace
-- call local tools from the Rust side
+- call local tools from the Rust side (Bash, Git, File System, MCP)
 - stream responses into the chat UI
 - pause and ask the user for clarification through an interactive option dialog when key information is missing
+- connect to multiple LLM providers (Anthropic, OpenAI, Ollama, etc.) with custom model support
+
+## Key Features
+
+- **Multi-Provider LLM Support:** Seamlessly switch between Anthropic, OpenAI-compatible APIs, and local Ollama interfaces.
+- **Customizable Models:** No hardcoded models. Add any custom model name (e.g., `gpt-4o`, `claude-3-5-sonnet`, `qwen2.5:7b`) directly from the settings or chat interface, and they will be permanently saved and made available in a quick-select dropdown.
+- **Human-in-the-Loop:** Supports a clarification flow through the `ask_user_question` tool. When the model lacks required information, it pauses and prompts the user via a bottom-pinned UI dialog (with options and freeform input) instead of guessing.
+- **MCP Integration:** Extensible tool system supporting the Model Context Protocol (MCP) alongside powerful built-in system tools like Bash, Grep, File Edit, and more.
 
 ## Current Interaction Model
 
