@@ -1,11 +1,28 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
+
+interface AskUserOption {
+  label: string;
+  description: string;
+  preview?: string;
+}
+
+interface PendingQuestionItem {
+  question: string;
+  header: string;
+  options: AskUserOption[];
+  multi_select?: boolean;
+}
 
 interface PendingQuestion {
-  question?: string;
   context?: string;
-  options?: string[];
+  questions?: PendingQuestionItem[];
   allow_freeform?: boolean;
+}
+
+interface AskUserAnswerSubmission {
+  answers: Record<string, string | string[]>;
+  freeform?: string;
 }
 
 const props = defineProps<{
@@ -13,76 +30,104 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  (e: 'select', value: string): void;
-  (e: 'other', value: string): void;
+  (e: 'submit', value: AskUserAnswerSubmission): void;
   (e: 'skip'): void;
 }>();
 
-const otherValue = ref('');
-const activeIndex = ref(0);
+const selectedAnswers = reactive<Record<string, string[]>>({});
+const activePreview = reactive<Record<string, string>>({});
+const freeform = ref('');
+const currentIndex = ref(0);
 
-const submitOther = () => {
-  const value = otherValue.value.trim();
-  if (!value) return;
-  emit('other', value);
-  otherValue.value = '';
-};
-
-const handleKeydown = (event: KeyboardEvent) => {
-  if (!props.request) return;
-
-  const options = props.request.options ?? [];
-  if (event.key === 'Escape') {
-    event.preventDefault();
-    emit('skip');
-    return;
-  }
-
-  if (!options.length) return;
-
-  if (event.key === 'ArrowDown') {
-    event.preventDefault();
-    activeIndex.value = (activeIndex.value + 1) % options.length;
-    return;
-  }
-
-  if (event.key === 'ArrowUp') {
-    event.preventDefault();
-    activeIndex.value = (activeIndex.value - 1 + options.length) % options.length;
-    return;
-  }
-
-  if (event.key === 'Enter' && !(event.target instanceof HTMLInputElement)) {
-    const option = options[activeIndex.value];
-    if (!option) return;
-    event.preventDefault();
-    emit('select', option);
-  }
-};
+const questions = computed(() => props.request?.questions ?? []);
+const currentQuestion = computed(() => questions.value[currentIndex.value] ?? null);
+const isLastQuestion = computed(() => currentIndex.value >= questions.value.length - 1);
+const progressText = computed(() => {
+  if (questions.value.length <= 1) return '';
+  return `${currentIndex.value + 1} / ${questions.value.length}`;
+});
 
 watch(
   () => props.request,
   () => {
-    activeIndex.value = 0;
-    otherValue.value = '';
+    Object.keys(selectedAnswers).forEach((key) => delete selectedAnswers[key]);
+    Object.keys(activePreview).forEach((key) => delete activePreview[key]);
+    freeform.value = '';
+    currentIndex.value = 0;
   },
-  { immediate: true }
+  { immediate: true },
 );
 
-onMounted(() => {
-  window.addEventListener('keydown', handleKeydown);
+function toggleOption(question: PendingQuestionItem, option: AskUserOption) {
+  const key = question.question;
+  const current = selectedAnswers[key] ?? [];
+
+  if (question.multi_select) {
+    selectedAnswers[key] = current.includes(option.label)
+      ? current.filter((item) => item !== option.label)
+      : [...current, option.label];
+  } else {
+    selectedAnswers[key] = [option.label];
+  }
+
+  activePreview[key] = option.preview ?? '';
+}
+
+function isSelected(question: PendingQuestionItem, option: AskUserOption) {
+  return (selectedAnswers[question.question] ?? []).includes(option.label);
+}
+
+const canSubmit = computed(() => {
+  const question = currentQuestion.value;
+  if (!question) return false;
+  const answers = selectedAnswers[question.question] ?? [];
+  return answers.length > 0;
 });
 
-onUnmounted(() => {
-  window.removeEventListener('keydown', handleKeydown);
-});
+function buildSubmission(): AskUserAnswerSubmission {
+  const answers: Record<string, string | string[]> = {};
+
+  for (const question of questions.value) {
+    const values = selectedAnswers[question.question] ?? [];
+    answers[question.question] = question.multi_select ? values : values[0] ?? '';
+  }
+
+  return {
+    answers,
+    freeform: freeform.value.trim() || undefined,
+  };
+}
+
+function goNext() {
+  if (!canSubmit.value || isLastQuestion.value) return;
+  currentIndex.value += 1;
+}
+
+function goPrevious() {
+  if (currentIndex.value <= 0) return;
+  currentIndex.value -= 1;
+}
+
+function submitAnswers() {
+  if (!currentQuestion.value) return;
+  if (!isLastQuestion.value) {
+    goNext();
+    return;
+  }
+
+  if (!(selectedAnswers[currentQuestion.value.question] ?? []).length) return;
+  emit('submit', buildSubmission());
+}
 </script>
 
 <template>
   <div v-if="request" class="ask-shell">
     <div class="ask-card">
       <div class="ask-header">
-        <div class="ask-title">{{ request.question }}</div>
+        <div>
+          <div class="ask-title">我需要你确认几个关键选项</div>
+          <div v-if="request.context" class="ask-context">{{ request.context }}</div>
+        </div>
         <button class="ask-close" title="关闭" @click="emit('skip')">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
             <path d="M6 6l12 12M18 6L6 18" stroke-linecap="round" />
@@ -90,43 +135,69 @@ onUnmounted(() => {
         </button>
       </div>
 
-      <div v-if="request.context" class="ask-context">{{ request.context }}</div>
+      <div v-if="currentQuestion" class="ask-question-list">
+        <section class="ask-question-card">
+          <div class="ask-question-header">
+            <div class="ask-question-meta">
+              <span class="ask-chip">{{ currentQuestion.header }}</span>
+              <span class="ask-mode">{{ currentQuestion.multi_select ? '可多选' : '单选' }}</span>
+            </div>
+            <span v-if="progressText" class="ask-progress">{{ progressText }}</span>
+          </div>
+          <div class="ask-question-title">{{ currentQuestion.question }}</div>
 
-      <div v-if="request.options?.length" class="ask-options">
+          <div class="ask-options">
+            <button
+              v-for="(option, index) in currentQuestion.options"
+              :key="`${currentQuestion.question}-${option.label}`"
+              class="ask-option"
+              :class="{ 'is-selected': isSelected(currentQuestion, option) }"
+              @click="toggleOption(currentQuestion, option)"
+            >
+              <span class="ask-index">{{ index + 1 }}</span>
+              <span class="ask-option-body">
+                <span class="ask-label">{{ option.label }}</span>
+                <span class="ask-description">{{ option.description }}</span>
+              </span>
+            </button>
+          </div>
+
+          <div
+            v-if="activePreview[currentQuestion.question]"
+            class="ask-preview"
+          >
+            <div class="ask-preview-title">Preview</div>
+            <pre class="ask-preview-body">{{ activePreview[currentQuestion.question] }}</pre>
+          </div>
+
+        </section>
+      </div>
+
+      <div v-if="request.allow_freeform !== false" class="ask-freeform">
+        <div class="ask-freeform-title">其他补充</div>
+        <textarea
+          v-model="freeform"
+          class="ask-freeform-input"
+          rows="3"
+          placeholder="如果上面的选项还不够准确，可以在这里补充说明"
+        />
+      </div>
+
+      <div class="ask-actions">
         <button
-          v-for="(option, index) in request.options"
-          :key="`${index}-${option}`"
-          class="ask-option"
-          :class="{ 'is-selected': activeIndex === index }"
-          @mouseenter="activeIndex = index"
-          @click="emit('select', option)"
+          v-if="questions.length > 1"
+          class="ask-back"
+          :disabled="currentIndex === 0"
+          @click="goPrevious"
         >
-          <span class="ask-index">{{ index + 1 }}</span>
-          <span class="ask-label">{{ option }}</span>
-          <svg class="ask-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-            <path d="M8 12h8m0 0-4-4m4 4-4 4" stroke-linecap="round" stroke-linejoin="round" />
-          </svg>
+          Back
+        </button>
+        <button class="ask-skip" @click="emit('skip')">Skip</button>
+        <button class="ask-submit" :disabled="!canSubmit" @click="submitAnswers">
+          {{ isLastQuestion ? 'Confirm' : 'Next' }}
         </button>
       </div>
-
-      <div v-if="request.allow_freeform !== false" class="ask-other">
-        <div class="ask-other-icon">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-            <path d="M12 20h9" stroke-linecap="round" />
-            <path d="M16.5 3.5a2.12 2.12 0 1 1 3 3L7 19l-4 1 1-4 12.5-12.5Z" stroke-linecap="round" stroke-linejoin="round" />
-          </svg>
-        </div>
-        <input
-          v-model="otherValue"
-          class="ask-input"
-          placeholder="Something else"
-          @keydown.enter.prevent="submitOther"
-        />
-        <button class="ask-skip" @click="emit('skip')">Skip</button>
-      </div>
     </div>
-
-    <div v-if="request.options?.length" class="ask-hint">↑↓ to navigate ・ Enter to select ・ Esc to skip</div>
   </div>
 </template>
 
@@ -138,14 +209,14 @@ onUnmounted(() => {
 
 .ask-card {
   width: 100%;
-  max-width: 720px;
+  max-width: 760px;
   margin: 0 auto;
   box-sizing: border-box;
   border: 1px solid #ddd7ca;
-  border-radius: 18px;
+  border-radius: 20px;
   background: #fffdfa;
-  padding: 12px;
-  box-shadow: 0 10px 30px rgba(45, 34, 18, 0.08);
+  padding: 14px;
+  box-shadow: 0 14px 40px rgba(45, 34, 18, 0.1);
 }
 
 .ask-header {
@@ -153,16 +224,21 @@ onUnmounted(() => {
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  padding: 2px 2px 10px;
+  padding: 2px 2px 12px;
 }
 
 .ask-title {
-  min-width: 0;
   color: #262117;
-  font-size: 14px;
-  line-height: 1.45;
-  white-space: pre-wrap;
-  word-break: break-word;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.ask-context {
+  margin-top: 6px;
+  color: #847b6d;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .ask-close {
@@ -179,32 +255,81 @@ onUnmounted(() => {
   background: #f3eee4;
 }
 
-.ask-context {
-  padding: 0 2px 8px;
-  color: #938a7b;
+.ask-question-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ask-question-card {
+  border: 1px solid #ece6da;
+  border-radius: 16px;
+  padding: 12px;
+  background: #fffefb;
+}
+
+.ask-question-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.ask-question-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ask-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: #f2ede4;
+  color: #6d6557;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.ask-mode {
+  color: #a19686;
+  font-size: 11px;
+}
+
+.ask-progress {
+  color: #8b816f;
   font-size: 12px;
-  line-height: 1.45;
+  font-variant-numeric: tabular-nums;
+}
+
+.ask-question-title {
+  margin-bottom: 10px;
+  color: #262117;
+  font-size: 14px;
+  line-height: 1.5;
 }
 
 .ask-options {
   display: flex;
   flex-direction: column;
+  gap: 8px;
 }
 
 .ask-option {
   width: 100%;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 12px;
-  padding: 10px 8px;
-  border: 0;
-  border-top: 1px solid #ece6da;
+  padding: 10px;
+  border: 1px solid #ece6da;
+  border-radius: 14px;
   background: transparent;
   text-align: left;
-}
-
-.ask-option:first-child {
-  border-top: 0;
 }
 
 .ask-option:hover {
@@ -213,90 +338,126 @@ onUnmounted(() => {
 
 .ask-option.is-selected {
   background: #f6f1e7;
-  border-radius: 14px;
+  border-color: #d9cfbc;
 }
 
 .ask-index {
-  width: 32px;
-  height: 32px;
-  flex-shrink: 0;
-  border-radius: 12px;
-  background: #ece7dd;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: #6a6357;
-  font-size: 14px;
-}
-
-.ask-label {
-  min-width: 0;
-  flex: 1;
-  color: #262117;
-  font-size: 14px;
-  line-height: 1.45;
-}
-
-.ask-arrow {
-  flex-shrink: 0;
-  color: #9d9587;
-}
-
-.ask-other {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  border-top: 1px solid #ece6da;
-  margin-top: 4px;
-  padding: 12px 4px 4px;
-}
-
-.ask-other-icon {
-  width: 32px;
-  height: 32px;
-  flex-shrink: 0;
-  border-radius: 12px;
-  background: #ece7dd;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: #6a6357;
-}
-
-.ask-input {
-  min-width: 0;
-  flex: 1;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: #262117;
-  font-size: 14px;
-  line-height: 1.4;
-}
-
-.ask-input::placeholder {
-  color: #aca495;
-}
-
-.ask-skip {
+  width: 28px;
+  height: 28px;
   flex-shrink: 0;
   border-radius: 10px;
-  border: 1px solid #d4ccbf;
-  background: #fffdfa;
-  color: #262117;
-  padding: 7px 14px;
+  background: #ece7dd;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #6a6357;
   font-size: 13px;
 }
 
-.ask-skip:hover {
-  background: #f7f2e8;
+.ask-option-body {
+  min-width: 0;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
 }
 
-.ask-hint {
-  margin-top: 8px;
-  text-align: center;
-  color: #a39a8c;
+.ask-label {
+  color: #262117;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.ask-description {
+  color: #857d6f;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.ask-preview {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: #f7f3ea;
+  border: 1px solid #ebe3d4;
+}
+
+.ask-preview-title {
+  margin-bottom: 6px;
+  color: #766d5f;
   font-size: 11px;
-  line-height: 1.4;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.ask-preview-body {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #4f473b;
+  font-size: 12px;
+  line-height: 1.6;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+}
+
+.ask-freeform-input {
+  width: 100%;
+  margin-top: 10px;
+  border: 1px solid #e6dece;
+  border-radius: 12px;
+  background: #fffdfa;
+  padding: 10px 12px;
+  resize: vertical;
+  box-sizing: border-box;
+  outline: none;
+  color: #262117;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.ask-freeform {
+  margin-top: 12px;
+}
+
+.ask-freeform-title {
+  color: #6a6357;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.ask-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.ask-back,
+.ask-skip,
+.ask-submit {
+  flex-shrink: 0;
+  border-radius: 10px;
+  padding: 8px 14px;
+  font-size: 13px;
+}
+
+.ask-back,
+.ask-skip {
+  border: 1px solid #d4ccbf;
+  background: #fffdfa;
+  color: #262117;
+}
+
+.ask-submit {
+  border: 1px solid #d38f6f;
+  background: #da7756;
+  color: white;
+}
+
+.ask-back:disabled,
+.ask-submit:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 </style>

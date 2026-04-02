@@ -41,6 +41,10 @@ pub mod file_edit_tool;
 pub mod ask_user_question_tool;
 #[path = "ConfigTool/mod.rs"]
 pub mod config_tool;
+#[path = "EnterPlanModeTool/mod.rs"]
+pub mod enter_plan_mode_tool;
+#[path = "ExitPlanModeTool/mod.rs"]
+pub mod exit_plan_mode_tool;
 
 // Placeholder migration modules stay out of `registered_tools()` until their
 // runtime bridge is complete. This avoids exposing Claude-style folders as if
@@ -128,6 +132,14 @@ fn registered_tools() -> Vec<RegisteredTool> {
         RegisteredTool {
             tool: ask_user_question_tool::tool,
             execute: ask_user_question_tool::execute,
+        },
+        RegisteredTool {
+            tool: enter_plan_mode_tool::tool,
+            execute: enter_plan_mode_tool::execute,
+        },
+        RegisteredTool {
+            tool: exit_plan_mode_tool::tool,
+            execute: exit_plan_mode_tool::execute,
         },
         RegisteredTool {
             tool: config_tool::tool,

@@ -20,7 +20,11 @@ pub struct ChatMessageEvent {
     pub turn_state: Option<String>,
 }
 
-pub async fn send_request(app: &AppHandle, messages: &[Message]) -> Result<Vec<Message>, String> {
+pub async fn send_request(
+    app: &AppHandle,
+    messages: &[Message],
+    plan_mode: bool,
+) -> Result<Vec<Message>, String> {
     let settings = crate::command::settings::get_settings(app.clone());
     let api_key = settings.api_key;
 
@@ -34,7 +38,7 @@ pub async fn send_request(app: &AppHandle, messages: &[Message]) -> Result<Vec<M
     let request = AnthropicRequest {
         model: settings.model,
         max_tokens: 4096,
-        system: Some(load_system_prompt(app)),
+        system: Some(load_system_prompt(app, plan_mode)),
         messages: messages.to_vec(),
         tools: available_tools,
         stream: true,
@@ -79,12 +83,13 @@ pub async fn send_chat_message(
     app: AppHandle,
     conversation_id: Option<String>,
     messages: Vec<Message>,
+    plan_mode: bool,
 ) -> Result<(), String> {
     let mut current_messages =
         compact::prepare_messages_for_turn(&app, conversation_id.as_deref(), &messages).await;
 
     loop {
-        let new_messages = send_request(&app, &current_messages).await?;
+        let new_messages = send_request(&app, &current_messages, plan_mode).await?;
         current_messages.extend(new_messages.clone());
 
         let has_tool_result = new_messages.iter().any(|m| {

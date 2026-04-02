@@ -9,6 +9,13 @@ pub async fn send_chat_message(
     app: AppHandle,
     conversation_id: Option<String>,
     messages: Vec<Message>,
+    plan_mode: Option<bool>,
 ) -> Result<(), String> {
-    crate::llm::query_engine::send_chat_message(app, conversation_id, messages).await
+    crate::llm::query_engine::send_chat_message(
+        app,
+        conversation_id,
+        messages,
+        plan_mode.unwrap_or(false),
+    )
+    .await
 }

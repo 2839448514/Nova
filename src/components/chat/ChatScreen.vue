@@ -18,11 +18,30 @@ interface TurnCost {
   toolDurationMs: number;
 }
 
+interface AskUserOption {
+  label: string;
+  description: string;
+  preview?: string;
+}
+
+interface PendingQuestionItem {
+  question: string;
+  header: string;
+  options: AskUserOption[];
+  multi_select?: boolean;
+}
+
 interface PendingQuestion {
-  question?: string;
   context?: string;
-  options?: string[];
+  questions?: PendingQuestionItem[];
   allow_freeform?: boolean;
+  allow_annotations?: boolean;
+}
+
+interface AskUserAnswerSubmission {
+  answers: Record<string, string | string[]>;
+  annotations?: Record<string, { notes?: string; preview?: string }>;
+  freeform?: string;
 }
 
 const props = defineProps<{
@@ -32,12 +51,12 @@ const props = defineProps<{
   assistantTokenUsage?: number;
   assistantTurnCost?: TurnCost;
   pendingQuestion?: PendingQuestion | null;
+  planMode?: boolean;
 }>();
 
 const emit = defineEmits<{
   (e: 'send', msg: string): void;
-  (e: 'ask-select', value: string): void;
-  (e: 'ask-other', value: string): void;
+  (e: 'ask-submit', value: AskUserAnswerSubmission): void;
   (e: 'ask-skip'): void;
 }>();
 
@@ -295,11 +314,16 @@ defineExpose({
     <!-- Input Box (Chat state) -->
     <div class="w-full bg-transparent px-4 pt-4 pb-6">
       <div class="w-full max-w-[760px] mx-auto">
+        <div
+          v-if="planMode"
+          class="mb-3 rounded-2xl border border-[#e6dfcf] bg-[#f8f4eb] px-4 py-3 text-[0.88rem] text-[#5e584c] dark:border-[#4c4338] dark:bg-[#2d2923] dark:text-[#d8cfbf]"
+        >
+          当前处于 `Plan Mode`：优先调研、澄清和规划，确认方案后再进入实现。
+        </div>
         <AskUserInputDialog
           v-if="pendingQuestion"
           :request="pendingQuestion"
-          @select="emit('ask-select', $event)"
-          @other="emit('ask-other', $event)"
+          @submit="emit('ask-submit', $event)"
           @skip="emit('ask-skip')"
         />
         <InputArea v-else :isGenerating="isGenerating" @send="handleSend" />

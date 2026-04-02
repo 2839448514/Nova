@@ -51,12 +51,37 @@ interface ChatMessageEvent {
   turn_state?: string;
 }
 
+interface AskUserOption {
+  label: string;
+  description: string;
+  preview?: string;
+}
+
+interface AskUserQuestionItem {
+  question: string;
+  header: string;
+  options: AskUserOption[];
+  multi_select?: boolean;
+}
+
 interface NeedsUserInputPayload {
   type?: string;
-  question?: string;
   context?: string;
-  options?: string[];
   allow_freeform?: boolean;
+  questions?: AskUserQuestionItem[];
+}
+
+interface AskUserAnswerSubmission {
+  answers: Record<string, string | string[]>;
+  freeform?: string;
+}
+
+interface PlanModeChangePayload {
+  type?: string;
+  mode?: string;
+  goal?: string;
+  summary?: string;
+  message?: string;
 }
 
 const messages = ref<Message[]>([]);
@@ -73,20 +98,33 @@ const currentToolCalls = ref(0);
 const currentToolDurationMs = ref(0);
 const currentInputTokens = ref(0);
 const currentOutputTokens = ref(0);
+const planMode = ref(false);
 
 let unlisten: UnlistenFn | null = null;
 const isSidebarOpen = ref(true);
 const chatScreenRef = ref<InstanceType<typeof ChatScreen> | null>(null);
 
-function buildPendingQuestionReply(value: string, source: "option" | "other" | "skip"): string {
-  const normalized = value.trim();
-  if (source === "skip") {
+function buildPendingQuestionReply(
+  payload: AskUserAnswerSubmission | null,
+  source: "submit" | "skip",
+): string {
+  if (source === "skip" || !payload) {
     return "用户跳过了澄清问题，请基于当前上下文继续；如果仍有缺失，请明确说明你做了哪些假设。";
   }
-  if (source === "other") {
-    return `用户补充说明：${normalized}`;
+
+  const lines: string[] = ["用户补充了以下澄清信息："];
+  for (const [question, answer] of Object.entries(payload.answers)) {
+    const answerText = Array.isArray(answer) ? answer.join("、") : answer;
+    if (answerText.trim()) {
+      lines.push(`- ${question}：${answerText}`);
+    }
   }
-  return `用户选择了：${normalized}`;
+
+  if (payload.freeform?.trim()) {
+    lines.push(`- 其他补充：${payload.freeform.trim()}`);
+  }
+
+  return lines.join("\n");
 }
 
 function finalizeAssistantTurn(tokenUsage?: number) {
@@ -201,18 +239,17 @@ function renderToolResult(raw: string): string {
       if (parsed.context) {
         lines.push(`需要你补充信息：${parsed.context}`);
       }
-      if (parsed.question) {
-        lines.push(parsed.question);
-      }
-      if (Array.isArray(parsed.options) && parsed.options.length > 0) {
+      if (Array.isArray(parsed.questions) && parsed.questions.length > 0) {
         lines.push("");
-        lines.push("可选项：");
-        for (const opt of parsed.options) {
-          lines.push(`- ${opt}`);
+        for (const item of parsed.questions) {
+          lines.push(`${item.header}: ${item.question}`);
+          for (const opt of item.options ?? []) {
+            lines.push(`- ${opt.label}`);
+          }
+          lines.push("");
         }
       }
       if (parsed.allow_freeform) {
-        lines.push("");
         lines.push("也可以直接描述你的具体需求。");
       }
       return lines.join("\n");
@@ -241,14 +278,31 @@ function parseNeedsUserInput(raw: string): NeedsUserInputPayload | null {
   if (!trimmed) return null;
   try {
     const parsed = JSON.parse(trimmed) as NeedsUserInputPayload;
-    if (parsed?.type === "needs_user_input" && parsed.question) {
+    if (
+      parsed?.type === "needs_user_input" &&
+      Array.isArray(parsed.questions) &&
+      parsed.questions.length > 0
+    ) {
       return {
         type: parsed.type,
-        question: parsed.question,
         context: parsed.context,
-        options: Array.isArray(parsed.options) ? parsed.options : [],
         allow_freeform: parsed.allow_freeform ?? true,
+        questions: parsed.questions,
       };
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function parsePlanModeChange(raw: string): PlanModeChangePayload | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  try {
+    const parsed = JSON.parse(trimmed) as PlanModeChangePayload;
+    if (parsed?.type === "plan_mode_change" && parsed.mode) {
+      return parsed;
     }
   } catch {
     return null;
@@ -280,6 +334,7 @@ async function createNewConversation(seedTitle?: string): Promise<string | null>
 
 async function loadConversation(id: string) {
   activeConversationId.value = id;
+  planMode.value = false;
   try {
     const saved = await invoke<PersistedMessage[]>("load_history", { conversationId: id });
     messages.value = (saved || [])
@@ -338,6 +393,10 @@ onMounted(async () => {
         }
         const result = (payload.tool_result ?? "").trim();
         if (result) {
+          const planModeChange = parsePlanModeChange(result);
+          if (planModeChange) {
+            planMode.value = planModeChange.mode === "plan";
+          }
           const needsUserInput = parseNeedsUserInput(result);
           if (needsUserInput) {
             pendingQuestion.value = needsUserInput;
@@ -405,6 +464,7 @@ async function handleSendMessage(userText: string) {
     await invoke("send_chat_message", {
       conversationId: activeConversationId.value || null,
       messages: rustMessages,
+      planMode: planMode.value,
     });
     if (isGenerating.value) {
       const finalText = assistantResponse.value.trim();
@@ -434,18 +494,12 @@ async function handleSendMessage(userText: string) {
   }
 }
 
-async function handlePendingQuestionSelect(option: string) {
-  if (!option.trim()) return;
-  await handleSendMessage(buildPendingQuestionReply(option, "option"));
-}
-
-async function handlePendingQuestionOther(value: string) {
-  if (!value.trim()) return;
-  await handleSendMessage(buildPendingQuestionReply(value, "other"));
+async function handlePendingQuestionSubmit(payload: AskUserAnswerSubmission) {
+  await handleSendMessage(buildPendingQuestionReply(payload, "submit"));
 }
 
 async function handlePendingQuestionSkip() {
-  await handleSendMessage(buildPendingQuestionReply("", "skip"));
+  await handleSendMessage(buildPendingQuestionReply(null, "skip"));
 }
 
 async function handleNewChat() {
@@ -455,12 +509,14 @@ async function handleNewChat() {
   messages.value = [];
   assistantResponse.value = "";
   isGenerating.value = false;
+  planMode.value = false;
 }
 
 async function handleSelectConversation(id: string) {
   if (!id || id === activeConversationId.value || isGenerating.value) return;
   assistantResponse.value = "";
   isGenerating.value = false;
+  planMode.value = false;
   await loadConversation(id);
 }
 
@@ -532,9 +588,9 @@ async function handleDeleteConversation(id: string) {
         :assistantTokenUsage="assistantTokenUsage"
         :assistantTurnCost="assistantTurnCost"
         :pendingQuestion="pendingQuestion"
+        :planMode="planMode"
         @send="handleSendMessage"
-        @ask-select="handlePendingQuestionSelect"
-        @ask-other="handlePendingQuestionOther"
+        @ask-submit="handlePendingQuestionSubmit"
         @ask-skip="handlePendingQuestionSkip"
       />
 
