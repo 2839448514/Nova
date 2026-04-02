@@ -78,6 +78,17 @@ let unlisten: UnlistenFn | null = null;
 const isSidebarOpen = ref(true);
 const chatScreenRef = ref<InstanceType<typeof ChatScreen> | null>(null);
 
+function buildPendingQuestionReply(value: string, source: "option" | "other" | "skip"): string {
+  const normalized = value.trim();
+  if (source === "skip") {
+    return "用户跳过了澄清问题，请基于当前上下文继续；如果仍有缺失，请明确说明你做了哪些假设。";
+  }
+  if (source === "other") {
+    return `用户补充说明：${normalized}`;
+  }
+  return `用户选择了：${normalized}`;
+}
+
 function buildConversationTitle(source: string): string {
   const t = source.trim();
   return t.length > 24 ? `${t.slice(0, 24)}...` : t;
@@ -411,6 +422,20 @@ async function handleSendMessage(userText: string) {
   }
 }
 
+async function handlePendingQuestionSelect(option: string) {
+  if (!option.trim()) return;
+  await handleSendMessage(buildPendingQuestionReply(option, "option"));
+}
+
+async function handlePendingQuestionOther(value: string) {
+  if (!value.trim()) return;
+  await handleSendMessage(buildPendingQuestionReply(value, "other"));
+}
+
+async function handlePendingQuestionSkip() {
+  await handleSendMessage(buildPendingQuestionReply("", "skip"));
+}
+
 async function handleNewChat() {
   const id = await createNewConversation("New chat");
   if (!id) return;
@@ -495,7 +520,10 @@ async function handleDeleteConversation(id: string) {
         :assistantTokenUsage="assistantTokenUsage"
         :assistantTurnCost="assistantTurnCost"
         :pendingQuestion="pendingQuestion"
-        @send="handleSendMessage" 
+        @send="handleSendMessage"
+        @ask-select="handlePendingQuestionSelect"
+        @ask-other="handlePendingQuestionOther"
+        @ask-skip="handlePendingQuestionSkip"
       />
 
     </main>

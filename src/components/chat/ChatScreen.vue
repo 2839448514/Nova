@@ -2,6 +2,7 @@
 import { ref, onMounted, nextTick } from 'vue';
 import InputArea from '../layout/InputArea.vue';
 import MarkdownRenderer from './MarkdownRenderer.vue';
+import AskUserInputDialog from './AskUserInputDialog.vue';
 
 interface Message {
   role: "user" | "assistant";
@@ -35,6 +36,9 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'send', msg: string): void;
+  (e: 'ask-select', value: string): void;
+  (e: 'ask-other', value: string): void;
+  (e: 'ask-skip'): void;
 }>();
 
 const chatAreaRef = ref<HTMLElement | null>(null);
@@ -289,8 +293,17 @@ defineExpose({
     </div>
 
     <!-- Input Box (Chat state) -->
-    <div class="p-4 w-full bg-gradient-to-t from-[#fcfcfc] dark:from-[#1a1a1a] pb-6">
-      <InputArea :isGenerating="isGenerating" :pendingQuestion="pendingQuestion" @send="handleSend" />
+    <div class="w-full bg-gradient-to-t from-[#fcfcfc] via-[#fcfcfc] to-[#fcfcfc]/0 dark:from-[#1a1a1a] dark:via-[#1a1a1a] dark:to-[#1a1a1a]/0 px-4 pt-4 pb-6">
+      <div class="w-full max-w-[760px] mx-auto">
+        <AskUserInputDialog
+          v-if="pendingQuestion"
+          :request="pendingQuestion"
+          @select="emit('ask-select', $event)"
+          @other="emit('ask-other', $event)"
+          @skip="emit('ask-skip')"
+        />
+        <InputArea v-else :isGenerating="isGenerating" @send="handleSend" />
+      </div>
       <div class="text-center text-[0.7rem] text-muted-foreground mt-2">
         Nova can make mistakes. Please verify important information.
       </div>
