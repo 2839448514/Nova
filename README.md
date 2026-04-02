@@ -1,7 +1,71 @@
-# Tauri + Vue + TypeScript
+# Nova
 
-This template should help get you started developing with Vue 3 and TypeScript in Vite. The template uses Vue 3 `<script setup>` SFCs, check out the [script setup docs](https://v3.vuejs.org/api/sfc-script-setup.html#sfc-script-setup) to learn more.
+Nova is a local coding assistant desktop app built with Tauri, Vue 3, TypeScript, and Rust.
 
-## Recommended IDE Setup
+It is designed for an in-editor workflow where the model can:
 
-- [VS Code](https://code.visualstudio.com/) + [Vue - Official](https://marketplace.visualstudio.com/items?itemName=Vue.volar) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+- read and edit files in the current workspace
+- call local tools from the Rust side
+- stream responses into the chat UI
+- pause and ask the user for clarification through an interactive option dialog when key information is missing
+
+## Current Interaction Model
+
+Nova supports a human-in-the-loop clarification flow through the `ask_user_question` tool.
+
+When the model lacks required information, it should stop and return a `needs_user_input` payload instead of guessing. The frontend then shows a bottom-pinned dialog with:
+
+- a question title
+- optional context
+- selectable options
+- an optional freeform input
+- skip support
+
+After the user selects an option, types an answer, or skips, Nova resumes the conversation with that clarification injected back into the chat context.
+
+## Project Structure
+
+- `src/`: Vue frontend
+- `src/components/chat/`: chat UI, message rendering, ask-user dialog
+- `src/components/layout/`: layout, sidebar, input area, settings
+- `src-tauri/src/`: Rust commands, LLM services, tools, prompt loading
+- `src-tauri/src/prompt/system_prompt.md`: runtime system prompt actually loaded by the app
+- `src-tauri/prompts/system_prompt.md`: prompt reference copy for editing and versioning
+
+## Development
+
+Recommended environment:
+
+- Node.js
+- Rust
+- Tauri prerequisites for your OS
+- VS Code + Vue Official + rust-analyzer + Tauri extension
+
+Install dependencies:
+
+```bash
+npm install
+```
+
+Start the frontend:
+
+```bash
+npm run dev
+```
+
+Start the Tauri app:
+
+```bash
+npm run tauri
+```
+
+Build the frontend:
+
+```bash
+npm run build
+```
+
+## Notes
+
+- PowerShell commands in this repo should use PowerShell 7 (`pwsh.exe`).
+- The build may currently surface unrelated TypeScript unused-variable warnings in some settings and welcome-screen files.

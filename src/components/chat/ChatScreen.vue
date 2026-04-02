@@ -293,7 +293,7 @@ defineExpose({
     </div>
 
     <!-- Input Box (Chat state) -->
-    <div class="w-full bg-gradient-to-t from-[#fcfcfc] via-[#fcfcfc] to-[#fcfcfc]/0 dark:from-[#1a1a1a] dark:via-[#1a1a1a] dark:to-[#1a1a1a]/0 px-4 pt-4 pb-6">
+    <div class="w-full bg-transparent px-4 pt-4 pb-6">
       <div class="w-full max-w-[760px] mx-auto">
         <AskUserInputDialog
           v-if="pendingQuestion"

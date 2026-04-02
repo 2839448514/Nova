@@ -89,6 +89,25 @@ function buildPendingQuestionReply(value: string, source: "option" | "other" | "
   return `用户选择了：${normalized}`;
 }
 
+function finalizeAssistantTurn(tokenUsage?: number) {
+  const finalText = assistantResponse.value.trim();
+  const cost = buildAssistantCost();
+  assistantTurnCost.value = cost;
+  const assistantMsg: Message = {
+    role: "assistant",
+    content: finalText || "（本轮没有返回可显示的文本内容）",
+    tokenUsage: tokenUsage ?? assistantTokenUsage.value,
+    cost,
+  };
+  messages.value.push(assistantMsg);
+  void persistMessage(assistantMsg);
+  void persistConversationMemory(activeConversationId.value);
+  assistantResponse.value = "";
+  assistantTokenUsage.value = undefined;
+  isGenerating.value = false;
+  chatScreenRef.value?.scrollToBottom();
+}
+
 function buildConversationTitle(source: string): string {
   const t = source.trim();
   return t.length > 24 ? `${t.slice(0, 24)}...` : t;
@@ -333,22 +352,15 @@ onMounted(async () => {
         assistantTokenUsage.value = payload.token_usage;
         currentOutputTokens.value = payload.token_usage ?? currentOutputTokens.value;
       } else if (payload.type === "stop") {
-        const finalText = assistantResponse.value.trim();
-        const cost = buildAssistantCost();
-        assistantTurnCost.value = cost;
-        const assistantMsg: Message = {
-          role: "assistant",
-          content: finalText || "（本轮没有返回可显示的文本内容）",
-          tokenUsage: payload.token_usage ?? assistantTokenUsage.value,
-          cost,
-        };
-        messages.value.push(assistantMsg);
-        void persistMessage(assistantMsg);
-        void persistConversationMemory(activeConversationId.value);
-        assistantResponse.value = "";
-        assistantTokenUsage.value = undefined;
-        isGenerating.value = false;
-        chatScreenRef.value?.scrollToBottom();
+        const stopReason = payload.stop_reason ?? "";
+        const turnState = payload.turn_state ?? "";
+        const shouldFinalize =
+          turnState === "awaiting_user_input" ||
+          stopReason === "needs_user_input";
+
+        if (shouldFinalize) {
+          finalizeAssistantTurn(payload.token_usage);
+        }
       }
     });
   } catch (err) {
