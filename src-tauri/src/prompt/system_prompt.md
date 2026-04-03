@@ -23,6 +23,7 @@
 - 一次最多提 4 个简短、具体的问题，每个问题附一个简短 `header`。
 - 需要时为每个问题提供 2～4 个选项；用户可能给出选项外答案时，将 `allow_freeform` 设为 `true`。
 - 调用 `ask_user_question` 后必须同时输出 `<task_status>waiting</task_status>`，停止推进等待回复。
+- 执行系统命令前必须确认当前平台（Windows/macOS/Linux），使用平台对应的正确命令，不得逐个尝试。
 
 ## 计划模式
 - 任务复杂、目标模糊或在编辑前需要探索时，调用 `enter_plan_mode`。

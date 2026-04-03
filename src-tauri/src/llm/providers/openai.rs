@@ -147,12 +147,28 @@ impl OpenAiProvider {
                                 text_parts.push(text.clone());
                             }
                             ContentBlock::ToolUse { id, name, input } => {
+                                let serialized_args = match serde_json::to_string(input) {
+                                    Ok(v) => v,
+                                    Err(e) => {
+                                        let msg = format!(
+                                            "Failed to serialize tool arguments for '{}': {}",
+                                            name, e
+                                        );
+                                        emit_backend_error(
+                                            app,
+                                            "llm.providers.openai",
+                                            msg.clone(),
+                                            Some("tool.arguments_serialize"),
+                                        );
+                                        return Err(msg);
+                                    }
+                                };
                                 tool_calls.push(OpenAiReqToolCall {
                                     id: id.clone(),
                                     r#type: "function".into(),
                                     function: OpenAiReqFunction {
                                         name: name.clone(),
-                                        arguments: input.to_string(), // Input is a Value, we serialize it
+                                        arguments: serialized_args,
                                     }
                                 });
                             }

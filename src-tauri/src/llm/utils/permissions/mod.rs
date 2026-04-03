@@ -7,9 +7,13 @@ use tauri::AppHandle;
 use crate::llm::types::{Content, ContentBlock, Message, Role};
 
 const DANGEROUS_COMMAND_PATTERNS: &[&str] = &[
+    "rm -rf",
     "rm -rf /",
     "rm -rf /*",
+    "del /f /s",
     "del /f /s /q",
+    "remove-item -recurse",
+    "remove-item -force",
     "remove-item -recurse -force",
     "format c:",
     "diskpart",
@@ -325,7 +329,7 @@ pub fn consume_user_permission_decisions(messages: &[Message]) -> usize {
 }
 
 fn check_command(command: &str) -> Result<(), String> {
-    let normalized = command.trim().to_ascii_lowercase();
+    let normalized = normalize_command_for_match(command);
     if normalized.is_empty() {
         return Err("Blocked by permission gate: command is empty".to_string());
     }
@@ -418,6 +422,7 @@ pub fn enforce_tool_permission(_app: &AppHandle, tool_name: &str, input: &Value)
                     &operation,
                 ));
             }
+            return PermissionEnforcement::Allow;
         }
         "replace_string_in_file" | "write_file" => {
             let path = input.get("path").and_then(|v| v.as_str()).unwrap_or_default();
@@ -434,16 +439,10 @@ pub fn enforce_tool_permission(_app: &AppHandle, tool_name: &str, input: &Value)
                     &operation,
                 ));
             }
+            return PermissionEnforcement::Allow;
         }
-        _ => {}
+        _ => {
+            return PermissionEnforcement::Allow;
+        }
     }
-
-    let request_id = next_request_id();
-    guard.pending.insert(
-        request_id.clone(),
-        PendingApproval {
-            operation: operation.clone(),
-        },
-    );
-    PermissionEnforcement::AskUser(build_permission_prompt_payload(&request_id, &operation))
 }

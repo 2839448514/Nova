@@ -316,7 +316,7 @@ impl AnthropicProvider {
                                         tool_result: None,
                                         token_usage: current_output_tokens,
                                         stop_reason: last_stop_reason.clone(),
-                                        turn_state: Some("completed".into()),
+                                        turn_state: Some("intermediate".into()),
                                     },
                                 )
                                 .ok();
@@ -340,7 +340,7 @@ impl AnthropicProvider {
                 tool_result: None,
                 token_usage: current_output_tokens,
                 stop_reason: last_stop_reason.clone(),
-                turn_state: Some("completed".into()),
+                turn_state: Some("intermediate".into()),
             },
         )
         .ok();
