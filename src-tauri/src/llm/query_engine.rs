@@ -1,9 +1,9 @@
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
+use crate::llm::providers::LlmProvider;
 use crate::llm::services::compact;
 use crate::llm::types::{Content, ContentBlock, Message};
-use crate::llm::providers::LlmProvider;
 use crate::llm::utils::error_event::emit_backend_error;
 
 #[derive(Debug, Serialize, Clone)]
@@ -44,8 +44,11 @@ pub async fn send_chat_message(
     if let Some(conversation_id) = conversation_id.as_deref() {
         if !has_session_restore_marker(&current_messages) {
             if let Some(restore_msg) =
-                crate::llm::utils::session_restore::build_resume_context_message(&app, conversation_id)
-                    .await
+                crate::llm::utils::session_restore::build_resume_context_message(
+                    &app,
+                    conversation_id,
+                )
+                .await
             {
                 current_messages.insert(0, restore_msg);
             }
@@ -53,16 +56,21 @@ pub async fn send_chat_message(
     }
 
     let provider = LlmProvider::new(&app);
-    let mut final_stop_reason = "end_turn".to_string();
-    let mut final_turn_state = "completed".to_string();
 
-    loop {
-        let consumed = crate::llm::utils::permissions::consume_user_permission_decisions(&current_messages);
+    let (final_stop_reason, final_turn_state) = loop {
+        let consumed =
+            crate::llm::utils::permissions::consume_user_permission_decisions(
+                conversation_id.as_deref(),
+                &current_messages,
+            );
         if consumed > 0 {
             eprintln!("[permissions] applied user approval decisions={}", consumed);
         }
 
-        let provider_result = match provider.send_request(&app, &current_messages, plan_mode).await {
+        let provider_result = match provider
+            .send_request(&app, &current_messages, plan_mode, conversation_id.as_deref())
+            .await
+        {
             Ok(v) => v,
             Err(e) => {
                 emit_backend_error(
@@ -75,7 +83,7 @@ pub async fn send_chat_message(
                     "chat-stream",
                     ChatMessageEvent {
                         r#type: "stop".into(),
-                        text: None,
+                        text: Some(e.clone()),
                         tool_use_id: None,
                         tool_use_name: None,
                         tool_use_input: None,
@@ -89,14 +97,17 @@ pub async fn send_chat_message(
                 return Err(e);
             }
         };
+
         let new_messages = provider_result.messages;
         current_messages.extend(new_messages.clone());
 
-        eprintln!("[loop] new_messages count={}", new_messages.len());
+        eprintln!("[loop] new_messages count={},the new messages are: {:?}", new_messages.len(), new_messages);
 
         let has_tool_result = new_messages.iter().any(|m| {
             if let Content::Blocks(blocks) = &m.content {
-                blocks.iter().any(|b| matches!(b, ContentBlock::ToolResult { .. }))
+                blocks
+                    .iter()
+                    .any(|b| matches!(b, ContentBlock::ToolResult { .. }))
             } else {
                 false
             }
@@ -105,19 +116,21 @@ pub async fn send_chat_message(
         eprintln!("[loop] has_tool_result={}", has_tool_result);
 
         if compact::has_needs_user_input(&new_messages) {
-            final_stop_reason = "needs_user_input".to_string();
-            final_turn_state = "needs_user_input".to_string();
-            break;
+            break (
+                "needs_user_input".to_string(),
+                "needs_user_input".to_string(),
+            );
         }
 
         if !has_tool_result {
-            final_stop_reason = provider_result
-                .stop_reason
-                .unwrap_or_else(|| "end_turn".to_string());
-            final_turn_state = "completed".to_string();
-            break;
+            break (
+                provider_result
+                    .stop_reason
+                    .unwrap_or_else(|| "end_turn".to_string()),
+                "completed".to_string(),
+            );
         }
-    }
+    };
 
     app.emit(
         "chat-stream",

@@ -253,6 +253,16 @@ onMounted(async () => {
       } else if (payload.type === "stop") {
         const stopReason = payload.stop_reason ?? "";
         const turnState = payload.turn_state ?? "";
+        if (turnState === "error") {
+          isGenerating.value = false;
+          const detail = (payload.text ?? "").trim();
+          emitToast({
+            variant: "error",
+            source: "chat-stream",
+            message: detail || `Provider error: ${stopReason || "unknown"}`,
+          });
+          return;
+        }
         const shouldFinalize =
           turnState === "completed" ||
           turnState === "awaiting_user_input" ||
@@ -325,6 +335,9 @@ async function handleSendMessage(userText: string) {
       planMode: planMode.value,
     });
   } catch (err: any) {
+    if (!isGenerating.value) {
+      return;
+    }
     console.error("Chat error:", err);
     const errorMsg: ChatMessage = { role: "assistant", content: `API Error: ${err}` };
     messages.value.push(errorMsg);

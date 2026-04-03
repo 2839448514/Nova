@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, OnceLock};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{json, Value};
 use tauri::AppHandle;
@@ -54,6 +55,10 @@ const PROTECTED_PATH_CONTAINS: &[&str] = &[
     "/.git/config",
 ];
 
+const DEFAULT_PERMISSION_SCOPE: &str = "__global__";
+const PENDING_APPROVAL_TTL_MS: u64 = 15 * 60 * 1000;
+const ACTION_TOKEN_TTL_MS: u64 = 60 * 60 * 1000;
+
 fn unsafe_override_enabled() -> bool {
     std::env::var("NOVA_ALLOW_UNSAFE_TOOLS")
         .map(|v| {
@@ -68,20 +73,28 @@ struct ProtectedOperation {
     signature: String,
     preview: String,
     warning: Option<String>,
+    needs_approval: bool,
 }
 
 #[derive(Debug, Clone)]
 struct PendingApproval {
     operation: ProtectedOperation,
+    created_at_ms: u64,
+}
+
+#[derive(Debug, Default)]
+struct ConversationPermissionState {
+    pending: HashMap<String, PendingApproval>,
+    pending_by_signature: HashMap<String, String>,
+    allow_once: HashSet<String>,
+    allow_session: HashSet<String>,
+    deny_session: HashSet<String>,
+    processed_action_tokens: HashMap<String, u64>,
 }
 
 #[derive(Debug, Default)]
 struct PermissionState {
-    pending: HashMap<String, PendingApproval>,
-    allow_once: HashSet<String>,
-    allow_session: HashSet<String>,
-    deny_session: HashSet<String>,
-    processed_action_tokens: HashSet<String>,
+    conversations: HashMap<String, ConversationPermissionState>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -105,6 +118,78 @@ fn permission_state() -> &'static Mutex<PermissionState> {
 
 fn next_request_id() -> String {
     uuid::Uuid::new_v4().to_string()
+}
+
+fn now_millis() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+fn conversation_scope_key(conversation_id: Option<&str>) -> String {
+    conversation_id
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .unwrap_or(DEFAULT_PERMISSION_SCOPE)
+        .to_string()
+}
+
+fn conversation_state_mut<'a>(
+    state: &'a mut PermissionState,
+    conversation_id: Option<&str>,
+) -> &'a mut ConversationPermissionState {
+    let scope = conversation_scope_key(conversation_id);
+    state.conversations.entry(scope).or_default()
+}
+
+fn prune_expired_pending(state: &mut ConversationPermissionState) {
+    let now = now_millis();
+    let mut expired_request_ids = Vec::new();
+
+    for (request_id, pending) in &state.pending {
+        if now.saturating_sub(pending.created_at_ms) > PENDING_APPROVAL_TTL_MS {
+            expired_request_ids.push(request_id.clone());
+        }
+    }
+
+    for request_id in expired_request_ids {
+        if let Some(pending) = state.pending.remove(&request_id) {
+            state.pending_by_signature.remove(&pending.operation.signature);
+        }
+    }
+}
+
+fn prune_processed_action_tokens(state: &mut ConversationPermissionState) {
+    let now = now_millis();
+    state
+        .processed_action_tokens
+        .retain(|_, ts| now.saturating_sub(*ts) <= ACTION_TOKEN_TTL_MS);
+}
+
+fn upsert_pending_request_id(
+    state: &mut ConversationPermissionState,
+    operation: &ProtectedOperation,
+) -> String {
+    if let Some(existing_id) = state.pending_by_signature.get(&operation.signature).cloned() {
+        if state.pending.contains_key(&existing_id) {
+            return existing_id;
+        }
+        state.pending_by_signature.remove(&operation.signature);
+    }
+
+    let request_id = next_request_id();
+    state.pending.insert(
+        request_id.clone(),
+        PendingApproval {
+            operation: operation.clone(),
+            created_at_ms: now_millis(),
+        },
+    );
+    state
+        .pending_by_signature
+        .insert(operation.signature.clone(), request_id.clone());
+    request_id
 }
 
 fn normalize_path_for_match(path: &str) -> String {
@@ -190,19 +275,18 @@ fn operation_from_input(tool_name: &str, input: &Value) -> Option<ProtectedOpera
                     signature: format!("{}:<empty>", tool_name),
                     preview: "命令为空".to_string(),
                     warning: Some("命令为空，无法执行。".to_string()),
+                    needs_approval: false,
                 });
             }
 
             let normalized = normalize_command_for_match(command);
-            let warning = DANGEROUS_COMMAND_PATTERNS
-                .iter()
-                .find(|p| normalized.contains(**p))
-                .map(|p| format!("命令命中高危模式 '{}'", p));
+            let risk = check_command(command).err();
 
             Some(ProtectedOperation {
                 signature: format!("{}:{}", tool_name, normalized),
                 preview: format!("{}: {}", tool_name, truncate_chars(command, 180)),
-                warning,
+                warning: risk.clone(),
+                needs_approval: risk.is_some(),
             })
         }
         "replace_string_in_file" | "write_file" => {
@@ -217,28 +301,18 @@ fn operation_from_input(tool_name: &str, input: &Value) -> Option<ProtectedOpera
                     signature: format!("{}:<empty>", tool_name),
                     preview: "路径为空".to_string(),
                     warning: Some("目标路径为空，无法执行。".to_string()),
+                    needs_approval: false,
                 });
             }
 
             let normalized = normalize_path_for_match(path);
-            let mut warning = None;
-
-            if PROTECTED_PATH_PREFIXES
-                .iter()
-                .any(|prefix| normalized.starts_with(prefix))
-            {
-                warning = Some("目标路径位于受保护目录前缀".to_string());
-            } else if PROTECTED_PATH_CONTAINS
-                .iter()
-                .any(|marker| normalized.contains(marker))
-            {
-                warning = Some("目标路径包含敏感配置目录".to_string());
-            }
+            let risk = check_file_path(path).err();
 
             Some(ProtectedOperation {
                 signature: format!("{}:{}", tool_name, normalized),
                 preview: format!("{}: {}", tool_name, truncate_chars(path, 200)),
-                warning,
+                warning: risk.clone(),
+                needs_approval: risk.is_some(),
             })
         }
         "mcp_tool" => {
@@ -262,14 +336,11 @@ fn operation_from_input(tool_name: &str, input: &Value) -> Option<ProtectedOpera
                     signature: "mcp_tool:<empty>".to_string(),
                     preview: "mcp_tool: server/tool 为空".to_string(),
                     warning: Some("mcp_tool 缺少 server 或 tool，无法执行。".to_string()),
+                    needs_approval: false,
                 });
             }
 
-            let warning = if check_mcp_operation(server, tool, &arguments).is_err() {
-                Some("MCP 调用命中高风险规则".to_string())
-            } else {
-                None
-            };
+            let risk = check_mcp_operation(server, tool, &arguments).err();
 
             Some(ProtectedOperation {
                 signature: format!(
@@ -284,7 +355,8 @@ fn operation_from_input(tool_name: &str, input: &Value) -> Option<ProtectedOpera
                     tool,
                     truncate_chars(&arguments.to_string(), 160)
                 ),
-                warning,
+                warning: risk.clone(),
+                needs_approval: risk.is_some(),
             })
         }
         _ => None,
@@ -358,12 +430,17 @@ fn extract_action_tokens(text: &str) -> Vec<(PermissionAction, String, String)> 
     out
 }
 
-fn apply_decision(state: &mut PermissionState, action: PermissionAction, request_id: &str) -> bool {
+fn apply_decision(
+    state: &mut ConversationPermissionState,
+    action: PermissionAction,
+    request_id: &str,
+) -> bool {
     let Some(pending) = state.pending.remove(request_id) else {
         return false;
     };
 
     let signature = pending.operation.signature;
+    state.pending_by_signature.remove(&signature);
     state.allow_once.remove(&signature);
     state.allow_session.remove(&signature);
     state.deny_session.remove(&signature);
@@ -399,12 +476,19 @@ fn extract_text_from_message(message: &Message) -> Vec<String> {
     }
 }
 
-pub fn consume_user_permission_decisions(messages: &[Message]) -> usize {
+pub fn consume_user_permission_decisions(
+    conversation_id: Option<&str>,
+    messages: &[Message],
+) -> usize {
     let mut applied = 0usize;
     let mut guard = match permission_state().lock() {
         Ok(g) => g,
         Err(_) => return 0,
     };
+
+    let state = conversation_state_mut(&mut guard, conversation_id);
+    prune_expired_pending(state);
+    prune_processed_action_tokens(state);
 
     for message in messages {
         if message.role != Role::User {
@@ -413,11 +497,11 @@ pub fn consume_user_permission_decisions(messages: &[Message]) -> usize {
 
         for text in extract_text_from_message(message) {
             for (action, request_id, token) in extract_action_tokens(&text) {
-                if guard.processed_action_tokens.contains(&token) {
+                if state.processed_action_tokens.contains_key(&token) {
                     continue;
                 }
-                guard.processed_action_tokens.insert(token);
-                if apply_decision(&mut guard, action, &request_id) {
+                state.processed_action_tokens.insert(token, now_millis());
+                if apply_decision(state, action, &request_id) {
                     applied += 1;
                 }
             }
@@ -481,7 +565,12 @@ fn check_file_path(path: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub fn enforce_tool_permission(_app: &AppHandle, tool_name: &str, input: &Value) -> PermissionEnforcement {
+pub fn enforce_tool_permission(
+    _app: &AppHandle,
+    conversation_id: Option<&str>,
+    tool_name: &str,
+    input: &Value,
+) -> PermissionEnforcement {
     if unsafe_override_enabled() {
         return PermissionEnforcement::Allow;
     }
@@ -499,90 +588,31 @@ pub fn enforce_tool_permission(_app: &AppHandle, tool_name: &str, input: &Value)
         }
     };
 
-    if guard.deny_session.contains(&operation.signature) {
+    let state = conversation_state_mut(&mut guard, conversation_id);
+    prune_expired_pending(state);
+
+    if state.deny_session.contains(&operation.signature) {
         return PermissionEnforcement::Deny(format!(
             "Blocked by permission gate: this operation was denied in current session ({})",
             operation.preview
         ));
     }
 
-    if guard.allow_session.contains(&operation.signature) {
+    if state.allow_session.contains(&operation.signature) {
         return PermissionEnforcement::Allow;
     }
 
-    if guard.allow_once.remove(&operation.signature) {
+    if state.allow_once.remove(&operation.signature) {
         return PermissionEnforcement::Allow;
     }
 
-    match tool_name {
-        "execute_bash" | "execute_powershell" => {
-            let command = input.get("command").and_then(|v| v.as_str()).unwrap_or_default();
-            if let Err(_e) = check_command(command) {
-                let request_id = next_request_id();
-                guard.pending.insert(
-                    request_id.clone(),
-                    PendingApproval {
-                        operation: operation.clone(),
-                    },
-                );
-                return PermissionEnforcement::AskUser(build_permission_prompt_payload(
-                    &request_id,
-                    &operation,
-                ));
-            }
-            return PermissionEnforcement::Allow;
-        }
-        "replace_string_in_file" | "write_file" => {
-            let path = input.get("path").and_then(|v| v.as_str()).unwrap_or_default();
-            if let Err(_e) = check_file_path(path) {
-                let request_id = next_request_id();
-                guard.pending.insert(
-                    request_id.clone(),
-                    PendingApproval {
-                        operation: operation.clone(),
-                    },
-                );
-                return PermissionEnforcement::AskUser(build_permission_prompt_payload(
-                    &request_id,
-                    &operation,
-                ));
-            }
-            return PermissionEnforcement::Allow;
-        }
-        "mcp_tool" => {
-            let server = input
-                .get("server")
-                .and_then(|v| v.as_str())
-                .unwrap_or_default()
-                .trim();
-            let tool = input
-                .get("tool")
-                .and_then(|v| v.as_str())
-                .unwrap_or_default()
-                .trim();
-            let arguments = input
-                .get("arguments")
-                .cloned()
-                .unwrap_or_else(|| json!({}));
-
-            if let Err(_e) = check_mcp_operation(server, tool, &arguments) {
-                let request_id = next_request_id();
-                guard.pending.insert(
-                    request_id.clone(),
-                    PendingApproval {
-                        operation: operation.clone(),
-                    },
-                );
-                return PermissionEnforcement::AskUser(build_permission_prompt_payload(
-                    &request_id,
-                    &operation,
-                ));
-            }
-
-            return PermissionEnforcement::Allow;
-        }
-        _ => {
-            return PermissionEnforcement::Allow;
-        }
+    if operation.needs_approval {
+        let request_id = upsert_pending_request_id(state, &operation);
+        return PermissionEnforcement::AskUser(build_permission_prompt_payload(
+            &request_id,
+            &operation,
+        ));
     }
+
+    PermissionEnforcement::Allow
 }

@@ -32,6 +32,7 @@ impl AnthropicProvider {
         app: &AppHandle,
         messages: &[Message],
         plan_mode: bool,
+        conversation_id: Option<&str>,
     ) -> Result<ProviderTurnResult, String> {
         let settings = crate::command::settings::get_settings(app.clone());
         let profile = settings.active_provider_profile();
@@ -84,7 +85,7 @@ impl AnthropicProvider {
                     return Err(msg);
                 }
 
-                self.process_stream_response(app, res).await
+                self.process_stream_response(app, res, conversation_id).await
             }
             Err(e) => {
                 let msg = e.to_string();
@@ -98,6 +99,7 @@ impl AnthropicProvider {
         &self,
         app: &AppHandle,
         response: reqwest::Response,
+        conversation_id: Option<&str>,
     ) -> Result<ProviderTurnResult, String> {
     let mut stream = response.bytes_stream();
     let mut current_tool_id = None;
@@ -127,6 +129,21 @@ impl AnthropicProvider {
                     if data == "[DONE]" {
                         break;
                     }
+                    app.emit(
+                        "chat-stream",
+                        ChatMessageEvent {
+                            r#type: "raw-json".into(),
+                            text: Some(data.to_string()),
+                            tool_use_id: None,
+                            tool_use_name: None,
+                            tool_use_input: None,
+                            tool_result: None,
+                            token_usage: None,
+                            stop_reason: None,
+                            turn_state: Some("raw_stream".into()),
+                        },
+                    )
+                    .ok();
                     if let Ok(event) = serde_json::from_str::<StreamEvent>(data) {
                         match event {
                             StreamEvent::ContentBlockStart { content_block, .. } => {
@@ -228,7 +245,13 @@ impl AnthropicProvider {
                                                 }
                                             }
                                         } else {
-                                            tools::execute_tool_with_app(app, &name, input_value).await
+                                            tools::execute_tool_with_app(
+                                                app,
+                                                conversation_id,
+                                                &name,
+                                                input_value,
+                                            )
+                                            .await
                                         };
 
                                     app.emit(

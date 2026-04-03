@@ -106,6 +106,7 @@ impl OpenAiProvider {
         app: &AppHandle,
         messages: &[Message],
         plan_mode: bool,
+        conversation_id: Option<&str>,
     ) -> Result<ProviderTurnResult, String> {
         let settings = crate::command::settings::get_settings(app.clone());
         let profile = settings.active_provider_profile();
@@ -277,7 +278,7 @@ impl OpenAiProvider {
                     return Err(msg);
                 }
 
-                self.process_stream_response(app, res).await
+                self.process_stream_response(app, res, conversation_id).await
             }
             Err(e) => {
                 let msg = e.to_string();
@@ -291,6 +292,7 @@ impl OpenAiProvider {
         &self,
         app: &AppHandle,
         response: reqwest::Response,
+        conversation_id: Option<&str>,
     ) -> Result<ProviderTurnResult, String> {
         let mut stream = response.bytes_stream();
         let mut generated_text = String::new();
@@ -319,6 +321,21 @@ impl OpenAiProvider {
                         if data == "[DONE]" {
                             break;
                         }
+                        app.emit(
+                            "chat-stream",
+                            ChatMessageEvent {
+                                r#type: "raw-json".into(),
+                                text: Some(data.to_string()),
+                                tool_use_id: None,
+                                tool_use_name: None,
+                                tool_use_input: None,
+                                tool_result: None,
+                                token_usage: None,
+                                stop_reason: None,
+                                turn_state: Some("raw_stream".into()),
+                            },
+                        )
+                        .ok();
                         if let Ok(chunk) = serde_json::from_str::<OpenAiStreamChunk>(data) {
                             for choice in chunk.choices {
                                 if let Some(content) = choice.delta.content {
@@ -445,7 +462,13 @@ impl OpenAiProvider {
                                                     }
                                                 }
                                             } else {
-                                                tools::execute_tool_with_app(app, &name, input_value).await
+                                                tools::execute_tool_with_app(
+                                                    app,
+                                                    conversation_id,
+                                                    &name,
+                                                    input_value,
+                                                )
+                                                .await
                                             };
 
                                             app.emit(

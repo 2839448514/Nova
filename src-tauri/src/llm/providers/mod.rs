@@ -32,10 +32,11 @@ impl LlmProvider {
         app: &AppHandle,
         messages: &[Message],
         plan_mode: bool,
+        conversation_id: Option<&str>,
     ) -> Result<ProviderTurnResult, String> {
         match self {
-            LlmProvider::Anthropic(p) => p.send_request(app, messages, plan_mode).await,
-            LlmProvider::OpenAi(p) => p.send_request(app, messages, plan_mode).await,
+            LlmProvider::Anthropic(p) => p.send_request(app, messages, plan_mode, conversation_id).await,
+            LlmProvider::OpenAi(p) => p.send_request(app, messages, plan_mode, conversation_id).await,
         }
     }
 }

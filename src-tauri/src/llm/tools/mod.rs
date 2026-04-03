@@ -208,8 +208,18 @@ pub fn execute_tool(name: &str, input: Value) -> String {
     format!("Unknown tool: {}", name)
 }
 
-pub async fn execute_tool_with_app(app: &AppHandle, name: &str, input: Value) -> String {
-    match crate::llm::utils::permissions::enforce_tool_permission(app, name, &input) {
+pub async fn execute_tool_with_app(
+    app: &AppHandle,
+    conversation_id: Option<&str>,
+    name: &str,
+    input: Value,
+) -> String {
+    match crate::llm::utils::permissions::enforce_tool_permission(
+        app,
+        conversation_id,
+        name,
+        &input,
+    ) {
         crate::llm::utils::permissions::PermissionEnforcement::Allow => {}
         crate::llm::utils::permissions::PermissionEnforcement::Deny(e) => {
             return serde_json::json!({ "ok": false, "error": e }).to_string();
