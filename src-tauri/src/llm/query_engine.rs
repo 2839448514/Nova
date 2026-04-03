@@ -19,6 +19,7 @@ pub struct ChatMessageEvent {
     pub turn_state: Option<String>,
 }
 
+// 检查一轮消息里是否已经包含过会话恢复标记，避免重复叠加恢复上下文。
 fn has_session_restore_marker(messages: &[Message]) -> bool {
     messages.iter().any(|m| match &m.content {
         Content::Text(t) => t.contains("[Session Restore Context]"),
@@ -32,15 +33,20 @@ fn has_session_restore_marker(messages: &[Message]) -> bool {
     })
 }
 
+// 入口函数：发送用户聊天消息，驱动 LLM 请求和工具调用流程。
+// 这个函数负责准备消息、循环调度 provider、处理 tool-result 掉回、最后发送 stop 事件。
 pub async fn send_chat_message(
     app: AppHandle,
     conversation_id: Option<String>,
     messages: Vec<Message>,
     plan_mode: bool,
 ) -> Result<(), String> {
+    // 1. 预处理消息：把用户本轮输入和历史消息压缩为本次模型请求的 current_messages。
     let mut current_messages =
         compact::prepare_messages_for_turn(&app, conversation_id.as_deref(), &messages).await;
 
+    // 2. 如果有会话 ID，尝试插入会话恢复上下文（仅当当前内容里未标记时）。
+    //    这块会返回类似: "[Session Restore Context] ..." 的 system/user 信息。
     if let Some(conversation_id) = conversation_id.as_deref() {
         if !has_session_restore_marker(&current_messages) {
             if let Some(restore_msg) =
@@ -55,8 +61,12 @@ pub async fn send_chat_message(
         }
     }
 
+    // 3. 根据设置选择模型提供方（Anthropic/OpenAI）。
     let provider = LlmProvider::new(&app);
 
+    // 4. 主循环：调用 provider.send_request（流式），并根据 tool 执行情况决定是否继续下一步。
+    //    - 如果发生工具调用，结果会被“注入”到 current_messages 继续下一轮。
+    //    - 如果 provider 返回 needs_user_input / 无工具结果，则结束。
     let (final_stop_reason, final_turn_state) = loop {
         let consumed =
             crate::llm::utils::permissions::consume_user_permission_decisions(
@@ -73,6 +83,7 @@ pub async fn send_chat_message(
         {
             Ok(v) => v,
             Err(e) => {
+                // 出错直接通知前端 stop(error) 并返回错误。
                 emit_backend_error(
                     &app,
                     "llm.query_engine",
@@ -98,6 +109,7 @@ pub async fn send_chat_message(
             }
         };
 
+        // 本轮 provider 输出合并到 current_messages 以支持工具环回。
         let new_messages = provider_result.messages;
         current_messages.extend(new_messages.clone());
 
@@ -115,6 +127,7 @@ pub async fn send_chat_message(
 
         eprintln!("[loop] has_tool_result={}", has_tool_result);
 
+        // 若返回需要用户输入，终止当前回合并告诉前端。
         if compact::has_needs_user_input(&new_messages) {
             break (
                 "needs_user_input".to_string(),
@@ -122,6 +135,7 @@ pub async fn send_chat_message(
             );
         }
 
+        // 若本轮没有工具结果，说明回合结束。
         if !has_tool_result {
             break (
                 provider_result
@@ -132,6 +146,7 @@ pub async fn send_chat_message(
         }
     };
 
+    // 5. 业务终止：告知前端本轮结束，并携带 stop_reason/turn_state 以区分 completed/needs_user_input/error。
     app.emit(
         "chat-stream",
         ChatMessageEvent {

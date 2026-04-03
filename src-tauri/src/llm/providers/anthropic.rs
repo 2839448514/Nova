@@ -13,8 +13,10 @@ use crate::llm::types::{
 use crate::llm::utils::error_event::emit_backend_error;
 use crate::llm::utils::system_prompt::load_system_prompt;
 
+// Anthropic Provider 的实现结构体，用于与 Anthropic API 交互。
 pub struct AnthropicProvider;
 
+// 判断工具结果是否要求“需要用户输入”，帮助上层 query_engine 决定是否停止并等待交互。
 fn is_needs_user_input_payload(raw: &str) -> bool {
     serde_json::from_str::<serde_json::Value>(raw)
         .ok()
@@ -74,6 +76,7 @@ impl AnthropicProvider {
             .send()
             .await;
 
+        // 发起 REST 请求（stream=true），本函数本身不做流数据解析，交给 process_stream_response 处理。
         match resp {
             Ok(res) => {
                 if !res.status().is_success() {
@@ -95,6 +98,8 @@ impl AnthropicProvider {
         }
     }
 
+    // 处理 Anthropic 流式 SSE 响应。
+    // 1) 逐行解析 data 事件；2) 立即 emit raw-json/text/tool-* 到前端；3) 组装 output blocks 用于 ProviderTurnResult。
     async fn process_stream_response(
         &self,
         app: &AppHandle,

@@ -1,3 +1,5 @@
+// 这是工具注册入口模块，定义了所有内置工具（Bash/PowerShell/File/Task/... 等）
+// 以及工具发现、执行、权限检查的统一接口。
 #[path = "BashTool/mod.rs"]
 pub mod bash_tool;
 #[path = "WriteFileTool/mod.rs"]
@@ -190,6 +192,7 @@ fn registered_tools() -> Vec<RegisteredTool> {
     ]
 }
 
+// 取当前注册工具列表，用于在 LLM 提示里传给模型，告诉模型可调用哪些功能。
 pub fn get_available_tools() -> Vec<Tool> {
     registered_tools()
         .into_iter()
@@ -197,6 +200,7 @@ pub fn get_available_tools() -> Vec<Tool> {
         .collect()
 }
 
+// 在后端直接执行工具，输入来自模型返回的 tool call 名称和参数，只在同步模式下使用。
 pub fn execute_tool(name: &str, input: Value) -> String {
     for entry in registered_tools() {
         let tool = (entry.tool)();
@@ -208,6 +212,8 @@ pub fn execute_tool(name: &str, input: Value) -> String {
     format!("Unknown tool: {}", name)
 }
 
+// 在带 AppHandle 的环境中执行工具，附带权限校验和 MCP 代理能力。
+// 若权限拒绝返回特殊 JSON payload；允许则执行工具。
 pub async fn execute_tool_with_app(
     app: &AppHandle,
     conversation_id: Option<&str>,

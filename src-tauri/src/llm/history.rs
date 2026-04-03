@@ -6,6 +6,8 @@ use uuid::Uuid;
 use crate::llm::commands::memory;
 use crate::llm::commands::types::{ConversationMeta, HistoryMessage};
 
+// Build sqlite database URL under app data directory.
+// Format: sqlite:<path>?mode=rwc (read/write/create).
 fn get_db_url(app: &AppHandle) -> Result<String, String> {
     let db_path = app
         .path()
@@ -20,6 +22,7 @@ fn get_db_url(app: &AppHandle) -> Result<String, String> {
     Ok(format!("sqlite:{}?mode=rwc", db_path.display()))
 }
 
+// Create a sqlx sqlite pool for history DB.
 async fn get_pool(app: &AppHandle) -> Result<SqlitePool, String> {
     let db_url = get_db_url(app)?;
     SqlitePool::connect(&db_url)
@@ -27,6 +30,8 @@ async fn get_pool(app: &AppHandle) -> Result<SqlitePool, String> {
         .map_err(|e| e.to_string())
 }
 
+// Ensure required schema exists.
+// This includes base tables and lightweight backward-compatible column migrations.
 async fn ensure_schema(pool: &SqlitePool) -> Result<(), String> {
     sqlx::query(
         r#"
@@ -82,6 +87,8 @@ async fn ensure_schema(pool: &SqlitePool) -> Result<(), String> {
     .await
     .map_err(|e| e.to_string())?;
 
+    // Backward-compatible migration: add token_usage for older DB files.
+    // Ignore "duplicate column" so startup remains idempotent.
     let alter_result = sqlx::query("ALTER TABLE conversation_messages ADD COLUMN token_usage INTEGER")
         .execute(pool)
         .await;
@@ -93,6 +100,8 @@ async fn ensure_schema(pool: &SqlitePool) -> Result<(), String> {
         }
     }
 
+    // Backward-compatible migration: add cost_json for older DB files.
+    // Ignore duplicate-column errors for repeated startup runs.
     let alter_cost_result = sqlx::query("ALTER TABLE conversation_messages ADD COLUMN cost_json TEXT")
         .execute(pool)
         .await;
@@ -107,12 +116,16 @@ async fn ensure_schema(pool: &SqlitePool) -> Result<(), String> {
     Ok(())
 }
 
+// Public helper used by command handlers:
+// open DB pool and guarantee schema is ready before query.
 pub async fn get_pool_with_schema(app: &AppHandle) -> Result<SqlitePool, String> {
     let pool = get_pool(app).await?;
     ensure_schema(&pool).await?;
     Ok(pool)
 }
 
+// Create a new conversation row with generated UUID and optional title.
+// If title is empty, fallback to default "New chat".
 pub async fn create_conversation(
     app: &AppHandle,
     title: Option<String>,
@@ -142,6 +155,7 @@ pub async fn create_conversation(
     })
 }
 
+// List conversations ordered by latest update time.
 pub async fn list_conversations(app: &AppHandle) -> Result<Vec<ConversationMeta>, String> {
     let pool = get_pool_with_schema(app).await?;
 
@@ -162,6 +176,8 @@ pub async fn list_conversations(app: &AppHandle) -> Result<Vec<ConversationMeta>
     Ok(items)
 }
 
+// Load all persisted messages for a conversation in stable chronological order.
+// cost_json is parsed into JSON when possible; malformed JSON is safely ignored.
 pub async fn load_history(
     app: &AppHandle,
     conversation_id: &str,
@@ -191,6 +207,11 @@ pub async fn load_history(
     Ok(result)
 }
 
+// Append one message to conversation history and maintain related metadata:
+// 1) insert message row
+// 2) auto-derive title on first user message when title is still default
+// 3) update conversation updated_at
+// 4) refresh conversation memory summary/facts
 pub async fn append_history(
     app: &AppHandle,
     conversation_id: &str,
@@ -217,6 +238,7 @@ pub async fn append_history(
     .await
     .map_err(|e| e.to_string())?;
 
+    // Auto-title only when first user message arrives and current title is default/empty.
     if role.eq_ignore_ascii_case("user") {
         let user_count: i64 = sqlx::query_scalar(
             "SELECT COUNT(1) FROM conversation_messages WHERE conversation_id = ? AND role = 'user'",
@@ -251,6 +273,7 @@ pub async fn append_history(
         }
     }
 
+    // Touch conversation timestamp so list order reflects latest activity.
     sqlx::query("UPDATE conversations SET updated_at = ? WHERE id = ?")
         .bind(now)
         .bind(conversation_id)
@@ -258,11 +281,15 @@ pub async fn append_history(
         .await
         .map_err(|e| e.to_string())?;
 
+    // Keep summary memory in sync after each append.
     memory::refresh_conversation_memory(&pool, conversation_id, now).await?;
 
     Ok(())
 }
 
+// Clear history data.
+// - with conversation_id: clear only that conversation's messages
+// - without conversation_id: clear all messages and all conversation rows
 pub async fn clear_history(app: &AppHandle, conversation_id: Option<String>) -> Result<(), String> {
     let pool = get_pool_with_schema(app).await?;
 
@@ -286,6 +313,8 @@ pub async fn clear_history(app: &AppHandle, conversation_id: Option<String>) -> 
     Ok(())
 }
 
+// Delete one conversation and all dependent rows.
+// Order matters to satisfy FK constraints in environments that enforce them.
 pub async fn delete_conversation(app: &AppHandle, conversation_id: &str) -> Result<(), String> {
     let pool = get_pool_with_schema(app).await?;
 

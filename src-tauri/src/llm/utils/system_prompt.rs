@@ -2,7 +2,11 @@ use std::path::PathBuf;
 
 use tauri::AppHandle;
 
+// 系统提示文件名（相对工程目录 src/prompt）
 const SYSTEM_PROMPT_FILE_NAME: &str = "system_prompt.md";
+
+// 计划模式附加内容：当 plan_mode=true 时合并到系统提示中。
+// 该段与正常模式分离方便 semantics 清晰、可测。
 const PLAN_MODE_SECTION: &str = r#"
 
 ## Plan Mode

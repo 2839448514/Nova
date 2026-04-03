@@ -2,6 +2,7 @@ use tauri::AppHandle;
 
 use crate::llm::types::Tool;
 
+// 解析 mcp 形式工具名："mcp/<server>/<tool>" -> (server, tool)
 pub fn parse_mcp_tool_name(name: &str) -> Option<(String, String)> {
     let raw = name.strip_prefix("mcp/")?;
     let mut parts = raw.splitn(2, '/');
@@ -13,6 +14,8 @@ pub fn parse_mcp_tool_name(name: &str) -> Option<(String, String)> {
     Some((server.to_string(), tool.to_string()))
 }
 
+// 查询已启用并已连接的 MCP 服务器，收集每个 server 的 tool 列表并转成本地 Tool 格式。
+// 这将使模型可调用 "mcp/{server}/{tool}"。
 pub async fn collect_mcp_tools(app: &AppHandle) -> Vec<Tool> {
     let mut statuses = match crate::llm::services::mcp::get_mcp_server_statuses(app.clone()).await {
         Ok(v) => v,

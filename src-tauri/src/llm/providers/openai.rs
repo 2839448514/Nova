@@ -14,6 +14,12 @@ use crate::llm::types::{ContentBlock, Message, Role};
 use crate::llm::utils::error_event::emit_backend_error;
 use crate::llm::utils::system_prompt::load_system_prompt;
 
+// OpenAI Provider 相关结构体定义。
+// 主要负责：
+// - 将 internal Message -> OpenAI JSON message
+// - 触发 /v1/chat/completions?stream
+// - 处理流式 SSE Delta 并 emit 到前端
+
 #[derive(Debug, Serialize)]
 struct OpenAiRequest {
     model: String,
@@ -288,6 +294,12 @@ impl OpenAiProvider {
         }
     }
 
+    // 处理 OpenAI 的数据流响应。将 data chunks 按行解析并即时 emit：
+    // - raw-json
+    // - text (content delta)
+    // - tool-use / tool-json-delta / tool-result
+    // - token-usage + stop
+    // 最终合成 ProviderTurnResult 供 query_engine 继续回合决策。
     async fn process_stream_response(
         &self,
         app: &AppHandle,
