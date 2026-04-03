@@ -4,6 +4,12 @@ pub mod openai;
 use tauri::AppHandle;
 use crate::llm::types::Message;
 
+#[derive(Debug, Clone)]
+pub struct ProviderTurnResult {
+    pub messages: Vec<Message>,
+    pub stop_reason: Option<String>,
+}
+
 pub enum LlmProvider {
     Anthropic(anthropic::AnthropicProvider),
     OpenAi(openai::OpenAiProvider),
@@ -26,7 +32,7 @@ impl LlmProvider {
         app: &AppHandle,
         messages: &[Message],
         plan_mode: bool,
-    ) -> Result<Vec<Message>, String> {
+    ) -> Result<ProviderTurnResult, String> {
         match self {
             LlmProvider::Anthropic(p) => p.send_request(app, messages, plan_mode).await,
             LlmProvider::OpenAi(p) => p.send_request(app, messages, plan_mode).await,

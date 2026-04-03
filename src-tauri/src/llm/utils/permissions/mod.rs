@@ -119,8 +119,61 @@ fn normalize_command_for_match(command: &str) -> String {
         .to_ascii_lowercase()
 }
 
+fn contains_shell_word(command: &str, target: &str) -> bool {
+    command.split_whitespace().any(|token| {
+        let cleaned = token.trim_matches(|c: char| {
+            !c.is_ascii_alphanumeric() && c != '-' && c != '_'
+        });
+        cleaned == target
+    })
+}
+
 fn truncate_chars(input: &str, max_chars: usize) -> String {
     input.chars().take(max_chars).collect::<String>()
+}
+
+fn looks_like_shell_mcp(server: &str, tool: &str) -> bool {
+    let s = format!("{} {}", server.to_ascii_lowercase(), tool.to_ascii_lowercase());
+    ["bash", "shell", "powershell", "pwsh", "terminal"]
+        .iter()
+        .any(|k| s.contains(k))
+}
+
+fn looks_like_file_mcp(server: &str, tool: &str) -> bool {
+    let s = format!("{} {}", server.to_ascii_lowercase(), tool.to_ascii_lowercase());
+    ["file", "filesystem", "fs", "write", "edit", "replace"]
+        .iter()
+        .any(|k| s.contains(k))
+}
+
+fn pick_string_field<'a>(value: &'a Value, keys: &[&str]) -> Option<&'a str> {
+    for key in keys {
+        if let Some(v) = value.get(*key).and_then(|v| v.as_str()) {
+            let trimmed = v.trim();
+            if !trimmed.is_empty() {
+                return Some(trimmed);
+            }
+        }
+    }
+    None
+}
+
+fn check_mcp_operation(server: &str, tool: &str, arguments: &Value) -> Result<(), String> {
+    if looks_like_shell_mcp(server, tool) {
+        let command = pick_string_field(arguments, &["command", "cmd", "script"]).unwrap_or_default();
+        return check_command(command);
+    }
+
+    if looks_like_file_mcp(server, tool) {
+        let path = pick_string_field(
+            arguments,
+            &["path", "file", "file_path", "target", "target_path"],
+        )
+        .unwrap_or_default();
+        return check_file_path(path);
+    }
+
+    Ok(())
 }
 
 fn operation_from_input(tool_name: &str, input: &Value) -> Option<ProtectedOperation> {
@@ -185,6 +238,52 @@ fn operation_from_input(tool_name: &str, input: &Value) -> Option<ProtectedOpera
             Some(ProtectedOperation {
                 signature: format!("{}:{}", tool_name, normalized),
                 preview: format!("{}: {}", tool_name, truncate_chars(path, 200)),
+                warning,
+            })
+        }
+        "mcp_tool" => {
+            let server = input
+                .get("server")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .trim();
+            let tool = input
+                .get("tool")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .trim();
+            let arguments = input
+                .get("arguments")
+                .cloned()
+                .unwrap_or_else(|| json!({}));
+
+            if server.is_empty() || tool.is_empty() {
+                return Some(ProtectedOperation {
+                    signature: "mcp_tool:<empty>".to_string(),
+                    preview: "mcp_tool: server/tool 为空".to_string(),
+                    warning: Some("mcp_tool 缺少 server 或 tool，无法执行。".to_string()),
+                });
+            }
+
+            let warning = if check_mcp_operation(server, tool, &arguments).is_err() {
+                Some("MCP 调用命中高风险规则".to_string())
+            } else {
+                None
+            };
+
+            Some(ProtectedOperation {
+                signature: format!(
+                    "mcp_tool:{}:{}:{}",
+                    server.to_ascii_lowercase(),
+                    tool.to_ascii_lowercase(),
+                    normalize_command_for_match(&arguments.to_string())
+                ),
+                preview: format!(
+                    "mcp_tool {}::{} {}",
+                    server,
+                    tool,
+                    truncate_chars(&arguments.to_string(), 160)
+                ),
                 warning,
             })
         }
@@ -334,6 +433,15 @@ fn check_command(command: &str) -> Result<(), String> {
         return Err("Blocked by permission gate: command is empty".to_string());
     }
 
+    for dangerous_word in ["rm", "del", "remove-item"] {
+        if contains_shell_word(&normalized, dangerous_word) {
+            return Err(format!(
+                "Blocked by permission gate: command contains dangerous shell command '{}'. Set NOVA_ALLOW_UNSAFE_TOOLS=1 only for trusted debugging.",
+                dangerous_word
+            ));
+        }
+    }
+
     for pattern in DANGEROUS_COMMAND_PATTERNS {
         if normalized.contains(pattern) {
             return Err(format!(
@@ -439,6 +547,38 @@ pub fn enforce_tool_permission(_app: &AppHandle, tool_name: &str, input: &Value)
                     &operation,
                 ));
             }
+            return PermissionEnforcement::Allow;
+        }
+        "mcp_tool" => {
+            let server = input
+                .get("server")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .trim();
+            let tool = input
+                .get("tool")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .trim();
+            let arguments = input
+                .get("arguments")
+                .cloned()
+                .unwrap_or_else(|| json!({}));
+
+            if let Err(_e) = check_mcp_operation(server, tool, &arguments) {
+                let request_id = next_request_id();
+                guard.pending.insert(
+                    request_id.clone(),
+                    PendingApproval {
+                        operation: operation.clone(),
+                    },
+                );
+                return PermissionEnforcement::AskUser(build_permission_prompt_payload(
+                    &request_id,
+                    &operation,
+                ));
+            }
+
             return PermissionEnforcement::Allow;
         }
         _ => {

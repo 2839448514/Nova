@@ -3,6 +3,7 @@ use reqwest::Client;
 use tauri::{AppHandle, Emitter};
 
 use crate::llm::query_engine::ChatMessageEvent;
+use crate::llm::providers::ProviderTurnResult;
 use crate::llm::services::mcp_tools;
 use crate::llm::services::mcp_tools::parse_mcp_tool_name;
 use crate::llm::tools;
@@ -31,7 +32,7 @@ impl AnthropicProvider {
         app: &AppHandle,
         messages: &[Message],
         plan_mode: bool,
-    ) -> Result<Vec<Message>, String> {
+    ) -> Result<ProviderTurnResult, String> {
         let settings = crate::command::settings::get_settings(app.clone());
         let profile = settings.active_provider_profile();
         let api_key = profile.api_key;
@@ -97,7 +98,7 @@ impl AnthropicProvider {
         &self,
         app: &AppHandle,
         response: reqwest::Response,
-    ) -> Result<Vec<Message>, String> {
+    ) -> Result<ProviderTurnResult, String> {
     let mut stream = response.bytes_stream();
     let mut current_tool_id = None;
     let mut current_tool_name = None;
@@ -358,6 +359,9 @@ impl AnthropicProvider {
         });
     }
 
-    Ok(result_messages)
+    Ok(ProviderTurnResult {
+        messages: result_messages,
+        stop_reason: last_stop_reason,
+    })
 }
 }

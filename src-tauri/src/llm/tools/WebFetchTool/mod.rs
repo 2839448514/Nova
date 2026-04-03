@@ -16,12 +16,17 @@ pub fn tool() -> Tool {
     }
 }
 
-fn truncate(s: String, max: usize) -> String {
-    if s.len() > max {
-        format!("{}\n...(truncated)", &s[..max])
-    } else {
-        s
+fn truncate(s: String, max_bytes: usize) -> String {
+    if s.len() <= max_bytes {
+        return s;
     }
+
+    let mut boundary = max_bytes;
+    while !s.is_char_boundary(boundary) {
+        boundary -= 1;
+    }
+
+    format!("{}\n...(truncated)", &s[..boundary])
 }
 
 pub fn execute(input: Value) -> String {

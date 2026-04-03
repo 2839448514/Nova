@@ -53,6 +53,8 @@ pub async fn send_chat_message(
     }
 
     let provider = LlmProvider::new(&app);
+    let mut final_stop_reason = "end_turn".to_string();
+    let mut final_turn_state = "completed".to_string();
 
     loop {
         let consumed = crate::llm::utils::permissions::consume_user_permission_decisions(&current_messages);
@@ -60,7 +62,7 @@ pub async fn send_chat_message(
             eprintln!("[permissions] applied user approval decisions={}", consumed);
         }
 
-        let new_messages = match provider.send_request(&app, &current_messages, plan_mode).await {
+        let provider_result = match provider.send_request(&app, &current_messages, plan_mode).await {
             Ok(v) => v,
             Err(e) => {
                 emit_backend_error(
@@ -69,9 +71,25 @@ pub async fn send_chat_message(
                     e.clone(),
                     Some("provider.send_request"),
                 );
+                app.emit(
+                    "chat-stream",
+                    ChatMessageEvent {
+                        r#type: "stop".into(),
+                        text: None,
+                        tool_use_id: None,
+                        tool_use_name: None,
+                        tool_use_input: None,
+                        tool_result: None,
+                        token_usage: None,
+                        stop_reason: Some("provider_error".into()),
+                        turn_state: Some("error".into()),
+                    },
+                )
+                .ok();
                 return Err(e);
             }
         };
+        let new_messages = provider_result.messages;
         current_messages.extend(new_messages.clone());
 
         eprintln!("[loop] new_messages count={}", new_messages.len());
@@ -87,10 +105,16 @@ pub async fn send_chat_message(
         eprintln!("[loop] has_tool_result={}", has_tool_result);
 
         if compact::has_needs_user_input(&new_messages) {
+            final_stop_reason = "needs_user_input".to_string();
+            final_turn_state = "needs_user_input".to_string();
             break;
         }
 
         if !has_tool_result {
+            final_stop_reason = provider_result
+                .stop_reason
+                .unwrap_or_else(|| "end_turn".to_string());
+            final_turn_state = "completed".to_string();
             break;
         }
     }
@@ -105,8 +129,8 @@ pub async fn send_chat_message(
             tool_use_input: None,
             tool_result: None,
             token_usage: None,
-            stop_reason: Some("stop".into()),
-            turn_state: Some("completed".into()),
+            stop_reason: Some(final_stop_reason),
+            turn_state: Some(final_turn_state),
         },
     )
     .ok();

@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 use tauri::{AppHandle, Emitter};
 
 use crate::llm::query_engine::ChatMessageEvent;
+use crate::llm::providers::ProviderTurnResult;
 use crate::llm::services::mcp_tools;
 use crate::llm::services::mcp_tools::parse_mcp_tool_name;
 use crate::llm::tools;
@@ -105,7 +106,7 @@ impl OpenAiProvider {
         app: &AppHandle,
         messages: &[Message],
         plan_mode: bool,
-    ) -> Result<Vec<Message>, String> {
+    ) -> Result<ProviderTurnResult, String> {
         let settings = crate::command::settings::get_settings(app.clone());
         let profile = settings.active_provider_profile();
         
@@ -290,7 +291,7 @@ impl OpenAiProvider {
         &self,
         app: &AppHandle,
         response: reqwest::Response,
-    ) -> Result<Vec<Message>, String> {
+    ) -> Result<ProviderTurnResult, String> {
         let mut stream = response.bytes_stream();
         let mut generated_text = String::new();
         let mut pending_tool_calls: BTreeMap<usize, PendingToolCall> = BTreeMap::new();
@@ -299,6 +300,7 @@ impl OpenAiProvider {
         let mut tool_result_blocks: Vec<ContentBlock> = Vec::new();
         
         let mut emitted_stop = false;
+        let mut last_finish_reason: Option<String> = None;
 
         while let Some(chunk) = stream.next().await {
             let bytes = match chunk {
@@ -391,6 +393,7 @@ impl OpenAiProvider {
                                 }
 
                                 if let Some(finish_reason) = choice.finish_reason {
+                                    last_finish_reason = Some(finish_reason.clone());
                                     if finish_reason == "tool_calls" {
                                         let drained_calls: Vec<(usize, PendingToolCall)> =
                                             pending_tool_calls
@@ -530,6 +533,9 @@ impl OpenAiProvider {
             });
         }
 
-        Ok(result_messages)
+        Ok(ProviderTurnResult {
+            messages: result_messages,
+            stop_reason: last_finish_reason,
+        })
     }
 }
