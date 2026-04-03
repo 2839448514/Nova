@@ -1,4 +1,6 @@
 pub mod types;
+pub mod history;
+pub mod commands;
 pub mod client;
 pub mod query_engine;
 pub mod services;

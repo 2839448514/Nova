@@ -1,5 +1,5 @@
 use serde::Serialize;
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter};
 
 use crate::llm::services::compact;
 use crate::llm::types::{Content, ContentBlock, Message};
@@ -52,6 +52,7 @@ pub async fn send_chat_message(
     }
 
     let provider = LlmProvider::new(&app);
+    let should_emit_completed_on_loop_end = matches!(&provider, LlmProvider::OpenAi(_));
 
     loop {
         let consumed = crate::llm::utils::permissions::consume_user_permission_decisions(&current_messages);
@@ -81,6 +82,24 @@ pub async fn send_chat_message(
         if !has_tool_result {
             break;
         }
+    }
+
+    if should_emit_completed_on_loop_end {
+        app.emit(
+            "chat-stream",
+            ChatMessageEvent {
+                r#type: "stop".into(),
+                text: None,
+                tool_use_id: None,
+                tool_use_name: None,
+                tool_use_input: None,
+                tool_result: None,
+                token_usage: None,
+                stop_reason: Some("stop".into()),
+                turn_state: Some("completed".into()),
+            },
+        )
+        .ok();
     }
 
     Ok(())

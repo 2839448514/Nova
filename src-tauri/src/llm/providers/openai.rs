@@ -444,7 +444,7 @@ impl OpenAiProvider {
                                                 tool_result: None,
                                                 token_usage: None,
                                                 stop_reason: Some(finish_reason),
-                                                turn_state: Some("completed".into()),
+                                                turn_state: Some("intermediate".into()),
                                             },
                                         )
                                         .ok();
@@ -475,7 +475,7 @@ impl OpenAiProvider {
                     tool_result: None,
                     token_usage: None,
                     stop_reason: None,
-                    turn_state: Some("completed".into()),
+                    turn_state: Some("intermediate".into()),
                 },
             )
             .ok();
