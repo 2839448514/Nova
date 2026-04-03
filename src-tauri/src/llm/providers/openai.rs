@@ -10,6 +10,7 @@ use crate::llm::services::mcp_tools;
 use crate::llm::services::mcp_tools::parse_mcp_tool_name;
 use crate::llm::tools;
 use crate::llm::types::{ContentBlock, Message, Role};
+use crate::llm::utils::error_event::emit_backend_error;
 use crate::llm::utils::system_prompt::load_system_prompt;
 
 #[derive(Debug, Serialize)]
@@ -111,7 +112,7 @@ impl OpenAiProvider {
         let mut available_tools = tools::get_available_tools();
         available_tools.extend(mcp_tools::collect_mcp_tools(app).await);
 
-        let system_prompt = load_system_prompt(app, plan_mode);
+        let system_prompt = load_system_prompt(app, plan_mode)?;
         
         let mut oai_messages = vec![OpenAiMessage {
             role: "system".into(),
@@ -254,12 +255,18 @@ impl OpenAiProvider {
                     let status = res.status();
                     let error_text = res.text().await.unwrap_or_default();
                     eprintln!("API Error: {}", error_text);
-                    return Err(format!("API Error [{}] {} => {}", status, url, error_text));
+                    let msg = format!("API Error [{}] {} => {}", status, url, error_text);
+                    emit_backend_error(app, "llm.providers.openai", msg.clone(), Some("http.non_success"));
+                    return Err(msg);
                 }
 
                 self.process_stream_response(app, res).await
             }
-            Err(e) => Err(e.to_string()),
+            Err(e) => {
+                let msg = e.to_string();
+                emit_backend_error(app, "llm.providers.openai", msg.clone(), Some("http.request"));
+                Err(msg)
+            }
         }
     }
 
@@ -278,9 +285,16 @@ impl OpenAiProvider {
         let mut emitted_stop = false;
 
         while let Some(chunk) = stream.next().await {
-            if let Ok(bytes) = chunk {
-                let text = String::from_utf8_lossy(&bytes);
-                for line in text.lines() {
+            let bytes = match chunk {
+                Ok(v) => v,
+                Err(e) => {
+                    let msg = format!("OpenAI stream chunk error: {}", e);
+                    emit_backend_error(app, "llm.providers.openai", msg.clone(), Some("stream.chunk"));
+                    return Err(msg);
+                }
+            };
+            let text = String::from_utf8_lossy(&bytes);
+            for line in text.lines() {
                     let line = line.trim();
                     if line.starts_with("data: ") || line.starts_with("data:") {
                         let data = line.strip_prefix("data: ").unwrap_or_else(|| line.strip_prefix("data:").unwrap());
@@ -401,7 +415,15 @@ impl OpenAiProvider {
                                                     input_value,
                                                 ).await {
                                                     Ok(v) => v.to_string(),
-                                                    Err(e) => serde_json::json!({ "ok": false, "error": e }).to_string()
+                                                    Err(e) => {
+                                                        emit_backend_error(
+                                                            app,
+                                                            "llm.providers.openai",
+                                                            e.clone(),
+                                                            Some("tool.mcp_call"),
+                                                        );
+                                                        serde_json::json!({ "ok": false, "error": e }).to_string()
+                                                    }
                                                 }
                                             } else {
                                                 tools::execute_tool_with_app(app, &name, input_value).await
@@ -454,7 +476,6 @@ impl OpenAiProvider {
                         }
                     }
                 }
-            }
         }
         
         if !generated_text.is_empty() {

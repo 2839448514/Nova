@@ -2,6 +2,7 @@
 import { ref, onMounted, onUnmounted } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
+import { emitToast } from "./lib/toast";
 import {
   buildPendingQuestionReply,
   parseNeedsUserInput,
@@ -21,6 +22,13 @@ import type {
 import Sidebar from "./components/layout/Sidebar.vue";
 import WelcomeScreen from "./components/chat/WelcomeScreen.vue";
 import ChatScreen from "./components/chat/ChatScreen.vue";
+import GlobalToastHost from "./components/layout/GlobalToastHost.vue";
+
+type BackendErrorEvent = {
+  source?: string;
+  message?: string;
+  stage?: string | null;
+};
 
 const messages = ref<ChatMessage[]>([]);
 const isGenerating = ref(false);
@@ -38,7 +46,8 @@ const currentInputTokens = ref(0);
 const currentOutputTokens = ref(0);
 const planMode = ref(false);
 
-let unlisten: UnlistenFn | null = null;
+let unlistenChatStream: UnlistenFn | null = null;
+let unlistenBackendError: UnlistenFn | null = null;
 const isSidebarOpen = ref(true);
 const chatScreenRef = ref<InstanceType<typeof ChatScreen> | null>(null);
 
@@ -205,7 +214,7 @@ onMounted(async () => {
   }
 
   try {
-    unlisten = await listen<ChatMessageEvent>("chat-stream", (event) => {
+    unlistenChatStream = await listen<ChatMessageEvent>("chat-stream", (event) => {
       const payload = event.payload;
       if (payload.type === "text" && payload.text) {
         assistantResponse.value += payload.text;
@@ -258,10 +267,26 @@ onMounted(async () => {
   } catch (err) {
     console.error("Failed to setup listener:", err);
   }
+
+  try {
+    unlistenBackendError = await listen<BackendErrorEvent>("backend-error", (event) => {
+      const payload = event.payload ?? {};
+      const prefix = [payload.source, payload.stage].filter(Boolean).join(" / ");
+      const message = payload.message || "后端工作流发生未知错误";
+      emitToast({
+        variant: "error",
+        source: "backend-error",
+        message: prefix ? `[${prefix}] ${message}` : message,
+      });
+    });
+  } catch (err) {
+    console.error("Failed to setup backend-error listener:", err);
+  }
 });
 
 onUnmounted(() => {
-  if (unlisten) unlisten();
+  if (unlistenChatStream) unlistenChatStream();
+  if (unlistenBackendError) unlistenBackendError();
 });
 
 async function handleSendMessage(userText: string) {
@@ -363,6 +388,7 @@ async function handleDeleteConversation(id: string) {
 
 <template>
   <div class="flex h-screen bg-[#fcfcfc] dark:bg-[#1a1a1a] text-[#1a1a1a] dark:text-[#ececec] overflow-hidden font-sans">
+    <GlobalToastHost />
     
     <Sidebar
       v-if="isSidebarOpen"

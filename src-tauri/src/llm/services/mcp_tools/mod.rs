@@ -14,7 +14,7 @@ pub fn parse_mcp_tool_name(name: &str) -> Option<(String, String)> {
 }
 
 pub async fn collect_mcp_tools(app: &AppHandle) -> Vec<Tool> {
-    let mut statuses = match crate::command::mcp::get_mcp_server_statuses(app.clone()).await {
+    let mut statuses = match crate::llm::services::mcp::get_mcp_server_statuses(app.clone()).await {
         Ok(v) => v,
         Err(_) => return Vec::new(),
     };
@@ -24,8 +24,8 @@ pub async fn collect_mcp_tools(app: &AppHandle) -> Vec<Tool> {
         .iter()
         .any(|s| s.enabled && s.status == "connected");
     if has_enabled && !has_connected {
-        let _ = crate::command::mcp::reload_all_mcp_servers(app.clone()).await;
-        statuses = match crate::command::mcp::get_mcp_server_statuses(app.clone()).await {
+        let _ = crate::llm::services::mcp::reload_all_mcp_servers(app.clone()).await;
+        statuses = match crate::llm::services::mcp::get_mcp_server_statuses(app.clone()).await {
             Ok(v) => v,
             Err(_) => return Vec::new(),
         };
@@ -36,7 +36,7 @@ pub async fn collect_mcp_tools(app: &AppHandle) -> Vec<Tool> {
         .into_iter()
         .filter(|s| s.enabled && s.status == "connected")
     {
-        let listed = match crate::command::mcp::list_mcp_tools(app.clone(), status.name.clone()).await
+        let listed = match crate::llm::services::mcp::list_mcp_tools(app.clone(), status.name.clone()).await
         {
             Ok(v) => v,
             Err(_) => continue,

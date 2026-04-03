@@ -4,6 +4,7 @@ use tauri::{AppHandle, Emitter};
 use crate::llm::services::compact;
 use crate::llm::types::{Content, ContentBlock, Message};
 use crate::llm::providers::LlmProvider;
+use crate::llm::utils::error_event::emit_backend_error;
 
 #[derive(Debug, Serialize, Clone)]
 pub struct ChatMessageEvent {
@@ -60,7 +61,18 @@ pub async fn send_chat_message(
             eprintln!("[permissions] applied user approval decisions={}", consumed);
         }
 
-        let new_messages = provider.send_request(&app, &current_messages, plan_mode).await?;
+        let new_messages = match provider.send_request(&app, &current_messages, plan_mode).await {
+            Ok(v) => v,
+            Err(e) => {
+                emit_backend_error(
+                    &app,
+                    "llm.query_engine",
+                    e.clone(),
+                    Some("provider.send_request"),
+                );
+                return Err(e);
+            }
+        };
         current_messages.extend(new_messages.clone());
 
         eprintln!("[loop] new_messages count={}", new_messages.len());

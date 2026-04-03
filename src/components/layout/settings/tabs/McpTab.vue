@@ -5,6 +5,7 @@ import { invoke } from '@tauri-apps/api/core'
 type MCPServerConfig = { type: 'stdio'; command: string; args: string[]; env?: Record<string, string> } | { type: 'sse'; url: string }
 type ServerStatus = { name: string; status: 'connected' | 'error' | 'connecting' | 'disconnected'; type: 'stdio' | 'sse'; enabled: boolean; toolCount?: number; error?: string }
 type MCPForm = { name: string; type: 'stdio' | 'sse'; command: string; args: string; env: string; url: string }
+type ToastItem = { id: number; message: string; variant: 'error' | 'success' }
 
 const addServer = async (name: string, config: MCPServerConfig) => {
   await invoke('add_mcp_server', { name, config })
@@ -27,10 +28,19 @@ const loading = ref(false)
 const adding = ref(false)
 const reloading = ref(false)
 const error = ref('')
+const toasts = ref<ToastItem[]>([])
 const showForm = ref(false)
 const removingName = ref<string | null>(null)
 const togglingName = ref<string | null>(null)
 const form = ref<MCPForm>({ name: '', type: 'stdio', command: 'npx', args: '-y @playwright/mcp@latest', env: '', url: '' })
+
+const pushToast = (message: string, variant: ToastItem['variant']) => {
+  const id = Date.now() + Math.floor(Math.random() * 1000)
+  toasts.value.push({ id, message, variant })
+  window.setTimeout(() => {
+    toasts.value = toasts.value.filter((t) => t.id !== id)
+  }, 3500)
+}
 
 const resetForm = () => {
   form.value = { name: '', type: 'stdio', command: 'npx', args: '-y @playwright/mcp@latest', env: '', url: '' }
@@ -41,7 +51,10 @@ const resetForm = () => {
 const refresh = async () => {
   loading.value = true
   try { servers.value = await getServerStatuses() }
-  catch { servers.value = [] }
+  catch (e) {
+    servers.value = []
+    pushToast(`MCP 加载失败: ${String(e)}`, 'error')
+  }
   finally { loading.value = false }
 }
 
@@ -63,26 +76,56 @@ const submit = async () => {
     config = { type: 'sse', url: form.value.url.trim() }
   }
   adding.value = true; error.value = ''
-  try { await addServer(name, config); resetForm(); await refresh() }
-  catch (e) { error.value = `添加失败: ${String(e)}` }
+  try {
+    await addServer(name, config)
+    resetForm()
+    await refresh()
+    pushToast('MCP 服务已添加并触发连接。', 'success')
+  }
+  catch (e) {
+    const msg = `添加失败: ${String(e)}`
+    error.value = msg
+    pushToast(msg, 'error')
+  }
   finally { adding.value = false }
 }
 
 const handleRemove = async (name: string) => {
   removingName.value = name
-  try { await removeServer(name); await refresh() }
+  try {
+    await removeServer(name)
+    await refresh()
+    pushToast(`已删除 MCP 服务: ${name}`, 'success')
+  }
+  catch (e) {
+    pushToast(`删除失败(${name}): ${String(e)}`, 'error')
+  }
   finally { removingName.value = null }
 }
 
 const handleReload = async () => {
   reloading.value = true
-  try { await reloadAllServers(); await refresh() }
+  try {
+    await reloadAllServers()
+    await refresh()
+    pushToast('MCP 服务重连完成。', 'success')
+  }
+  catch (e) {
+    pushToast(`MCP 重连失败: ${String(e)}`, 'error')
+  }
   finally { reloading.value = false }
 }
 
 const handleToggleEnabled = async (name: string, enabled: boolean) => {
   togglingName.value = name
-  try { await setServerEnabled(name, enabled); await refresh() }
+  try {
+    await setServerEnabled(name, enabled)
+    await refresh()
+    pushToast(`${enabled ? '已启用' : '已停用'} MCP 服务: ${name}`, 'success')
+  }
+  catch (e) {
+    pushToast(`更新状态失败(${name}): ${String(e)}`, 'error')
+  }
   finally { togglingName.value = null }
 }
 
@@ -92,6 +135,23 @@ refresh()
 
 <template>
   <div class="px-6 py-4 flex flex-col h-full overflow-y-auto">
+    <TransitionGroup
+      name="mcp-toast"
+      tag="div"
+      class="fixed top-5 right-5 z-[80] flex flex-col gap-2 pointer-events-none"
+    >
+      <div
+        v-for="toast in toasts"
+        :key="toast.id"
+        class="min-w-[260px] max-w-[360px] px-4 py-3 rounded-lg border shadow-[0_8px_20px_rgba(0,0,0,0.12)] text-[13px] leading-relaxed pointer-events-auto"
+        :class="toast.variant === 'error'
+          ? 'bg-[#fff4f4] dark:bg-[#3a2222] border-[#f2c9c9] dark:border-[#6a3535] text-[#9f2f2f] dark:text-[#ffb3b3]'
+          : 'bg-[#f2fbf4] dark:bg-[#1f3325] border-[#cde8d3] dark:border-[#3a6b48] text-[#1f6a34] dark:text-[#9ae2ad]'"
+      >
+        {{ toast.message }}
+      </div>
+    </TransitionGroup>
+
     <div class="flex items-center justify-between mb-4">
       <span class="text-[12.5px] text-[#aaa49a] dark:text-[#88857f]">{{ servers.length }} 个服务</span>
       <div class="flex items-center gap-2">
@@ -182,3 +242,16 @@ refresh()
     </div>
   </div>
 </template>
+
+<style scoped>
+.mcp-toast-enter-active,
+.mcp-toast-leave-active {
+  transition: all 0.22s ease;
+}
+
+.mcp-toast-enter-from,
+.mcp-toast-leave-to {
+  opacity: 0;
+  transform: translateY(-8px) translateX(8px);
+}
+</style>

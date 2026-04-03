@@ -9,6 +9,7 @@ use crate::llm::tools;
 use crate::llm::types::{
     AnthropicRequest, ContentBlock, Message, Role, StreamContentBlock, StreamDelta, StreamEvent,
 };
+use crate::llm::utils::error_event::emit_backend_error;
 use crate::llm::utils::system_prompt::load_system_prompt;
 
 pub struct AnthropicProvider;
@@ -45,7 +46,7 @@ impl AnthropicProvider {
         let request = AnthropicRequest {
             model: profile.model.clone(),
             max_tokens: 4096,
-            system: Some(load_system_prompt(app, plan_mode)),
+            system: Some(load_system_prompt(app, plan_mode)?),
             messages: messages.to_vec(),
             tools: available_tools,
             stream: true,
@@ -77,12 +78,18 @@ impl AnthropicProvider {
                     let status = res.status();
                     let error_text = res.text().await.unwrap_or_default();
                     eprintln!("API Error: {}", error_text);
-                    return Err(format!("API Error [{}] {} => {}", status, url, error_text));
+                    let msg = format!("API Error [{}] {} => {}", status, url, error_text);
+                    emit_backend_error(app, "llm.providers.anthropic", msg.clone(), Some("http.non_success"));
+                    return Err(msg);
                 }
 
                 self.process_stream_response(app, res).await
             }
-            Err(e) => Err(e.to_string()),
+            Err(e) => {
+                let msg = e.to_string();
+                emit_backend_error(app, "llm.providers.anthropic", msg.clone(), Some("http.request"));
+                Err(msg)
+            }
         }
     }
 
@@ -104,9 +111,16 @@ impl AnthropicProvider {
     let mut last_stop_reason: Option<String> = None;
 
     while let Some(chunk) = stream.next().await {
-        if let Ok(bytes) = chunk {
-            let text = String::from_utf8_lossy(&bytes);
-            for line in text.lines() {
+        let bytes = match chunk {
+            Ok(v) => v,
+            Err(e) => {
+                let msg = format!("Anthropic stream chunk error: {}", e);
+                emit_backend_error(app, "llm.providers.anthropic", msg.clone(), Some("stream.chunk"));
+                return Err(msg);
+            }
+        };
+        let text = String::from_utf8_lossy(&bytes);
+        for line in text.lines() {
                 if let Some(data) = line.strip_prefix("data:") {
                     let data = data.trim_start();
                     if data == "[DONE]" {
@@ -202,6 +216,12 @@ impl AnthropicProvider {
                                             {
                                                 Ok(v) => v.to_string(),
                                                 Err(e) => {
+                                                    emit_backend_error(
+                                                        app,
+                                                        "llm.providers.anthropic",
+                                                        e.clone(),
+                                                        Some("tool.mcp_call"),
+                                                    );
                                                     serde_json::json!({ "ok": false, "error": e })
                                                         .to_string()
                                                 }
@@ -306,7 +326,6 @@ impl AnthropicProvider {
                     }
                 }
             }
-        }
     }
 
     if !emitted_stop {

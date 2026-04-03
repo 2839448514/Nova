@@ -208,11 +208,12 @@ pub async fn get_conversation_handover_by_pool(
     let updated_at = meta_row.get::<i64, _>("updated_at");
     let memory = match get_conversation_memory_by_pool(pool, conversation_id).await? {
         Some(memory) => memory,
-        None => build_memory_from_history(&recent_messages, updated_at).unwrap_or(ConversationMemory {
-            summary: String::new(),
-            key_facts: Vec::new(),
-            updated_at,
-        }),
+        None => build_memory_from_history(&recent_messages, updated_at).ok_or_else(|| {
+            format!(
+                "Failed to build conversation memory for '{}' from recent history",
+                conversation_id
+            )
+        })?,
     };
 
     Ok(ConversationHandover {

@@ -3,7 +3,6 @@ use std::path::PathBuf;
 use tauri::AppHandle;
 
 const SYSTEM_PROMPT_FILE_NAME: &str = "system_prompt.md";
-const FALLBACK_SYSTEM_PROMPT: &str = "You are a helpful coding assistant running in a local Tauri desktop app. You will answer questions briefly and write accurate code.";
 const PLAN_MODE_SECTION: &str = r#"
 
 ## Plan Mode
@@ -23,25 +22,25 @@ fn read_non_empty_file(path: &PathBuf) -> Option<String> {
     Some(trimmed.to_string())
 }
 
-pub fn load_system_prompt(_app: &AppHandle, plan_mode: bool) -> String {
-    if let Ok(cwd) = std::env::current_dir() {
-        let path = cwd
-            .join("src-tauri")
-            .join("src")
-            .join("prompt")
-            .join(SYSTEM_PROMPT_FILE_NAME);
-        if let Some(prompt) = read_non_empty_file(&path) {
-            return if plan_mode {
-                format!("{}{}", prompt, PLAN_MODE_SECTION)
-            } else {
-                prompt
-            };
-        }
-    }
+fn main_prompt_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("src")
+        .join("prompt")
+        .join(SYSTEM_PROMPT_FILE_NAME)
+}
+
+pub fn load_system_prompt(_app: &AppHandle, plan_mode: bool) -> Result<String, String> {
+    let path = main_prompt_path();
+    let prompt = read_non_empty_file(&path).ok_or_else(|| {
+        format!(
+            "System prompt file is missing or empty: {}. Refusing to use fallback.",
+            path.display()
+        )
+    })?;
 
     if plan_mode {
-        format!("{}{}", FALLBACK_SYSTEM_PROMPT, PLAN_MODE_SECTION)
+        Ok(format!("{}{}", prompt, PLAN_MODE_SECTION))
     } else {
-        FALLBACK_SYSTEM_PROMPT.to_string()
+        Ok(prompt)
     }
 }
