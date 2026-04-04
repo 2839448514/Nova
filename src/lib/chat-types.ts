@@ -5,6 +5,8 @@ export interface TurnCost {
   toolDurationMs: number;
 }
 
+export type AgentMode = "agent" | "plan" | "auto";
+
 export interface ChatMessage {
   role: "user" | "assistant";
   content: string;

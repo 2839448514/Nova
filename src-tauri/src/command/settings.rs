@@ -31,6 +31,8 @@ const HOOK_ENV_KEYS: &[&str] = &[
     "NOVA_STOP_HOOK_APPEND_CONTEXT",
 ];
 
+const STOP_HOOK_MAX_ASSISTANT_MESSAGES_KEY: &str = "NOVA_STOP_HOOK_MAX_ASSISTANT_MESSAGES";
+
 fn normalize_provider_key(provider: &str) -> String {
     // provider 名去空白并转小写。
     let key = provider.trim().to_ascii_lowercase();
@@ -171,8 +173,14 @@ impl AppSettings {
 }
 
 pub fn get_settings_path(app: &AppHandle) -> PathBuf {
-    // 设置文件路径：app_data_dir/settings.json。
-    app.path().app_data_dir().unwrap().join("settings.json")
+    // 设置文件路径优先使用 app_data_dir，失败时回退到当前目录下的 .nova。
+    match app.path().app_data_dir() {
+        Ok(dir) => dir.join("settings.json"),
+        Err(_) => std::env::current_dir()
+            .unwrap_or_else(|_| PathBuf::from("."))
+            .join(".nova")
+            .join("settings.json"),
+    }
 }
 
 fn sync_hook_env_vars(settings: &AppSettings) {
@@ -189,6 +197,25 @@ fn sync_hook_env_vars(settings: &AppSettings) {
             std::env::set_var(key, value);
         }
     }
+}
+
+fn validate_hook_env(settings: &AppSettings) -> Result<(), String> {
+    if let Some(raw_value) = settings
+        .hook_env
+        .get(STOP_HOOK_MAX_ASSISTANT_MESSAGES_KEY)
+    {
+        let trimmed = raw_value.trim();
+        if !trimmed.is_empty() {
+            trimmed.parse::<usize>().map_err(|_| {
+                format!(
+                    "Invalid hook_env[{}]: '{}' (must be a non-negative integer)",
+                    STOP_HOOK_MAX_ASSISTANT_MESSAGES_KEY, raw_value
+                )
+            })?;
+        }
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -226,6 +253,7 @@ pub fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), String
     // 对传入设置做运行时规范化。
     let mut normalized = settings;
     normalized.normalize_for_runtime();
+    validate_hook_env(&normalized)?;
     sync_hook_env_vars(&normalized);
     // 序列化为美化 JSON。
     let content = serde_json::to_string_pretty(&normalized).map_err(|e| e.to_string())?;

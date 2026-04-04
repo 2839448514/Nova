@@ -4,7 +4,7 @@ pub mod anthropic;
 pub mod openai;
 
 use tauri::AppHandle;
-use crate::llm::types::Message;
+use crate::llm::types::{AgentMode, Message};
 
 #[derive(Debug, Clone)]
 pub struct ProviderTurnResult {
@@ -45,13 +45,13 @@ impl LlmProvider {
         &self,
         app: &AppHandle,
         messages: &[Message],
-        plan_mode: bool,
+        agent_mode: AgentMode,
         conversation_id: Option<&str>,
     ) -> Result<ProviderTurnResult, String> {
         // 根据当前枚举分支转发到具体 provider 实现。
         match self {
-            LlmProvider::Anthropic(p) => p.send_request(app, messages, plan_mode, conversation_id).await,
-            LlmProvider::OpenAi(p) => p.send_request(app, messages, plan_mode, conversation_id).await,
+            LlmProvider::Anthropic(p) => p.send_request(app, messages, agent_mode, conversation_id).await,
+            LlmProvider::OpenAi(p) => p.send_request(app, messages, agent_mode, conversation_id).await,
         }
     }
 }

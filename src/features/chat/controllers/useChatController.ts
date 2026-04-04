@@ -26,6 +26,7 @@ import {
   upsertConversationMemory,
 } from "../services/chat-api";
 import type {
+  AgentMode,
   AskUserAnswerSubmission,
   ChatMessage,
   ChatMessageEvent,
@@ -64,7 +65,9 @@ export function useChatController() {
   const currentToolDurationMs = ref(0);
   const currentInputTokens = ref(0);
   const currentOutputTokens = ref(0);
+  const agentMode = ref<AgentMode>("agent");
   const planMode = ref(false);
+  const isCreatingNewChat = ref(false);
   const isSidebarOpen = ref(true);
   const chatScreenRef = ref<ChatScreenHandle | null>(null);
   const toolInputById = new Map<string, string>();
@@ -72,6 +75,42 @@ export function useChatController() {
 
   let unlistenChatStream: UnlistenFn | null = null;
   let unlistenBackendError: UnlistenFn | null = null;
+
+  function resetToolTrackingState() {
+    currentToolStartedAt.value = null;
+    toolInputById.clear();
+    toolNameById.clear();
+  }
+
+  function resetPendingPromptState() {
+    pendingPermissionRequestId.value = null;
+    pendingQuestion.value = null;
+  }
+
+  function resetTurnRuntimeState() {
+    resetToolTrackingState();
+    resetPendingPromptState();
+  }
+
+  function finalizeOrStopTurn(tokenUsage?: number) {
+    if (assistantResponse.value.trim().length > 0) {
+      finalizeAssistantTurn(tokenUsage);
+      return;
+    }
+    assistantResponse.value = "";
+    assistantTokenUsage.value = undefined;
+    assistantTurnCost.value = undefined;
+    isGenerating.value = false;
+  }
+
+  function hasConversationContent(): boolean {
+    return messages.value.some((m) => m.content.trim().length > 0);
+  }
+
+  function handleAgentModeChange(mode: AgentMode) {
+    agentMode.value = mode;
+    planMode.value = mode === "plan";
+  }
 
   function estimateInputTokensForTurn(userText: string): number {
     const historyText = messages.value
@@ -140,7 +179,7 @@ export function useChatController() {
 
   async function loadConversation(id: string) {
     activeConversationId.value = id;
-    planMode.value = false;
+    planMode.value = agentMode.value === "plan";
     try {
       const saved = await loadConversationHistory(id);
       messages.value = (saved || [])
@@ -202,8 +241,7 @@ export function useChatController() {
   async function handleSendMessage(userText: string) {
     if (!userText.trim() || isGenerating.value) return;
     mainView.value = "chat";
-    pendingQuestion.value = null;
-    pendingPermissionRequestId.value = null;
+    resetPendingPromptState();
 
     if (!activeConversationId.value) {
       const id = await createNewConversation(userText);
@@ -224,8 +262,7 @@ export function useChatController() {
     currentToolDurationMs.value = 0;
     currentOutputTokens.value = 0;
     currentInputTokens.value = estimateInputTokensForTurn(userText);
-    toolInputById.clear();
-    toolNameById.clear();
+    resetToolTrackingState();
 
     const rustMessages = messages.value.map((msg) => ({
       role: msg.role,
@@ -233,7 +270,12 @@ export function useChatController() {
     }));
 
     try {
-      await sendChatMessage(activeConversationId.value || null, rustMessages, planMode.value);
+      await sendChatMessage(
+        activeConversationId.value || null,
+        rustMessages,
+        planMode.value,
+        agentMode.value,
+      );
     } catch (err: any) {
       if (!isGenerating.value) {
         return;
@@ -244,7 +286,9 @@ export function useChatController() {
       await persistMessage(errorMsg);
       assistantResponse.value = "";
       assistantTokenUsage.value = undefined;
+      assistantTurnCost.value = undefined;
       isGenerating.value = false;
+      resetTurnRuntimeState();
     }
   }
 
@@ -280,8 +324,7 @@ export function useChatController() {
           pendingPermissionRequestId.value,
           action,
         );
-        pendingQuestion.value = null;
-        pendingPermissionRequestId.value = null;
+        resetPendingPromptState();
       } catch (err) {
         emitToast({
           variant: "error",
@@ -303,8 +346,7 @@ export function useChatController() {
           pendingPermissionRequestId.value,
           "deny_session",
         );
-        pendingQuestion.value = null;
-        pendingPermissionRequestId.value = null;
+        resetPendingPromptState();
       } catch (err) {
         emitToast({
           variant: "error",
@@ -319,26 +361,40 @@ export function useChatController() {
   }
 
   async function handleNewChat() {
-    const id = await createNewConversation("New chat");
-    if (!id) return;
-    activeConversationId.value = id;
-    messages.value = [];
+    if (isGenerating.value || isCreatingNewChat.value) return;
+
     mainView.value = "chat";
-    pendingQuestion.value = null;
-    pendingPermissionRequestId.value = null;
-    assistantResponse.value = "";
-    isGenerating.value = false;
-    planMode.value = false;
+    resetPendingPromptState();
+
+    // 当前已是空会话时，不重复创建新的空会话。
+    if (activeConversationId.value && !hasConversationContent() && !assistantResponse.value.trim()) {
+      return;
+    }
+
+    isCreatingNewChat.value = true;
+    try {
+      const id = await createNewConversation("New chat");
+      if (!id) {
+        return;
+      }
+
+      activeConversationId.value = id;
+      messages.value = [];
+      assistantResponse.value = "";
+      isGenerating.value = false;
+      planMode.value = agentMode.value === "plan";
+    } finally {
+      isCreatingNewChat.value = false;
+    }
   }
 
   async function handleSelectConversation(id: string) {
     if (!id || id === activeConversationId.value || isGenerating.value) return;
     mainView.value = "chat";
-    pendingQuestion.value = null;
-    pendingPermissionRequestId.value = null;
+    resetPendingPromptState();
     assistantResponse.value = "";
     isGenerating.value = false;
-    planMode.value = false;
+    planMode.value = agentMode.value === "plan";
     await loadConversation(id);
   }
 
@@ -411,12 +467,41 @@ export function useChatController() {
           const promptPayload = (payload.text ?? "").trim();
           const parsed = parseNeedsUserInput(promptPayload);
 
-          if (!requestId || !parsed) {
+          if (!requestId) {
             emitToast({
               variant: "error",
               source: "permission-request",
-              message: "收到权限请求但缺少有效参数，无法显示审批弹窗。",
+              message: "收到权限请求但缺少 request_id，已尝试取消当前回合。",
             });
+            void cancelChatMessage(activeConversationId.value || null).catch((err) => {
+              emitToast({
+                variant: "error",
+                source: "permission-request",
+                message: `取消异常权限请求失败: ${String(err)}`,
+              });
+            });
+            resetPendingPromptState();
+            return;
+          }
+
+          if (!parsed) {
+            emitToast({
+              variant: "error",
+              source: "permission-request",
+              message: "收到权限请求但参数无效，已自动拒绝该请求。",
+            });
+            void submitPermissionDecision(
+              activeConversationId.value || null,
+              requestId,
+              "deny_session",
+            ).catch((err) => {
+              emitToast({
+                variant: "error",
+                source: "permission-request",
+                message: `自动拒绝权限请求失败: ${String(err)}`,
+              });
+            });
+            resetPendingPromptState();
             return;
           }
 
@@ -445,7 +530,9 @@ export function useChatController() {
           if (result) {
             const planModeChange = parsePlanModeChange(result);
             if (planModeChange) {
-              planMode.value = planModeChange.mode === "plan";
+              const isPlan = planModeChange.mode === "plan";
+              planMode.value = isPlan;
+              agentMode.value = isPlan ? "plan" : "agent";
             }
             const needsUserInput = parseNeedsUserInput(result);
             if (needsUserInput) {
@@ -467,27 +554,17 @@ export function useChatController() {
           const turnState = payload.turn_state ?? "";
 
           if (turnState === "cancelled" || stopReason === "cancelled") {
-            const hasPartial = assistantResponse.value.trim().length > 0;
-            if (hasPartial) {
-              finalizeAssistantTurn(payload.token_usage);
-            } else {
-              assistantResponse.value = "";
-              assistantTokenUsage.value = undefined;
-              assistantTurnCost.value = undefined;
-              isGenerating.value = false;
-            }
-            currentToolStartedAt.value = null;
-            pendingPermissionRequestId.value = null;
-            pendingQuestion.value = null;
-            toolInputById.clear();
-            toolNameById.clear();
+            finalizeOrStopTurn(payload.token_usage);
+            resetTurnRuntimeState();
             return;
           }
 
           if (turnState === "error") {
             isGenerating.value = false;
-            pendingPermissionRequestId.value = null;
-            pendingQuestion.value = null;
+            assistantResponse.value = "";
+            assistantTokenUsage.value = undefined;
+            assistantTurnCost.value = undefined;
+            resetTurnRuntimeState();
             const detail = (payload.text ?? "").trim();
             emitToast({
               variant: "error",
@@ -500,10 +577,13 @@ export function useChatController() {
             turnState === "completed" ||
             turnState === "awaiting_user_input" ||
             turnState === "needs_user_input" ||
+            turnState === "stop_hook_prevented" ||
+            stopReason === "stop_hook_prevented" ||
             stopReason === "needs_user_input";
 
           if (shouldFinalize) {
-            finalizeAssistantTurn(payload.token_usage);
+            finalizeOrStopTurn(payload.token_usage);
+            resetTurnRuntimeState();
           }
         }
       });
@@ -541,6 +621,7 @@ export function useChatController() {
     conversations,
     activeConversationId,
     pendingQuestion,
+    agentMode,
     planMode,
     mainView,
     isSidebarOpen,
@@ -549,6 +630,7 @@ export function useChatController() {
     handleCancelGeneration,
     handlePendingQuestionSubmit,
     handlePendingQuestionSkip,
+    handleAgentModeChange,
     handleNewChat,
     handleSelectConversation,
     handleDeleteConversation,

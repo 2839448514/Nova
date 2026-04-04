@@ -15,6 +15,7 @@ const {
   conversations,
   activeConversationId,
   pendingQuestion,
+  agentMode,
   planMode,
   mainView,
   isSidebarOpen,
@@ -23,6 +24,7 @@ const {
   handleCancelGeneration,
   handlePendingQuestionSubmit,
   handlePendingQuestionSkip,
+  handleAgentModeChange,
   handleNewChat,
   handleSelectConversation,
   handleDeleteConversation,
@@ -72,7 +74,9 @@ void chatScreenRef;
         <WelcomeScreen 
           v-if="messages.length === 0" 
           :isGenerating="isGenerating"
+          :agentMode="agentMode"
           @send="handleSendMessage" 
+          @mode-change="handleAgentModeChange"
         />
 
         <ChatScreen 
@@ -84,9 +88,11 @@ void chatScreenRef;
           :assistantTokenUsage="assistantTokenUsage"
           :assistantTurnCost="assistantTurnCost"
           :pendingQuestion="pendingQuestion"
+          :agentMode="agentMode"
           :planMode="planMode"
           @send="handleSendMessage"
           @cancel="handleCancelGeneration"
+          @mode-change="handleAgentModeChange"
           @ask-submit="handlePendingQuestionSubmit"
           @ask-skip="handlePendingQuestionSkip"
         />

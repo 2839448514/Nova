@@ -1,7 +1,7 @@
 use serde::Serialize;
 use tauri::AppHandle;
 
-use crate::llm::types::Message;
+use crate::llm::types::{AgentMode, Message};
 
 #[derive(Debug, Serialize, Clone)]
 pub struct ChatMessageEvent {
@@ -30,8 +30,8 @@ pub async fn send_chat_message(
     app: AppHandle,
     conversation_id: Option<String>,
     messages: Vec<Message>,
-    plan_mode: bool,
+    agent_mode: AgentMode,
 ) -> Result<(), String> {
     // 直接委托给新版 query 模块，保持旧 API 兼容。
-    crate::llm::query::send_chat_message(app, conversation_id, messages, plan_mode).await
+    crate::llm::query::send_chat_message(app, conversation_id, messages, agent_mode).await
 }

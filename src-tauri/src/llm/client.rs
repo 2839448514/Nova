@@ -1,6 +1,6 @@
 use tauri::AppHandle;
 
-use crate::llm::types::Message;
+use crate::llm::types::{AgentMode, Message};
 
 // 对外复用 query_engine 的事件类型定义。
 pub use crate::llm::query_engine::ChatMessageEvent;
@@ -11,18 +11,28 @@ pub async fn send_chat_message(
     conversation_id: Option<String>,
     messages: Vec<Message>,
     plan_mode: Option<bool>,
+    agent_mode: Option<AgentMode>,
 ) -> Result<(), String> {
     // 克隆会话 ID，便于请求前后使用同一作用域 key。
     let conversation_scope = conversation_id.clone();
     // 标记本轮开始，初始化取消标志位。
     crate::llm::cancellation::begin_turn(conversation_scope.as_deref());
 
-    // 通过兼容层入口发送请求；plan_mode 缺省为 false。
+    // 兼容旧参数：未显式提供 agent_mode 时退化到 plan_mode 开关语义。
+    let resolved_mode = agent_mode.unwrap_or_else(|| {
+        if plan_mode.unwrap_or(false) {
+            AgentMode::Plan
+        } else {
+            AgentMode::Agent
+        }
+    });
+
+    // 通过兼容层入口发送请求。
     let result = crate::llm::query_engine::send_chat_message(
         app,
         conversation_id,
         messages,
-        plan_mode.unwrap_or(false),
+        resolved_mode,
     )
     .await;
 

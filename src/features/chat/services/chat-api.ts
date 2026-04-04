@@ -1,11 +1,15 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  AgentMode,
   ChatMessage,
   ConversationMemory,
   ConversationMeta,
   PersistedMessage,
 } from "../../../lib/chat-types";
+import type { PermissionActionName } from "../../../lib/chat-payloads";
 import { buildConversationTitle } from "../utils/session-memory";
+
+type ChatRequestMessage = Pick<ChatMessage, "role" | "content">;
 
 export async function listConversations(): Promise<ConversationMeta[]> {
   const items = await invoke<ConversationMeta[]>("list_conversations");
@@ -54,13 +58,15 @@ export async function deleteConversation(conversationId: string): Promise<void> 
 
 export async function sendChatMessage(
   conversationId: string | null,
-  messages: Array<{ role: string; content: string }>,
+  messages: ChatRequestMessage[],
   planMode: boolean,
+  agentMode: AgentMode,
 ): Promise<void> {
   await invoke("send_chat_message", {
     conversationId,
     messages,
     planMode,
+    agentMode,
   });
 }
 
@@ -73,7 +79,7 @@ export async function cancelChatMessage(conversationId: string | null): Promise<
 export async function submitPermissionDecision(
   conversationId: string | null,
   requestId: string,
-  action: string,
+  action: PermissionActionName,
 ): Promise<boolean> {
   return invoke<boolean>("submit_permission_decision", {
     conversationId,

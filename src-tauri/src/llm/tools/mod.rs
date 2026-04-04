@@ -739,7 +739,12 @@ async fn await_permission_and_recheck(
             turn_state: Some("awaiting_permission".into()),
         },
     )
-    .ok();
+    .map_err(|e| {
+        format!(
+            "Permission request failed for '{}': unable to notify frontend ({})",
+            tool_name, e
+        )
+    })?;
 
     let decision = crate::llm::utils::permissions::await_permission_decision(
         conversation_id,

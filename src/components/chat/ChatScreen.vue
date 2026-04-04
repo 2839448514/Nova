@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { nextTick, onMounted, ref } from 'vue';
 import type {
+  AgentMode,
   AskUserAnswerSubmission,
   ChatMessage,
   NeedsUserInputPayload,
@@ -21,6 +22,7 @@ const props = defineProps<{
   assistantTurnCost?: TurnCost;
   pendingQuestion?: NeedsUserInputPayload | null;
   planMode?: boolean;
+  agentMode?: AgentMode;
 }>();
 
 const emit = defineEmits<{
@@ -28,6 +30,7 @@ const emit = defineEmits<{
   (e: 'ask-submit', value: AskUserAnswerSubmission): void;
   (e: 'ask-skip'): void;
   (e: 'cancel'): void;
+  (e: 'mode-change', mode: AgentMode): void;
 }>();
 
 const chatAreaRef = ref<HTMLElement | null>(null);
@@ -248,7 +251,7 @@ defineExpose({
           @submit="emit('ask-submit', $event)"
           @skip="emit('ask-skip')"
         />
-        <InputArea v-else :isGenerating="isGenerating" @send="handleSend" @cancel="emit('cancel')" />
+        <InputArea v-else :isGenerating="isGenerating" :agentMode="agentMode" @send="handleSend" @cancel="emit('cancel')" @mode-change="emit('mode-change', $event)" />
       </div>
       <div class="text-center text-[0.7rem] text-muted-foreground mt-2">
         Nova can make mistakes. Please verify important information.

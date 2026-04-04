@@ -26,6 +26,21 @@ const form = reactive({
   stopHookAppendContext: "",
 });
 
+function validateStopHookMaxAssistantMessages(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (!/^\d+$/.test(trimmed)) {
+    return "最大 Assistant 消息数仅支持非负整数。";
+  }
+
+  const parsed = Number.parseInt(trimmed, 10);
+  if (!Number.isSafeInteger(parsed)) {
+    return "数值过大，请输入较小的整数。";
+  }
+
+  return null;
+}
+
 function isTruthy(value: unknown): boolean {
   if (typeof value !== "string") return false;
   const normalized = value.trim().toLowerCase();
@@ -105,6 +120,16 @@ async function loadHookConfig() {
 }
 
 async function saveHookConfig() {
+  const validationError = stopHookMaxAssistantMessagesError.value;
+  if (validationError) {
+    emitToast({
+      variant: "error",
+      source: "hooks",
+      message: validationError,
+    });
+    return;
+  }
+
   saving.value = true;
   try {
     const settings = (await invoke("get_settings")) as Record<string, unknown>;
@@ -140,6 +165,10 @@ const savedAtText = computed(() => {
   return `已保存: ${new Date(lastSavedAt.value).toLocaleTimeString()}`;
 });
 
+const stopHookMaxAssistantMessagesError = computed(() =>
+  validateStopHookMaxAssistantMessages(form.stopHookMaxAssistantMessages),
+);
+
 onMounted(() => {
   loadHookConfig();
 });
@@ -155,7 +184,7 @@ onMounted(() => {
       <div class="hooks-header-actions">
         <button class="btn ghost" @click="emit('change-main-view', 'chat')">返回聊天</button>
         <button class="btn ghost" :disabled="loading || saving" @click="loadHookConfig">刷新</button>
-        <button class="btn" :disabled="loading || saving" @click="saveHookConfig">{{ saving ? '保存中...' : '保存配置' }}</button>
+        <button class="btn" :disabled="loading || saving || !!stopHookMaxAssistantMessagesError" @click="saveHookConfig">{{ saving ? '保存中...' : '保存配置' }}</button>
       </div>
     </header>
 
@@ -213,8 +242,14 @@ onMounted(() => {
         <h3>StopHook</h3>
         <label>
           <span>最大 Assistant 消息数</span>
-          <input v-model="form.stopHookMaxAssistantMessages" inputmode="numeric" placeholder="例如: 12" />
-          <small>对应 NOVA_STOP_HOOK_MAX_ASSISTANT_MESSAGES。</small>
+          <input
+            v-model="form.stopHookMaxAssistantMessages"
+            inputmode="numeric"
+            placeholder="例如: 12"
+            :class="{ 'input-invalid': !!stopHookMaxAssistantMessagesError }"
+          />
+          <small>对应 NOVA_STOP_HOOK_MAX_ASSISTANT_MESSAGES，留空表示不启用限制。</small>
+          <small v-if="stopHookMaxAssistantMessagesError" class="validation-error">{{ stopHookMaxAssistantMessagesError }}</small>
         </label>
         <label>
           <span>停止关键字</span>
@@ -320,6 +355,11 @@ textarea {
   color: #24211d;
 }
 
+.input-invalid {
+  border-color: #d46b6b;
+  box-shadow: 0 0 0 1px rgba(212, 107, 107, 0.2);
+}
+
 textarea {
   resize: vertical;
 }
@@ -328,6 +368,10 @@ small,
 .row-help {
   color: #857a69;
   font-size: 0.75rem;
+}
+
+.validation-error {
+  color: #b14b4b;
 }
 
 .checkbox {

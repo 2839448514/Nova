@@ -1,0 +1,939 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e4]:
+    - list [ref=e5]:
+      - listitem [ref=e6]:
+        - link "首页" [ref=e7] [cursor=pointer]:
+          - /url: //www.bilibili.com
+          - img [ref=e8]
+          - generic [ref=e10]:
+            - generic [ref=e11]: 首页
+            - img [ref=e12]
+      - listitem [ref=e15]:
+        - link "番剧" [ref=e16] [cursor=pointer]:
+          - /url: //www.bilibili.com/anime/
+      - listitem [ref=e17]:
+        - link "直播" [ref=e18] [cursor=pointer]:
+          - /url: //live.bilibili.com
+      - listitem [ref=e19]:
+        - link "游戏中心" [ref=e20] [cursor=pointer]:
+          - /url: //game.bilibili.com/platform
+      - listitem [ref=e21]:
+        - link "会员购" [ref=e22] [cursor=pointer]:
+          - /url: //show.bilibili.com/platform/home.html?msource=pc_web
+      - listitem [ref=e23]:
+        - link "漫画" [ref=e24] [cursor=pointer]:
+          - /url: //manga.bilibili.com?from=bill_top_mnav
+      - listitem [ref=e25]:
+        - link "赛事" [ref=e26] [cursor=pointer]:
+          - /url: //www.bilibili.com/match/home/
+      - listitem
+    - list [ref=e27]:
+      - listitem [ref=e28] [cursor=pointer]:
+        - listitem [ref=e29]:
+          - generic [ref=e31]: 登录
+      - listitem [ref=e32] [cursor=pointer]:
+        - listitem [ref=e34]:
+          - link [ref=e35]:
+            - /url: //account.bilibili.com/big
+            - img [ref=e36]
+      - listitem [ref=e40] [cursor=pointer]:
+        - img [ref=e42]
+      - listitem [ref=e45] [cursor=pointer]:
+        - img [ref=e47]
+      - listitem [ref=e53] [cursor=pointer]:
+        - img [ref=e55]
+      - listitem [ref=e58] [cursor=pointer]:
+        - img [ref=e60]
+      - listitem [ref=e62] [cursor=pointer]:
+        - img [ref=e64]
+      - listitem [ref=e68] [cursor=pointer]:
+        - listitem [ref=e69]:
+          - img [ref=e72]
+  - generic [ref=e77]:
+    - generic [ref=e78]:
+      - generic [ref=e82]:
+        - img [ref=e83]
+        - img [ref=e86] [cursor=pointer]
+        - textbox "输入关键字搜索" [ref=e88]: 黑马程序员
+        - button "搜索" [ref=e89] [cursor=pointer]
+      - navigation [ref=e92]:
+        - list [ref=e93]:
+          - listitem [ref=e94]:
+            - generic [ref=e96] [cursor=pointer]: 综合
+          - listitem [ref=e97]:
+            - generic [ref=e98] [cursor=pointer]:
+              - generic [ref=e99]: 视频
+              - generic [ref=e100]: 99+
+          - listitem [ref=e101]:
+            - generic [ref=e102] [cursor=pointer]:
+              - generic [ref=e103]: 番剧
+              - generic [ref=e104]: "0"
+          - listitem [ref=e105]:
+            - generic [ref=e106] [cursor=pointer]:
+              - generic [ref=e107]: 影视
+              - generic [ref=e108]: "0"
+          - listitem [ref=e109]:
+            - generic [ref=e110] [cursor=pointer]:
+              - generic [ref=e111]: 直播
+              - generic [ref=e112]: "2"
+          - listitem [ref=e113]:
+            - generic [ref=e114] [cursor=pointer]:
+              - generic [ref=e115]: 专栏
+              - generic [ref=e116]: 99+
+          - listitem [ref=e117]:
+            - generic [ref=e118] [cursor=pointer]:
+              - generic [ref=e119]: 用户
+              - generic [ref=e120]: 99+
+      - separator [ref=e122]
+      - generic [ref=e125]:
+        - generic [ref=e126]:
+          - button "综合排序" [ref=e127] [cursor=pointer]
+          - button "最多播放" [ref=e128] [cursor=pointer]
+          - button "最新发布" [ref=e129] [cursor=pointer]
+          - button "最多弹幕" [ref=e130] [cursor=pointer]
+          - button "最多收藏" [ref=e131] [cursor=pointer]
+        - button "更多筛选" [ref=e132] [cursor=pointer]:
+          - text: 更多筛选
+          - img [ref=e133]
+    - generic [ref=e138]:
+      - generic [ref=e140]:
+        - generic [ref=e142]:
+          - generic [ref=e144]:
+            - link [ref=e145] [cursor=pointer]:
+              - /url: //space.bilibili.com/37974444
+            - generic [ref=e151]:
+              - heading "黑马程序员 + 关注" [level=2] [ref=e152]:
+                - link "黑马程序员" [ref=e153] [cursor=pointer]:
+                  - /url: //space.bilibili.com/37974444
+                  - text: 黑马程序员
+                  - img [ref=e154]
+                - button "+ 关注" [ref=e157] [cursor=pointer]
+              - paragraph [ref=e158]: 粉丝：470.5万 · 视频：526 传智教育旗下官方账号
+          - generic [ref=e160]:
+            - generic [ref=e163]:
+              - link "黑马程序员2026最新版LangChain+LangGraph开发实战全套视频课程，从Agent开发，到LangSmith的监控、调试、评估一套搞定 22.5万 04:14:33" [ref=e164] [cursor=pointer]:
+                - /url: //www.bilibili.com/video/BV178w1z7EHQ/
+                - generic [ref=e165]:
+                  - img "黑马程序员2026最新版LangChain+LangGraph开发实战全套视频课程，从Agent开发，到LangSmith的监控、调试、评估一套搞定" [ref=e168]
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - img
+                          - generic: 22.5万
+                      - generic: 04:14:33
+              - generic [ref=e170]:
+                - link "黑马程序员2026最新版LangChain+LangGraph开发实战全套视频课程，从Agent开发，到LangSmith的监控、调试、评估一套搞定" [ref=e171] [cursor=pointer]:
+                  - /url: //www.bilibili.com/video/BV178w1z7EHQ/
+                  - heading "黑马程序员2026最新版LangChain+LangGraph开发实战全套视频课程，从Agent开发，到LangSmith的监控、调试、评估一套搞定" [level=3] [ref=e172]
+                - generic [ref=e174]: 03-20
+            - generic [ref=e177]:
+              - link "黑马程序员零基础玩转Dify，5小时极速入门Agent开发，从Prompt到企业级项目实战，涵盖RAG+Text2SQL、电商客服+LOL助手全实战 19.5万 04:23:41" [ref=e178] [cursor=pointer]:
+                - /url: //www.bilibili.com/video/BV116w5zuEbo/
+                - generic [ref=e179]:
+                  - img "黑马程序员零基础玩转Dify，5小时极速入门Agent开发，从Prompt到企业级项目实战，涵盖RAG+Text2SQL、电商客服+LOL助手全实战" [ref=e182]
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - img
+                          - generic: 19.5万
+                      - generic: 04:23:41
+              - generic [ref=e184]:
+                - link "黑马程序员零基础玩转Dify，5小时极速入门Agent开发，从Prompt到企业级项目实战，涵盖RAG+Text2SQL、电商客服+LOL助手全实战" [ref=e185] [cursor=pointer]:
+                  - /url: //www.bilibili.com/video/BV116w5zuEbo/
+                  - heading "黑马程序员零基础玩转Dify，5小时极速入门Agent开发，从Prompt到企业级项目实战，涵盖RAG+Text2SQL、电商客服+LOL助手全实战" [level=3] [ref=e186]
+                - generic [ref=e188]: 03-16
+            - generic [ref=e191]:
+              - link "黑马程序员AI测试电商项目零基础入门到通关全套视频课程，从黑盒测试到AI Agent自动生成用例，AI赋能实战电商项目全流程测试 5.2万 17:44:17" [ref=e192] [cursor=pointer]:
+                - /url: //www.bilibili.com/video/BV19Jc6zREyd/
+                - generic [ref=e193]:
+                  - img "黑马程序员AI测试电商项目零基础入门到通关全套视频课程，从黑盒测试到AI Agent自动生成用例，AI赋能实战电商项目全流程测试" [ref=e196]
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - img
+                          - generic: 5.2万
+                      - generic: 17:44:17
+              - generic [ref=e198]:
+                - link "黑马程序员AI测试电商项目零基础入门到通关全套视频课程，从黑盒测试到AI Agent自动生成用例，AI赋能实战电商项目全流程测试" [ref=e199] [cursor=pointer]:
+                  - /url: //www.bilibili.com/video/BV19Jc6zREyd/
+                  - heading "黑马程序员AI测试电商项目零基础入门到通关全套视频课程，从黑盒测试到AI Agent自动生成用例，AI赋能实战电商项目全流程测试" [level=3] [ref=e200]
+                - generic [ref=e202]: 03-13
+            - generic [ref=e205]:
+              - link "黑马程序员ROS 2零代码到全栈，大模型对话式开发工业机械臂，从LLM生成代码到机械臂视觉，打通视觉-规划-控制全链路，构建具身智能核心技能 14.1万 07:13:33" [ref=e206] [cursor=pointer]:
+                - /url: //www.bilibili.com/video/BV131ZuBdEMZ/
+                - generic [ref=e207]:
+                  - img "黑马程序员ROS 2零代码到全栈，大模型对话式开发工业机械臂，从LLM生成代码到机械臂视觉，打通视觉-规划-控制全链路，构建具身智能核心技能" [ref=e210]
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - img
+                          - generic: 14.1万
+                      - generic: 07:13:33
+              - generic [ref=e212]:
+                - link "黑马程序员ROS 2零代码到全栈，大模型对话式开发工业机械臂，从LLM生成代码到机械臂视觉，打通视觉-规划-控制全链路，构建具身智能核心技能" [ref=e213] [cursor=pointer]:
+                  - /url: //www.bilibili.com/video/BV131ZuBdEMZ/
+                  - heading "黑马程序员ROS 2零代码到全栈，大模型对话式开发工业机械臂，从LLM生成代码到机械臂视觉，打通视觉-规划-控制全链路，构建具身智能核心技能" [level=3] [ref=e214]
+                - generic [ref=e216]: 02-16
+            - generic [ref=e219]:
+              - link "黑马程序员零基础具身智能机械臂实战项目开发全套视频课程，涵盖OpenCV、YOLO、DeepSeek等，从机械臂硬件、核心算法到人工智能完整技术栈 31.8万 31:05:12" [ref=e220] [cursor=pointer]:
+                - /url: //www.bilibili.com/video/BV1nz6KBHEc9/
+                - generic [ref=e221]:
+                  - img "黑马程序员零基础具身智能机械臂实战项目开发全套视频课程，涵盖OpenCV、YOLO、DeepSeek等，从机械臂硬件、核心算法到人工智能完整技术栈" [ref=e224]
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - img
+                          - generic: 31.8万
+                      - generic: 31:05:12
+              - generic [ref=e226]:
+                - link "黑马程序员零基础具身智能机械臂实战项目开发全套视频课程，涵盖OpenCV、YOLO、DeepSeek等，从机械臂硬件、核心算法到人工智能完整技术栈" [ref=e227] [cursor=pointer]:
+                  - /url: //www.bilibili.com/video/BV1nz6KBHEc9/
+                  - heading "黑马程序员零基础具身智能机械臂实战项目开发全套视频课程，涵盖OpenCV、YOLO、DeepSeek等，从机械臂硬件、核心算法到人工智能完整技术栈" [level=3] [ref=e228]
+                - generic [ref=e230]: 01-27
+        - generic [ref=e231]:
+          - link "查看TA的所有稿件":
+            - /url: //space.bilibili.com/37974444/video
+            - button "查看TA的所有稿件" [ref=e233] [cursor=pointer]:
+              - text: 查看TA的所有稿件
+              - img [ref=e234]
+      - generic [ref=e237]:
+        - generic [ref=e240]:
+          - link "黑马程序员python零基础全套教程，8天python从入门到精通，学python看这套就够了 2389.1万 44万 31:40:20" [ref=e241] [cursor=pointer]:
+            - /url: //www.bilibili.com/video/BV1qW4y1a7fU/
+            - generic [ref=e242]:
+              - img "黑马程序员python零基础全套教程，8天python从入门到精通，学python看这套就够了" [ref=e245]
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - img
+                      - generic: 2389.1万
+                    - generic:
+                      - img
+                      - generic: 44万
+                  - generic: 31:40:20
+          - generic [ref=e247]:
+            - link "黑马程序员python零基础全套教程，8天python从入门到精通，学python看这套就够了" [ref=e248] [cursor=pointer]:
+              - /url: //www.bilibili.com/video/BV1qW4y1a7fU/
+              - heading "黑马程序员python零基础全套教程，8天python从入门到精通，学python看这套就够了" [level=3] [ref=e249]:
+                - emphasis [ref=e250]: 黑马程序员
+                - text: python零基础全套教程，8天python从入门到精通，学python看这套就够了
+            - link "黑马程序员 · 2022-08-08" [ref=e252] [cursor=pointer]:
+              - /url: //space.bilibili.com/37974444
+              - img [ref=e253]
+              - generic [ref=e257]: 黑马程序员
+              - generic [ref=e258]: · 2022-08-08
+        - generic [ref=e261]:
+          - link "黑马程序员匠心之作|C++教程从0到1入门编程,学习编程不再难 4544.4万 71.1万 52:29:32" [ref=e262] [cursor=pointer]:
+            - /url: //www.bilibili.com/video/BV1et411b73Z/
+            - generic [ref=e263]:
+              - img "黑马程序员匠心之作|C++教程从0到1入门编程,学习编程不再难" [ref=e266]
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - img
+                      - generic: 4544.4万
+                    - generic:
+                      - img
+                      - generic: 71.1万
+                  - generic: 52:29:32
+          - generic [ref=e268]:
+            - link "黑马程序员匠心之作|C++教程从0到1入门编程,学习编程不再难" [ref=e269] [cursor=pointer]:
+              - /url: //www.bilibili.com/video/BV1et411b73Z/
+              - heading "黑马程序员匠心之作|C++教程从0到1入门编程,学习编程不再难" [level=3] [ref=e270]:
+                - emphasis [ref=e271]: 黑马程序员
+                - text: 匠心之作|C++教程从0到1入门编程,学习编程不再难
+            - link "黑马程序员 · 2019-01-24" [ref=e273] [cursor=pointer]:
+              - /url: //space.bilibili.com/37974444
+              - img [ref=e274]
+              - generic [ref=e278]: 黑马程序员
+              - generic [ref=e279]: · 2019-01-24
+        - generic [ref=e282]:
+          - link "别在普通教程里内卷：从机器学习到NLP，清华教授带你飞 1.8万 0" [ref=e283] [cursor=pointer]:
+            - /url: //cm.bilibili.com/cm/api/fees/pc/sync/v2?msg=a%7C5647%2Cb%7Cbilibili%2Cc%7C1%2Cd%7C%2Ce%7CCIO%2BgQwQ8qDFexj0rKWCBSC0ASgBMKi81gE4jyxCITE3NzUzMjIyNTQ2MDBxMTcyYTI2YTE3M2EyNDZxOTAxMEiIms%2FL1TNSBuW4uOW3nloG5rGf6IuPYgbkuK3lm71oZHAAeICAgICgJoABAYgBAJIBDDIyMy42Ni42OC4xMKABtAGoAQuyASAPgiWNDtvKcoK0JwTK3fjlXce5hqrSh1v21nHsaCldEroB8gVodHRwczovL3d3dy5iaWxpYmlsaS5jb20vdmlkZW8vQlYxTWpQenpTRXE4P2ltYWdlX21hdGVyaWFsX2lkPTEzNTgyNzY5MiZmcm9tX2JjZz1iY2dfMTFfMTE2MjA3OTgyMCZ0cmFja2lkPTE3MjE0NjI5ODcxNDE3NDk0NDk2JmNyZWF0aXZlX2lkPTExNjIwNzk4MjAmdGl0bGVfZW5jb2RlPSVFNSU4OCVBQiVFNSU5QyVBOCVFNiU5OSVBRSVFOSU4MCU5QSVFNiU5NSU5OSVFNyVBOCU4QiVFOSU4NyU4QyVFNSU4NiU4NSVFNSU4RCVCNyVFRiVCQyU5QSVFNCVCQiU4RSVFNiU5QyVCQSVFNSU5OSVBOCVFNSVBRCVBNiVFNCVCOSVBMCVFNSU4OCVCME5MUCVFRiVCQyU4QyVFNiVCOCU4NSVFNSU4RCU4RSVFNiU5NSU5OSVFNiU4RSU4OCVFNSVCOCVBNiVFNCVCRCVBMCVFOSVBMyU5RSZ0cmFja19pZD1wYmFlcy44cmkxWnRkR180NF9CLWljS0h5QWpRSVptck1EZkJ0TmFIVGF6RnloNU5NeWctQjVSbWpLNFl4ajZtbldaMVJvMlVvb19xVXpPNmZ3aFY1NnI1ajk3NUhHNURlTUJ5VDNabjZpOHFKSklFT19tdzJsMnBrUWowYlU3cU5TRFlEODh1cEhYLW1BNHhEWGZBOFJ5dnFLYmtOb1RrR1hKSTJ0MUhPRV96MzBPVFEmY2FpZD1fX0NBSURfXyZyZXNvdXJjZV9pZD1fX1JFU09VUkNFSURfXyZzb3VyY2VfaWQ9NTY0NyZmcm9tX3NwbWlkPV9fRlJPTVNQTUlEX18mcmVxdWVzdF9pZD0xNzc1MzIyMjU0NjAwcTE3MmEyNmExNzNhMjQ2cTkwMTAmdGl0bGVfbWF0ZXJpYWxfaWQ9MTM1ODQwNTA3JmxpbmtlZF9jcmVhdGl2ZV9pZD0xMzQ2OTgzNTQwwgEBMNIBANgBsgLgAYCU69wD6AGMiQXwAQD4AU%2BAAgKIAgCSAgCYAvQ7oAJIqAIdsAIAuAIAwAKA6jDIAi%2FqAgD4ApYriAMAkgMAqAMAsAMAuAMAyAMA0gPKAXsiMSI6IjEzNDY5ODM1NDAiLCIxMSI6IjIzMSIsIjEyIjoiNTY0NyIsIjEzIjoiMzEzNjE4IiwiMTYiOiIzMTM2MThfNTUyNiIsIjIiOiIzNTEzODk2IiwiMjQiOiIxIiwiMjUiOiI0NDciLCIyNiI6IjQ3NyIsIjMiOiIzNTEzODk2IiwiNCI6IjAiLCI1IjoiMCIsIjYiOiIzNTEzODk2IiwiNyI6IjExNjE3NDQwMjY4ODM4MiIsIjgiOiIxMDc5NjY2NzUxIn3gAwDoAwDwAwD6AwVvdGhlcoIECW51bGw6bnVsbIgEtAGQBACYBAGgBAOqBAcI%2B4XjQBAEqgQHCOyh4kAQAbgECsAEBMoEANAEANgEAOIEhQI1Ni57InBzSWQiOjExOTIwNywidjIiOiJCSDdmWUdoVmJCay1oZk9pWF9lUDRsemJHckxlbEpwb0NSY2ljeDBnWjlTUF9JamlOOXFwLTd6WEVGRFlXVS1oVFpZbmdmYXF1ZmRlSW92aHRBdWVNY0t0TWIwUllteWNsTWdxMlhJM0tQUEVaX1V4eWdoSW9maHhYQWgzRGlocjB4Sm1lU1N6X1VmRXV2a3duN0l5OWdiTlFUcm9hbFhOTTI0ODJCMnQ3UWt5YXplWSJ9OzYzLnsicHNJZCI6MTE4NzMzLCJ2MiI6IkJFZyJ9OzcwLnsicHNJZCI6MTE0NzgwLCJ2MiI6IkFBIn3oBADwBAD6BMYFeyJhY2NlbGVyYXRlX2ZhY3RvciI6MS4wLCJhY2NlbGVyYXRlX2lkIjowLCJhZF90eXBlX2ZpeCI6ImNwbSIsImFkdnZfaW5mbyI6IntcImFkanVzdF9iZWZvcmVfY29zdFwiOlwiMTgwLjA1OVwiLFwiYWRqdXN0X3JhdGlvXCI6XCIxLjAwMFwiLFwiYmFsYW5jZXJfaWRcIjowLFwiYmFsYW5jZXJfcmF0aW9cIjpcIjAuMDAwXCIsXCJjaGFyZ2VfZXhwX2tleV9kZXB0aFwiOlwiXCIsXCJjaGFyZ2VfZXhwX2tleV9saWdodFwiOlwiX2NwYV9jb3N0X3BpZF92NFwiLFwiY29zdF9kaWZmXCI6XCIwLjAwMFwifSIsImJpZF90eXBlIjoxLCJiaXpfdHlwZSI6MTIsImJpel90eXBlX2ZpeCI6MywiY3BhIjoie1wiY3BhX2xldmVsXCI6OTksXCJjcGFfc2V0XCI6MH0iLCJjcGFUYXJnZXRUeXBlIjo0LCJmcm9tVHJhY2tpZCI6IjE3MjE0NjI5ODcxNDE3NDk0NDk2IiwiaWFhX2NoZWF0X2Zsb3ciOjAsImlubmVyIjowLCJpc19jb21tZXJjZSI6MSwiaXNfb2NwY19hbnRvdV9vY3BtIjowLCJpc190cmFja2luZ191cmxzIjowLCJtaW5pX2dhbWVfaWQiOiIiLCJtaW5pX2dhbWVfcG9zaXRpb25faWQiOiIiLCJtb2RlbFNjb3JlIjoie1wiY3RyXCI6XCIxMS44OTU5ODlcIixcImN2cl9sMFwiOlwiNDcuNjg3NjgzXCIsXCJmaW5hbF9wY3RyXCI6XCIxMS44OTU5ODlcIixcImZpbmFsX3BjdnJcIjpcIjQ3LjY4NzY4M1wifSIsInZpZGVvX3VwX21pZCI6MTA3OTY2Njc1MX2ABQCQBSOQBTOQBUiQBVWQBXKQBbQBkAXQAZAF0QGQBdgBkAWOApAFmgKQBcACkAXCApAFxQKQBcsCkAXOApAF0wKQBdYCkAXYApAF2QKQBdoCkAXfApAF4QKQBeMCkAXlApAF8AKQBfECkAX1ApAF%2FwKQBYwDkAWNA5AFkwOQBZQDkAWVA5AFmAOQBZkDkAWaA5AFmwOQBaUDkAWnA5AFtgOQBbcDkAXAA5AFwQOQBcQDkAXNA5AF1AOQBeADkAXhA5AF5AOQBfMDkAX1A5AF%2BAOQBf8DkAWHBJAFiQSQBbQEkAXJBJAFywSQBc0EkAWDBZAFoAWQBaoFkAWvBZAFsQWQBbUFkAXGBZAFzgWQBdIFkAXTBZAF7wWQBY8GkAWYBpAFowaQBaYGkAW6BpAF2gaQBfAGkAX5BpAF%2FwaQBZMHkAWiB5AFuweQBcIHkAX1B5AFgQiQBbcIkAXICJAFyxCQBZURkAWhEZAFhhKQBYsSoAX%2BqoSwj7UauAUEwAWSkhPIBQXgBQHoBQDyBXxDQXdRQVRBRVZSc1BORU5sTU1BK1FtMEFRQnhHZFFBQWdEK1ZBVERBUGtLZ0FlejA1R3lvQWN6Y2o2b0VzQUVCd0FIUTF3SElBUVR0QVFBQWdELzFBUUFBZ0QrZEFqTXpreitsQWpNemt6K3RBZ0FBZ0QrMUFqTXprejg9%2BAXs9ORsgAb%2Fk%2BvcA4gGzNyPqgQ%3D%2Cf%7Cclick_sync_3%2Cg%7C1%2Ch%7C%2Ci%7C%2Cj%7C%2Ck%7C1775322256234%2Cl%7C5646%2Cm%7C1775322255974%2Cn%7C%2Co%7C1346983540%2Cp%7Cad_card&ts=1775322256234
+            - generic [ref=e284]:
+              - img "别在普通教程里内卷：从机器学习到NLP，清华教授带你飞" [ref=e287]
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - img
+                      - generic: 1.8万
+                    - generic:
+                      - img
+                      - generic: "0"
+                  - generic:
+                    - img
+          - generic [ref=e289]:
+            - link "别在普通教程里内卷：从机器学习到NLP，清华教授带你飞" [ref=e290] [cursor=pointer]:
+              - /url: //cm.bilibili.com/cm/api/fees/pc/sync/v2?msg=a%7C5647%2Cb%7Cbilibili%2Cc%7C1%2Cd%7C%2Ce%7CCIO%2BgQwQ8qDFexj0rKWCBSC0ASgBMKi81gE4jyxCITE3NzUzMjIyNTQ2MDBxMTcyYTI2YTE3M2EyNDZxOTAxMEiIms%2FL1TNSBuW4uOW3nloG5rGf6IuPYgbkuK3lm71oZHAAeICAgICgJoABAYgBAJIBDDIyMy42Ni42OC4xMKABtAGoAQuyASAPgiWNDtvKcoK0JwTK3fjlXce5hqrSh1v21nHsaCldEroB8gVodHRwczovL3d3dy5iaWxpYmlsaS5jb20vdmlkZW8vQlYxTWpQenpTRXE4P2ltYWdlX21hdGVyaWFsX2lkPTEzNTgyNzY5MiZmcm9tX2JjZz1iY2dfMTFfMTE2MjA3OTgyMCZ0cmFja2lkPTE3MjE0NjI5ODcxNDE3NDk0NDk2JmNyZWF0aXZlX2lkPTExNjIwNzk4MjAmdGl0bGVfZW5jb2RlPSVFNSU4OCVBQiVFNSU5QyVBOCVFNiU5OSVBRSVFOSU4MCU5QSVFNiU5NSU5OSVFNyVBOCU4QiVFOSU4NyU4QyVFNSU4NiU4NSVFNSU4RCVCNyVFRiVCQyU5QSVFNCVCQiU4RSVFNiU5QyVCQSVFNSU5OSVBOCVFNSVBRCVBNiVFNCVCOSVBMCVFNSU4OCVCME5MUCVFRiVCQyU4QyVFNiVCOCU4NSVFNSU4RCU4RSVFNiU5NSU5OSVFNiU4RSU4OCVFNSVCOCVBNiVFNCVCRCVBMCVFOSVBMyU5RSZ0cmFja19pZD1wYmFlcy44cmkxWnRkR180NF9CLWljS0h5QWpRSVptck1EZkJ0TmFIVGF6RnloNU5NeWctQjVSbWpLNFl4ajZtbldaMVJvMlVvb19xVXpPNmZ3aFY1NnI1ajk3NUhHNURlTUJ5VDNabjZpOHFKSklFT19tdzJsMnBrUWowYlU3cU5TRFlEODh1cEhYLW1BNHhEWGZBOFJ5dnFLYmtOb1RrR1hKSTJ0MUhPRV96MzBPVFEmY2FpZD1fX0NBSURfXyZyZXNvdXJjZV9pZD1fX1JFU09VUkNFSURfXyZzb3VyY2VfaWQ9NTY0NyZmcm9tX3NwbWlkPV9fRlJPTVNQTUlEX18mcmVxdWVzdF9pZD0xNzc1MzIyMjU0NjAwcTE3MmEyNmExNzNhMjQ2cTkwMTAmdGl0bGVfbWF0ZXJpYWxfaWQ9MTM1ODQwNTA3JmxpbmtlZF9jcmVhdGl2ZV9pZD0xMzQ2OTgzNTQwwgEBMNIBANgBsgLgAYCU69wD6AGMiQXwAQD4AU%2BAAgKIAgCSAgCYAvQ7oAJIqAIdsAIAuAIAwAKA6jDIAi%2FqAgD4ApYriAMAkgMAqAMAsAMAuAMAyAMA0gPKAXsiMSI6IjEzNDY5ODM1NDAiLCIxMSI6IjIzMSIsIjEyIjoiNTY0NyIsIjEzIjoiMzEzNjE4IiwiMTYiOiIzMTM2MThfNTUyNiIsIjIiOiIzNTEzODk2IiwiMjQiOiIxIiwiMjUiOiI0NDciLCIyNiI6IjQ3NyIsIjMiOiIzNTEzODk2IiwiNCI6IjAiLCI1IjoiMCIsIjYiOiIzNTEzODk2IiwiNyI6IjExNjE3NDQwMjY4ODM4MiIsIjgiOiIxMDc5NjY2NzUxIn3gAwDoAwDwAwD6AwVvdGhlcoIECW51bGw6bnVsbIgEtAGQBACYBAGgBAOqBAcI%2B4XjQBAEqgQHCOyh4kAQAbgECsAEBMoEANAEANgEAOIEhQI1Ni57InBzSWQiOjExOTIwNywidjIiOiJCSDdmWUdoVmJCay1oZk9pWF9lUDRsemJHckxlbEpwb0NSY2ljeDBnWjlTUF9JamlOOXFwLTd6WEVGRFlXVS1oVFpZbmdmYXF1ZmRlSW92aHRBdWVNY0t0TWIwUllteWNsTWdxMlhJM0tQUEVaX1V4eWdoSW9maHhYQWgzRGlocjB4Sm1lU1N6X1VmRXV2a3duN0l5OWdiTlFUcm9hbFhOTTI0ODJCMnQ3UWt5YXplWSJ9OzYzLnsicHNJZCI6MTE4NzMzLCJ2MiI6IkJFZyJ9OzcwLnsicHNJZCI6MTE0NzgwLCJ2MiI6IkFBIn3oBADwBAD6BMYFeyJhY2NlbGVyYXRlX2ZhY3RvciI6MS4wLCJhY2NlbGVyYXRlX2lkIjowLCJhZF90eXBlX2ZpeCI6ImNwbSIsImFkdnZfaW5mbyI6IntcImFkanVzdF9iZWZvcmVfY29zdFwiOlwiMTgwLjA1OVwiLFwiYWRqdXN0X3JhdGlvXCI6XCIxLjAwMFwiLFwiYmFsYW5jZXJfaWRcIjowLFwiYmFsYW5jZXJfcmF0aW9cIjpcIjAuMDAwXCIsXCJjaGFyZ2VfZXhwX2tleV9kZXB0aFwiOlwiXCIsXCJjaGFyZ2VfZXhwX2tleV9saWdodFwiOlwiX2NwYV9jb3N0X3BpZF92NFwiLFwiY29zdF9kaWZmXCI6XCIwLjAwMFwifSIsImJpZF90eXBlIjoxLCJiaXpfdHlwZSI6MTIsImJpel90eXBlX2ZpeCI6MywiY3BhIjoie1wiY3BhX2xldmVsXCI6OTksXCJjcGFfc2V0XCI6MH0iLCJjcGFUYXJnZXRUeXBlIjo0LCJmcm9tVHJhY2tpZCI6IjE3MjE0NjI5ODcxNDE3NDk0NDk2IiwiaWFhX2NoZWF0X2Zsb3ciOjAsImlubmVyIjowLCJpc19jb21tZXJjZSI6MSwiaXNfb2NwY19hbnRvdV9vY3BtIjowLCJpc190cmFja2luZ191cmxzIjowLCJtaW5pX2dhbWVfaWQiOiIiLCJtaW5pX2dhbWVfcG9zaXRpb25faWQiOiIiLCJtb2RlbFNjb3JlIjoie1wiY3RyXCI6XCIxMS44OTU5ODlcIixcImN2cl9sMFwiOlwiNDcuNjg3NjgzXCIsXCJmaW5hbF9wY3RyXCI6XCIxMS44OTU5ODlcIixcImZpbmFsX3BjdnJcIjpcIjQ3LjY4NzY4M1wifSIsInZpZGVvX3VwX21pZCI6MTA3OTY2Njc1MX2ABQCQBSOQBTOQBUiQBVWQBXKQBbQBkAXQAZAF0QGQBdgBkAWOApAFmgKQBcACkAXCApAFxQKQBcsCkAXOApAF0wKQBdYCkAXYApAF2QKQBdoCkAXfApAF4QKQBeMCkAXlApAF8AKQBfECkAX1ApAF%2FwKQBYwDkAWNA5AFkwOQBZQDkAWVA5AFmAOQBZkDkAWaA5AFmwOQBaUDkAWnA5AFtgOQBbcDkAXAA5AFwQOQBcQDkAXNA5AF1AOQBeADkAXhA5AF5AOQBfMDkAX1A5AF%2BAOQBf8DkAWHBJAFiQSQBbQEkAXJBJAFywSQBc0EkAWDBZAFoAWQBaoFkAWvBZAFsQWQBbUFkAXGBZAFzgWQBdIFkAXTBZAF7wWQBY8GkAWYBpAFowaQBaYGkAW6BpAF2gaQBfAGkAX5BpAF%2FwaQBZMHkAWiB5AFuweQBcIHkAX1B5AFgQiQBbcIkAXICJAFyxCQBZURkAWhEZAFhhKQBYsSoAX%2BqoSwj7UauAUEwAWSkhPIBQXgBQHoBQDyBXxDQXdRQVRBRVZSc1BORU5sTU1BK1FtMEFRQnhHZFFBQWdEK1ZBVERBUGtLZ0FlejA1R3lvQWN6Y2o2b0VzQUVCd0FIUTF3SElBUVR0QVFBQWdELzFBUUFBZ0QrZEFqTXpreitsQWpNemt6K3RBZ0FBZ0QrMUFqTXprejg9%2BAXs9ORsgAb%2Fk%2BvcA4gGzNyPqgQ%3D%2Cf%7Cclick_sync_3%2Cg%7C1%2Ch%7C%2Ci%7C%2Cj%7C%2Ck%7C1775322256235%2Cl%7C5646%2Cm%7C1775322255974%2Cn%7C%2Co%7C1346983540%2Cp%7Cad_card&ts=1775322256235
+              - heading "别在普通教程里内卷：从机器学习到NLP，清华教授带你飞" [level=3] [ref=e291]
+            - link "人工智能知识课堂 · 03-05" [ref=e293] [cursor=pointer]:
+              - /url: //cm.bilibili.com/cm/api/fees/pc/sync/v2?msg=a%7C5647%2Cb%7Cbilibili%2Cc%7C1%2Cd%7C%2Ce%7CCIO%2BgQwQ8qDFexj0rKWCBSC0ASgBMKi81gE4jyxCITE3NzUzMjIyNTQ2MDBxMTcyYTI2YTE3M2EyNDZxOTAxMEiIms%2FL1TNSBuW4uOW3nloG5rGf6IuPYgbkuK3lm71oZHAAeICAgICgJoABAYgBAJIBDDIyMy42Ni42OC4xMKABtAGoAQuyASAPgiWNDtvKcoK0JwTK3fjlXce5hqrSh1v21nHsaCldEroB8gVodHRwczovL3d3dy5iaWxpYmlsaS5jb20vdmlkZW8vQlYxTWpQenpTRXE4P2ltYWdlX21hdGVyaWFsX2lkPTEzNTgyNzY5MiZmcm9tX2JjZz1iY2dfMTFfMTE2MjA3OTgyMCZ0cmFja2lkPTE3MjE0NjI5ODcxNDE3NDk0NDk2JmNyZWF0aXZlX2lkPTExNjIwNzk4MjAmdGl0bGVfZW5jb2RlPSVFNSU4OCVBQiVFNSU5QyVBOCVFNiU5OSVBRSVFOSU4MCU5QSVFNiU5NSU5OSVFNyVBOCU4QiVFOSU4NyU4QyVFNSU4NiU4NSVFNSU4RCVCNyVFRiVCQyU5QSVFNCVCQiU4RSVFNiU5QyVCQSVFNSU5OSVBOCVFNSVBRCVBNiVFNCVCOSVBMCVFNSU4OCVCME5MUCVFRiVCQyU4QyVFNiVCOCU4NSVFNSU4RCU4RSVFNiU5NSU5OSVFNiU4RSU4OCVFNSVCOCVBNiVFNCVCRCVBMCVFOSVBMyU5RSZ0cmFja19pZD1wYmFlcy44cmkxWnRkR180NF9CLWljS0h5QWpRSVptck1EZkJ0TmFIVGF6RnloNU5NeWctQjVSbWpLNFl4ajZtbldaMVJvMlVvb19xVXpPNmZ3aFY1NnI1ajk3NUhHNURlTUJ5VDNabjZpOHFKSklFT19tdzJsMnBrUWowYlU3cU5TRFlEODh1cEhYLW1BNHhEWGZBOFJ5dnFLYmtOb1RrR1hKSTJ0MUhPRV96MzBPVFEmY2FpZD1fX0NBSURfXyZyZXNvdXJjZV9pZD1fX1JFU09VUkNFSURfXyZzb3VyY2VfaWQ9NTY0NyZmcm9tX3NwbWlkPV9fRlJPTVNQTUlEX18mcmVxdWVzdF9pZD0xNzc1MzIyMjU0NjAwcTE3MmEyNmExNzNhMjQ2cTkwMTAmdGl0bGVfbWF0ZXJpYWxfaWQ9MTM1ODQwNTA3JmxpbmtlZF9jcmVhdGl2ZV9pZD0xMzQ2OTgzNTQwwgEBMNIBANgBsgLgAYCU69wD6AGMiQXwAQD4AU%2BAAgKIAgCSAgCYAvQ7oAJIqAIdsAIAuAIAwAKA6jDIAi%2FqAgD4ApYriAMAkgMAqAMAsAMAuAMAyAMA0gPKAXsiMSI6IjEzNDY5ODM1NDAiLCIxMSI6IjIzMSIsIjEyIjoiNTY0NyIsIjEzIjoiMzEzNjE4IiwiMTYiOiIzMTM2MThfNTUyNiIsIjIiOiIzNTEzODk2IiwiMjQiOiIxIiwiMjUiOiI0NDciLCIyNiI6IjQ3NyIsIjMiOiIzNTEzODk2IiwiNCI6IjAiLCI1IjoiMCIsIjYiOiIzNTEzODk2IiwiNyI6IjExNjE3NDQwMjY4ODM4MiIsIjgiOiIxMDc5NjY2NzUxIn3gAwDoAwDwAwD6AwVvdGhlcoIECW51bGw6bnVsbIgEtAGQBACYBAGgBAOqBAcI%2B4XjQBAEqgQHCOyh4kAQAbgECsAEBMoEANAEANgEAOIEhQI1Ni57InBzSWQiOjExOTIwNywidjIiOiJCSDdmWUdoVmJCay1oZk9pWF9lUDRsemJHckxlbEpwb0NSY2ljeDBnWjlTUF9JamlOOXFwLTd6WEVGRFlXVS1oVFpZbmdmYXF1ZmRlSW92aHRBdWVNY0t0TWIwUllteWNsTWdxMlhJM0tQUEVaX1V4eWdoSW9maHhYQWgzRGlocjB4Sm1lU1N6X1VmRXV2a3duN0l5OWdiTlFUcm9hbFhOTTI0ODJCMnQ3UWt5YXplWSJ9OzYzLnsicHNJZCI6MTE4NzMzLCJ2MiI6IkJFZyJ9OzcwLnsicHNJZCI6MTE0NzgwLCJ2MiI6IkFBIn3oBADwBAD6BMYFeyJhY2NlbGVyYXRlX2ZhY3RvciI6MS4wLCJhY2NlbGVyYXRlX2lkIjowLCJhZF90eXBlX2ZpeCI6ImNwbSIsImFkdnZfaW5mbyI6IntcImFkanVzdF9iZWZvcmVfY29zdFwiOlwiMTgwLjA1OVwiLFwiYWRqdXN0X3JhdGlvXCI6XCIxLjAwMFwiLFwiYmFsYW5jZXJfaWRcIjowLFwiYmFsYW5jZXJfcmF0aW9cIjpcIjAuMDAwXCIsXCJjaGFyZ2VfZXhwX2tleV9kZXB0aFwiOlwiXCIsXCJjaGFyZ2VfZXhwX2tleV9saWdodFwiOlwiX2NwYV9jb3N0X3BpZF92NFwiLFwiY29zdF9kaWZmXCI6XCIwLjAwMFwifSIsImJpZF90eXBlIjoxLCJiaXpfdHlwZSI6MTIsImJpel90eXBlX2ZpeCI6MywiY3BhIjoie1wiY3BhX2xldmVsXCI6OTksXCJjcGFfc2V0XCI6MH0iLCJjcGFUYXJnZXRUeXBlIjo0LCJmcm9tVHJhY2tpZCI6IjE3MjE0NjI5ODcxNDE3NDk0NDk2IiwiaWFhX2NoZWF0X2Zsb3ciOjAsImlubmVyIjowLCJpc19jb21tZXJjZSI6MSwiaXNfb2NwY19hbnRvdV9vY3BtIjowLCJpc190cmFja2luZ191cmxzIjowLCJtaW5pX2dhbWVfaWQiOiIiLCJtaW5pX2dhbWVfcG9zaXRpb25faWQiOiIiLCJtb2RlbFNjb3JlIjoie1wiY3RyXCI6XCIxMS44OTU5ODlcIixcImN2cl9sMFwiOlwiNDcuNjg3NjgzXCIsXCJmaW5hbF9wY3RyXCI6XCIxMS44OTU5ODlcIixcImZpbmFsX3BjdnJcIjpcIjQ3LjY4NzY4M1wifSIsInZpZGVvX3VwX21pZCI6MTA3OTY2Njc1MX2ABQCQBSOQBTOQBUiQBVWQBXKQBbQBkAXQAZAF0QGQBdgBkAWOApAFmgKQBcACkAXCApAFxQKQBcsCkAXOApAF0wKQBdYCkAXYApAF2QKQBdoCkAXfApAF4QKQBeMCkAXlApAF8AKQBfECkAX1ApAF%2FwKQBYwDkAWNA5AFkwOQBZQDkAWVA5AFmAOQBZkDkAWaA5AFmwOQBaUDkAWnA5AFtgOQBbcDkAXAA5AFwQOQBcQDkAXNA5AF1AOQBeADkAXhA5AF5AOQBfMDkAX1A5AF%2BAOQBf8DkAWHBJAFiQSQBbQEkAXJBJAFywSQBc0EkAWDBZAFoAWQBaoFkAWvBZAFsQWQBbUFkAXGBZAFzgWQBdIFkAXTBZAF7wWQBY8GkAWYBpAFowaQBaYGkAW6BpAF2gaQBfAGkAX5BpAF%2FwaQBZMHkAWiB5AFuweQBcIHkAX1B5AFgQiQBbcIkAXICJAFyxCQBZURkAWhEZAFhhKQBYsSoAX%2BqoSwj7UauAUEwAWSkhPIBQXgBQHoBQDyBXxDQXdRQVRBRVZSc1BORU5sTU1BK1FtMEFRQnhHZFFBQWdEK1ZBVERBUGtLZ0FlejA1R3lvQWN6Y2o2b0VzQUVCd0FIUTF3SElBUVR0QVFBQWdELzFBUUFBZ0QrZEFqTXpreitsQWpNemt6K3RBZ0FBZ0QrMUFqTXprejg9%2BAXs9ORsgAb%2Fk%2BvcA4gGzNyPqgQ%3D%2Cf%7Cclick_sync_3%2Cg%7C1%2Ch%7C%2Ci%7C%2Cj%7C%2Ck%7C1775322256235%2Cl%7C5646%2Cm%7C1775322255974%2Cn%7C%2Co%7C1346983540%2Cp%7Cad_logo&ts=1775322256235
+              - img [ref=e294]
+              - generic [ref=e298]: 人工智能知识课堂
+              - generic [ref=e299]: · 03-05
+        - generic [ref=e302]:
+          - link "黑马没了，行情就好了？#黑马程序员#编程#IT 2.3万 2 00:30" [ref=e303] [cursor=pointer]:
+            - /url: //www.bilibili.com/video/BV1XcXkBTE8y/
+            - generic [ref=e304]:
+              - img "黑马没了，行情就好了？#黑马程序员#编程#IT" [ref=e307]
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - img
+                      - generic: 2.3万
+                    - generic:
+                      - img
+                      - generic: "2"
+                  - generic: 00:30
+          - generic [ref=e309]:
+            - link "黑马没了，行情就好了？#黑马程序员#编程#IT" [ref=e310] [cursor=pointer]:
+              - /url: //www.bilibili.com/video/BV1XcXkBTE8y/
+              - heading "黑马没了，行情就好了？#黑马程序员#编程#IT" [level=3] [ref=e311]:
+                - text: 黑马没了，行情就好了？#
+                - emphasis [ref=e312]: 黑马程序员
+                - text: "#编程#IT"
+            - link "黑马pink讲前端 · 03-31" [ref=e314] [cursor=pointer]:
+              - /url: //space.bilibili.com/415434293
+              - img [ref=e315]
+              - generic [ref=e319]: 黑马pink讲前端
+              - generic [ref=e320]: · 03-31
+        - generic [ref=e323]:
+          - link "黑马程序员Python+AI零基础入门到大神全套视频课程，覆盖Python核心语法、AI应用、数据分析及Web应用等python实战项目开发全流程 289.1万 2万 44:33:55" [ref=e324] [cursor=pointer]:
+            - /url: //www.bilibili.com/video/BV1sHU9BmEne/
+            - generic [ref=e325]:
+              - img "黑马程序员Python+AI零基础入门到大神全套视频课程，覆盖Python核心语法、AI应用、数据分析及Web应用等python实战项目开发全流程" [ref=e328]
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - img
+                      - generic: 289.1万
+                    - generic:
+                      - img
+                      - generic: 2万
+                  - generic: 44:33:55
+          - generic [ref=e330]:
+            - link "黑马程序员Python+AI零基础入门到大神全套视频课程，覆盖Python核心语法、AI应用、数据分析及Web应用等python实战项目开发全流程" [ref=e331] [cursor=pointer]:
+              - /url: //www.bilibili.com/video/BV1sHU9BmEne/
+              - heading "黑马程序员Python+AI零基础入门到大神全套视频课程，覆盖Python核心语法、AI应用、数据分析及Web应用等python实战项目开发全流程" [level=3] [ref=e332]:
+                - emphasis [ref=e333]: 黑马程序员
+                - text: Python+AI零基础入门到大神全套视频课程，覆盖Python核心语法、AI应用、数据分析及Web应用等python实战项目开发全流程
+            - link "黑马程序员 · 2025-11-26" [ref=e335] [cursor=pointer]:
+              - /url: //space.bilibili.com/37974444
+              - img [ref=e336]
+              - generic [ref=e340]: 黑马程序员
+              - generic [ref=e341]: · 2025-11-26
+        - generic [ref=e344]:
+          - link "黑马程序员Java零基础视频教程_上部(Java入门，含斯坦福大学练习题+力扣算法题和大厂java面试题） 2631.2万 76.4万 75:11:45" [ref=e345] [cursor=pointer]:
+            - /url: //www.bilibili.com/video/BV17F411T7Ao/
+            - generic [ref=e346]:
+              - img "黑马程序员Java零基础视频教程_上部(Java入门，含斯坦福大学练习题+力扣算法题和大厂java面试题）" [ref=e349]
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - img
+                      - generic: 2631.2万
+                    - generic:
+                      - img
+                      - generic: 76.4万
+                  - generic: 75:11:45
+          - generic [ref=e351]:
+            - link "黑马程序员Java零基础视频教程_上部(Java入门，含斯坦福大学练习题+力扣算法题和大厂java面试题）" [ref=e352] [cursor=pointer]:
+              - /url: //www.bilibili.com/video/BV17F411T7Ao/
+              - heading "黑马程序员Java零基础视频教程_上部(Java入门，含斯坦福大学练习题+力扣算法题和大厂java面试题）" [level=3] [ref=e353]:
+                - emphasis [ref=e354]: 黑马程序员
+                - text: Java零基础视频教程_上部(Java入门，含斯坦福大学练习题+力扣算法题和大厂java面试题）
+            - link "黑马程序员 · 2022-04-27" [ref=e356] [cursor=pointer]:
+              - /url: //space.bilibili.com/37974444
+              - img [ref=e357]
+              - generic [ref=e361]: 黑马程序员
+              - generic [ref=e362]: · 2022-04-27
+        - generic [ref=e365]:
+          - link "黑马程序员2026版AI+Java零基础全套视频课程，Java入门到大神AI智能应用开发，涵盖Java核心语法、大量力扣、牛客网算法训练及Java项目开发 335.1万 1.7万 35:07:34" [ref=e366] [cursor=pointer]:
+            - /url: //www.bilibili.com/video/BV1TJxCzSEEZ/
+            - generic [ref=e367]:
+              - img "黑马程序员2026版AI+Java零基础全套视频课程，Java入门到大神AI智能应用开发，涵盖Java核心语法、大量力扣、牛客网算法训练及Java项目开发" [ref=e370]
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - img
+                      - generic: 335.1万
+                    - generic:
+                      - img
+                      - generic: 1.7万
+                  - generic: 35:07:34
+          - generic [ref=e372]:
+            - link "黑马程序员2026版AI+Java零基础全套视频课程，Java入门到大神AI智能应用开发，涵盖Java核心语法、大量力扣、牛客网算法训练及Java项目开发" [ref=e373] [cursor=pointer]:
+              - /url: //www.bilibili.com/video/BV1TJxCzSEEZ/
+              - heading "黑马程序员2026版AI+Java零基础全套视频课程，Java入门到大神AI智能应用开发，涵盖Java核心语法、大量力扣、牛客网算法训练及Java项目开发" [level=3] [ref=e374]:
+                - emphasis [ref=e375]: 黑马程序员
+                - text: 2026版AI+Java零基础全套视频课程，Java入门到大神AI智能应用开发，涵盖Java核心语法、大量力扣、牛客网算法训练及Java项目开发
+            - link "黑马程序员 · 2025-10-10" [ref=e377] [cursor=pointer]:
+              - /url: //space.bilibili.com/37974444
+              - img [ref=e378]
+              - generic [ref=e382]: 黑马程序员
+              - generic [ref=e383]: · 2025-10-10
+        - generic [ref=e386]:
+          - link "黑马程序员 MySQL数据库入门到精通，从mysql安装到mysql高级、mysql优化全囊括 1240.4万 22.6万 30:00:52" [ref=e387] [cursor=pointer]:
+            - /url: //www.bilibili.com/video/BV1Kr4y1i7ru/
+            - generic [ref=e388]:
+              - img "黑马程序员 MySQL数据库入门到精通，从mysql安装到mysql高级、mysql优化全囊括" [ref=e391]
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - img
+                      - generic: 1240.4万
+                    - generic:
+                      - img
+                      - generic: 22.6万
+                  - generic: 30:00:52
+          - generic [ref=e393]:
+            - link "黑马程序员 MySQL数据库入门到精通，从mysql安装到mysql高级、mysql优化全囊括" [ref=e394] [cursor=pointer]:
+              - /url: //www.bilibili.com/video/BV1Kr4y1i7ru/
+              - heading "黑马程序员 MySQL数据库入门到精通，从mysql安装到mysql高级、mysql优化全囊括" [level=3] [ref=e395]:
+                - emphasis [ref=e396]: 黑马程序员
+                - text: MySQL数据库入门到精通，从mysql安装到mysql高级、mysql优化全囊括
+            - link "黑马程序员 · 2022-01-18" [ref=e398] [cursor=pointer]:
+              - /url: //space.bilibili.com/37974444
+              - img [ref=e399]
+              - generic [ref=e403]: 黑马程序员
+              - generic [ref=e404]: · 2022-01-18
+        - generic [ref=e407]:
+          - link "黑马程序员大模型RAG与Agent智能体项目实战教程，基于主流的LangChain技术从大模型提示词到实战项目 144.1万 5058 15:31:31" [ref=e408] [cursor=pointer]:
+            - /url: //www.bilibili.com/video/BV1yjz5BLEoY/
+            - generic [ref=e409]:
+              - img "黑马程序员大模型RAG与Agent智能体项目实战教程，基于主流的LangChain技术从大模型提示词到实战项目" [ref=e412]
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - img
+                      - generic: 144.1万
+                    - generic:
+                      - img
+                      - generic: "5058"
+                  - generic: 15:31:31
+          - generic [ref=e414]:
+            - link "黑马程序员大模型RAG与Agent智能体项目实战教程，基于主流的LangChain技术从大模型提示词到实战项目" [ref=e415] [cursor=pointer]:
+              - /url: //www.bilibili.com/video/BV1yjz5BLEoY/
+              - heading "黑马程序员大模型RAG与Agent智能体项目实战教程，基于主流的LangChain技术从大模型提示词到实战项目" [level=3] [ref=e416]:
+                - emphasis [ref=e417]: 黑马程序员
+                - text: 大模型RAG与Agent智能体项目实战教程，基于主流的LangChain技术从大模型提示词到实战项目
+            - link "黑马程序员 · 01-21" [ref=e419] [cursor=pointer]:
+              - /url: //space.bilibili.com/37974444
+              - img [ref=e420]
+              - generic [ref=e424]: 黑马程序员
+              - generic [ref=e425]: · 01-21
+        - generic [ref=e428]:
+          - link "黑马程序员2026最新版LangChain+LangGraph开发实战全套视频课程，从Agent开发，到LangSmith的监控、调试、评估一套搞定 22.5万 554 04:14:33" [ref=e429] [cursor=pointer]:
+            - /url: //www.bilibili.com/video/BV178w1z7EHQ/
+            - generic [ref=e430]:
+              - img "黑马程序员2026最新版LangChain+LangGraph开发实战全套视频课程，从Agent开发，到LangSmith的监控、调试、评估一套搞定" [ref=e433]
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - img
+                      - generic: 22.5万
+                    - generic:
+                      - img
+                      - generic: "554"
+                  - generic: 04:14:33
+          - generic [ref=e435]:
+            - link "黑马程序员2026最新版LangChain+LangGraph开发实战全套视频课程，从Agent开发，到LangSmith的监控、调试、评估一套搞定" [ref=e436] [cursor=pointer]:
+              - /url: //www.bilibili.com/video/BV178w1z7EHQ/
+              - heading "黑马程序员2026最新版LangChain+LangGraph开发实战全套视频课程，从Agent开发，到LangSmith的监控、调试、评估一套搞定" [level=3] [ref=e437]:
+                - emphasis [ref=e438]: 黑马程序员
+                - text: 2026最新版LangChain+LangGraph开发实战全套视频课程，从Agent开发，到LangSmith的监控、调试、评估一套搞定
+            - link "黑马程序员 · 03-20" [ref=e440] [cursor=pointer]:
+              - /url: //space.bilibili.com/37974444
+              - img [ref=e441]
+              - generic [ref=e445]: 黑马程序员
+              - generic [ref=e446]: · 03-20
+        - generic [ref=e449]:
+          - link "黑马程序员新版Linux零基础快速入门到精通，全涵盖linux系统知识、常用软件环境部署、Shell脚本、云平台实践、大数据集群项目实战等 713.9万 12.2万 13:21:43" [ref=e450] [cursor=pointer]:
+            - /url: //www.bilibili.com/video/BV1n84y1i7td/
+            - generic [ref=e451]:
+              - img "黑马程序员新版Linux零基础快速入门到精通，全涵盖linux系统知识、常用软件环境部署、Shell脚本、云平台实践、大数据集群项目实战等" [ref=e454]
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - img
+                      - generic: 713.9万
+                    - generic:
+                      - img
+                      - generic: 12.2万
+                  - generic: 13:21:43
+          - generic [ref=e456]:
+            - link "黑马程序员新版Linux零基础快速入门到精通，全涵盖linux系统知识、常用软件环境部署、Shell脚本、云平台实践、大数据集群项目实战等" [ref=e457] [cursor=pointer]:
+              - /url: //www.bilibili.com/video/BV1n84y1i7td/
+              - heading "黑马程序员新版Linux零基础快速入门到精通，全涵盖linux系统知识、常用软件环境部署、Shell脚本、云平台实践、大数据集群项目实战等" [level=3] [ref=e458]:
+                - emphasis [ref=e459]: 黑马程序员
+                - text: 新版Linux零基础快速入门到精通，全涵盖linux系统知识、常用软件环境部署、Shell脚本、云平台实践、大数据集群项目实战等
+            - link "黑马程序员 · 2022-11-01" [ref=e461] [cursor=pointer]:
+              - /url: //space.bilibili.com/37974444
+              - img [ref=e462]
+              - generic [ref=e466]: 黑马程序员
+              - generic [ref=e467]: · 2022-11-01
+        - generic [ref=e470]:
+          - link "黑马程序员前端JavaScript入门到精通全套视频教程，javascript核心进阶ES6语法、API、js高级等基础知识和实战教程 738.6万 19.9万 60:10:24" [ref=e471] [cursor=pointer]:
+            - /url: //www.bilibili.com/video/BV1Y84y1L7Nn/
+            - generic [ref=e472]:
+              - img "黑马程序员前端JavaScript入门到精通全套视频教程，javascript核心进阶ES6语法、API、js高级等基础知识和实战教程" [ref=e475]
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - img
+                      - generic: 738.6万
+                    - generic:
+                      - img
+                      - generic: 19.9万
+                  - generic: 60:10:24
+          - generic [ref=e477]:
+            - link "黑马程序员前端JavaScript入门到精通全套视频教程，javascript核心进阶ES6语法、API、js高级等基础知识和实战教程" [ref=e478] [cursor=pointer]:
+              - /url: //www.bilibili.com/video/BV1Y84y1L7Nn/
+              - heading "黑马程序员前端JavaScript入门到精通全套视频教程，javascript核心进阶ES6语法、API、js高级等基础知识和实战教程" [level=3] [ref=e479]:
+                - emphasis [ref=e480]: 黑马程序员
+                - text: 前端JavaScript入门到精通全套视频教程，javascript核心进阶ES6语法、API、js高级等基础知识和实战教程
+            - link "黑马程序员 · 2023-01-31" [ref=e482] [cursor=pointer]:
+              - /url: //space.bilibili.com/37974444
+              - img [ref=e483]
+              - generic [ref=e487]: 黑马程序员
+              - generic [ref=e488]: · 2023-01-31
+        - generic [ref=e491]:
+          - link "清华大佬马士兵预测计算机行业2026年将淘汰的五个编程语言，入坑程序员请注意 7.4万 350" [ref=e492] [cursor=pointer]:
+            - /url: //cm.bilibili.com/cm/api/fees/pc/sync/v2?msg=a%7C5652%2Cb%7Cbilibili%2Cc%7C1%2Cd%7C%2Ce%7CCKikqg4Q2u3bexjw2aSDBSBPKAEwruKoATiULEIhMTc3NTMyMjI1NDYwMHExNzJhMjZhMTczYTI0NnE5MDEwSIiaz8vVM1IG5bi45beeWgbmsZ%2Foi49iBuS4reWbvWhkcAB4gICAgKAmgAEBiAEAkgEMMjIzLjY2LjY4LjEwoAFPqAEosgEg3gfgm801mMeSNeow0gy543Qo58eoY0MsF45SUsNexBO6AbYDaHR0cHM6Ly93d3cuYmlsaWJpbGkuY29tL3ZpZGVvL0JWMXV1ZjRCTUV6Nz90cmFja2lkPTE3MjE0NjI5ODcxNDE3NDk0NDk2JnRyYWNrX2lkPXBiYWVzLjhyaTFadGRHXzQ0X0ItaWNLSHlBalFJWm1yTURmQnROYUhUYXpGeWg1Tk15Zy1CNVJtaks0WXhqNm1uV1oxUm8yVW9vX3FVek82ZndoVjU2cjVqOTc1SEc1RGVNQnlUM1puNmk4cUpKSUVOS0pMcl9lQXk0TkpXTXp2MWZiWTVBS09nT0QtNDFCSGtmMWJ5eTlwak5nTWVJODBocDBOLVBOZzhweDJibE91USZjYWlkPV9fQ0FJRF9fJnJlc291cmNlX2lkPV9fUkVTT1VSQ0VJRF9fJnNvdXJjZV9pZD01NjUyJmZyb21fc3BtaWQ9X19GUk9NU1BNSURfXyZyZXF1ZXN0X2lkPTE3NzUzMjIyNTQ2MDBxMTcyYTI2YTE3M2EyNDZxOTAxMCZjcmVhdGl2ZV9pZD0xMDg4MDIwODM4JmxpbmtlZF9jcmVhdGl2ZV9pZD0xMzQ5MDcwMDY0wgEBMNIBANgBsgLgAYCU69wD6AGU1wHwAQD4AUiAAkCIAgCSAgCYAq5eoALyAagC5wKwAgi4AgDAAgDIApBO6gIA%2BALRD4gDAJIDAKgDALADALgDAMgDANIDxQF7IjEiOiIxMzQ5MDcwMDY0IiwiMTEiOiIyMzEiLCIxMiI6IjU2NTIiLCIxMyI6IjQyODYiLCIxNiI6IjQyODZfMjAwMSIsIjIiOiIyNzY1MTAyIiwiMjQiOiIxIiwiMjUiOiI0NDciLCIyNiI6IjQ3NyIsIjMiOiIyNzY1MTAyIiwiNCI6IjAiLCI1IjoiMCIsIjYiOiIyNzY1MTAyIiwiNyI6IjExNjEzMDA0MzY2NTk0NiIsIjgiOiIyOTYwODI2ODEifeADAOgDAPADAPoDBW90aGVyggQJbnVsbDpudWxsiARPkAQAmAQBoAQDqgQHCKCZqT8QBKoEBwiKl6k%2FEAG4BArABAnKBADQBADYBADiBIUCNTYueyJwc0lkIjoxMTkyMDcsInYyIjoiQkg3ZllHaFZiQmstaGZPaVhfZVA0bHpiR3JMZWxKcG9DUmNpY3gwZ1o5U1BfSWppTjlxcC03elhFRkRZV1UtaFRaWW5nZmFxdWZkZUlvdmh0QXVlTWNLdE1iMFJZbXljbE1ncTJYSTNLUFBFWl9VeHlnaElvZmh4WEFoM0RpaHIweEptZVNTel9VZkV1dmt3bjdJeTlnYk5RVHJvYWxYTk0yNDgyQjJ0N1FreWF6ZVkifTs2My57InBzSWQiOjExODczMywidjIiOiJCRWcifTs3MC57InBzSWQiOjExNDc4MCwidjIiOiJBQSJ96AQA8AQA%2BgS1BXsiYWNjZWxlcmF0ZV9mYWN0b3IiOjEuMCwiYWNjZWxlcmF0ZV9pZCI6MCwiYWRfdHlwZV9maXgiOiJjcG0iLCJhZHZ2X2luZm8iOiJ7XCJhZGp1c3RfYmVmb3JlX2Nvc3RcIjpcIjc5LjMxM1wiLFwiYWRqdXN0X3JhdGlvXCI6XCIxLjAwMFwiLFwiYmFsYW5jZXJfaWRcIjowLFwiYmFsYW5jZXJfcmF0aW9cIjpcIjAuMDAwXCIsXCJjaGFyZ2VfZXhwX2tleV9kZXB0aFwiOlwiXCIsXCJjaGFyZ2VfZXhwX2tleV9saWdodFwiOlwiX2ZseV9jcGFfb25saW5lX2NoYXJnZThcIixcImNvc3RfZGlmZlwiOlwiMC4wMDBcIn0iLCJiaWRfdHlwZSI6MSwiYml6X3R5cGUiOjEyLCJiaXpfdHlwZV9maXgiOjMsImNwYSI6IntcImNwYV9sZXZlbFwiOjk5LFwiY3BhX3NldFwiOjB9IiwiY3BhVGFyZ2V0VHlwZSI6OSwiZnJvbVRyYWNraWQiOiIxNzIxNDYyOTg3MTQxNzQ5NDQ5NiIsImlhYV9jaGVhdF9mbG93IjowLCJpbm5lciI6MCwiaXNfY29tbWVyY2UiOjEsImlzX29jcGNfYW50b3Vfb2NwbSI6MCwiaXNfdHJhY2tpbmdfdXJscyI6MCwibWluaV9nYW1lX2lkIjoiIiwibWluaV9nYW1lX3Bvc2l0aW9uX2lkIjoiIiwibW9kZWxTY29yZSI6IntcImN0clwiOlwiNDAuMDU3MDIyXCIsXCJmaW5hbF9wY3RyXCI6XCI0MC4wNTcwMjJcIixcImZpbmFsX3BjdnJcIjpcIjEwMDAwLjAwMDAwMFwifSIsInZpZGVvX3VwX21pZCI6Mjk2MDgyNjgxfYAFAJAFI5AFM5AFSJAFVZAFcpAFtAGQBdABkAXRAZAF2AGQBY4CkAWaApAFwAKQBcICkAXFApAFywKQBc4CkAXTApAF1gKQBdgCkAXZApAF2gKQBd8CkAXhApAF4wKQBeUCkAXwApAF8QKQBfUCkAX%2FApAFjAOQBY0DkAWTA5AFlAOQBZUDkAWYA5AFmQOQBZoDkAWbA5AFpQOQBacDkAW2A5AFtwOQBcADkAXBA5AFxAOQBc0DkAXUA5AF4AOQBeEDkAXkA5AF8wOQBfUDkAX4A5AF%2FwOQBYcEkAWJBJAFtASQBckEkAXLBJAFzQSQBYMFkAWgBZAFqgWQBa8FkAWxBZAFtQWQBcYFkAXOBZAF0gWQBdMFkAXvBZAF8wWQBY8GkAWYBpAFowaQBaYGkAWwBpAFugaQBdoGkAXwBpAF%2BQaQBf8GkAWIB5AFkweQBbsHkAXCB5AF2QeQBfUHkAWBCJAFtwiQBcgIkAXLEJAFlRGQBaERkAWrEZAFhhKgBZq8gJDqsxq4BQnABb4hyAUF4AUB6AUA8gVoQ0F3UUFUQUpWVUtnbmtKbEFFQWNSbTBBUUJ4R2RRQUFnRCtnQWI3cDUyYW9BZWJDNTRZRXNBRUJ3QUVTeUFFSjdRRUFBSUEvOVFFQUFJQS9wUUlBQUlBL3JRSUFBSUEvdFFJQUFJQS%2F4Bb7p52aABv%2BT69wDiAbmwueGBA%3D%3D%2Cf%7Cclick_sync_3%2Cg%7C1%2Ch%7C%2Ci%7C%2Cj%7C%2Ck%7C1775322256235%2Cl%7C5646%2Cm%7C1775322255974%2Cn%7C%2Co%7C1349070064%2Cp%7Cad_card&ts=1775322256235
+            - generic [ref=e493]:
+              - img "清华大佬马士兵预测计算机行业2026年将淘汰的五个编程语言，入坑程序员请注意" [ref=e496]
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - img
+                      - generic: 7.4万
+                    - generic:
+                      - img
+                      - generic: "350"
+                  - generic:
+                    - img
+          - generic [ref=e498]:
+            - link "清华大佬马士兵预测计算机行业2026年将淘汰的五个编程语言，入坑程序员请注意" [ref=e499] [cursor=pointer]:
+              - /url: //cm.bilibili.com/cm/api/fees/pc/sync/v2?msg=a%7C5652%2Cb%7Cbilibili%2Cc%7C1%2Cd%7C%2Ce%7CCKikqg4Q2u3bexjw2aSDBSBPKAEwruKoATiULEIhMTc3NTMyMjI1NDYwMHExNzJhMjZhMTczYTI0NnE5MDEwSIiaz8vVM1IG5bi45beeWgbmsZ%2Foi49iBuS4reWbvWhkcAB4gICAgKAmgAEBiAEAkgEMMjIzLjY2LjY4LjEwoAFPqAEosgEg3gfgm801mMeSNeow0gy543Qo58eoY0MsF45SUsNexBO6AbYDaHR0cHM6Ly93d3cuYmlsaWJpbGkuY29tL3ZpZGVvL0JWMXV1ZjRCTUV6Nz90cmFja2lkPTE3MjE0NjI5ODcxNDE3NDk0NDk2JnRyYWNrX2lkPXBiYWVzLjhyaTFadGRHXzQ0X0ItaWNLSHlBalFJWm1yTURmQnROYUhUYXpGeWg1Tk15Zy1CNVJtaks0WXhqNm1uV1oxUm8yVW9vX3FVek82ZndoVjU2cjVqOTc1SEc1RGVNQnlUM1puNmk4cUpKSUVOS0pMcl9lQXk0TkpXTXp2MWZiWTVBS09nT0QtNDFCSGtmMWJ5eTlwak5nTWVJODBocDBOLVBOZzhweDJibE91USZjYWlkPV9fQ0FJRF9fJnJlc291cmNlX2lkPV9fUkVTT1VSQ0VJRF9fJnNvdXJjZV9pZD01NjUyJmZyb21fc3BtaWQ9X19GUk9NU1BNSURfXyZyZXF1ZXN0X2lkPTE3NzUzMjIyNTQ2MDBxMTcyYTI2YTE3M2EyNDZxOTAxMCZjcmVhdGl2ZV9pZD0xMDg4MDIwODM4JmxpbmtlZF9jcmVhdGl2ZV9pZD0xMzQ5MDcwMDY0wgEBMNIBANgBsgLgAYCU69wD6AGU1wHwAQD4AUiAAkCIAgCSAgCYAq5eoALyAagC5wKwAgi4AgDAAgDIApBO6gIA%2BALRD4gDAJIDAKgDALADALgDAMgDANIDxQF7IjEiOiIxMzQ5MDcwMDY0IiwiMTEiOiIyMzEiLCIxMiI6IjU2NTIiLCIxMyI6IjQyODYiLCIxNiI6IjQyODZfMjAwMSIsIjIiOiIyNzY1MTAyIiwiMjQiOiIxIiwiMjUiOiI0NDciLCIyNiI6IjQ3NyIsIjMiOiIyNzY1MTAyIiwiNCI6IjAiLCI1IjoiMCIsIjYiOiIyNzY1MTAyIiwiNyI6IjExNjEzMDA0MzY2NTk0NiIsIjgiOiIyOTYwODI2ODEifeADAOgDAPADAPoDBW90aGVyggQJbnVsbDpudWxsiARPkAQAmAQBoAQDqgQHCKCZqT8QBKoEBwiKl6k%2FEAG4BArABAnKBADQBADYBADiBIUCNTYueyJwc0lkIjoxMTkyMDcsInYyIjoiQkg3ZllHaFZiQmstaGZPaVhfZVA0bHpiR3JMZWxKcG9DUmNpY3gwZ1o5U1BfSWppTjlxcC03elhFRkRZV1UtaFRaWW5nZmFxdWZkZUlvdmh0QXVlTWNLdE1iMFJZbXljbE1ncTJYSTNLUFBFWl9VeHlnaElvZmh4WEFoM0RpaHIweEptZVNTel9VZkV1dmt3bjdJeTlnYk5RVHJvYWxYTk0yNDgyQjJ0N1FreWF6ZVkifTs2My57InBzSWQiOjExODczMywidjIiOiJCRWcifTs3MC57InBzSWQiOjExNDc4MCwidjIiOiJBQSJ96AQA8AQA%2BgS1BXsiYWNjZWxlcmF0ZV9mYWN0b3IiOjEuMCwiYWNjZWxlcmF0ZV9pZCI6MCwiYWRfdHlwZV9maXgiOiJjcG0iLCJhZHZ2X2luZm8iOiJ7XCJhZGp1c3RfYmVmb3JlX2Nvc3RcIjpcIjc5LjMxM1wiLFwiYWRqdXN0X3JhdGlvXCI6XCIxLjAwMFwiLFwiYmFsYW5jZXJfaWRcIjowLFwiYmFsYW5jZXJfcmF0aW9cIjpcIjAuMDAwXCIsXCJjaGFyZ2VfZXhwX2tleV9kZXB0aFwiOlwiXCIsXCJjaGFyZ2VfZXhwX2tleV9saWdodFwiOlwiX2ZseV9jcGFfb25saW5lX2NoYXJnZThcIixcImNvc3RfZGlmZlwiOlwiMC4wMDBcIn0iLCJiaWRfdHlwZSI6MSwiYml6X3R5cGUiOjEyLCJiaXpfdHlwZV9maXgiOjMsImNwYSI6IntcImNwYV9sZXZlbFwiOjk5LFwiY3BhX3NldFwiOjB9IiwiY3BhVGFyZ2V0VHlwZSI6OSwiZnJvbVRyYWNraWQiOiIxNzIxNDYyOTg3MTQxNzQ5NDQ5NiIsImlhYV9jaGVhdF9mbG93IjowLCJpbm5lciI6MCwiaXNfY29tbWVyY2UiOjEsImlzX29jcGNfYW50b3Vfb2NwbSI6MCwiaXNfdHJhY2tpbmdfdXJscyI6MCwibWluaV9nYW1lX2lkIjoiIiwibWluaV9nYW1lX3Bvc2l0aW9uX2lkIjoiIiwibW9kZWxTY29yZSI6IntcImN0clwiOlwiNDAuMDU3MDIyXCIsXCJmaW5hbF9wY3RyXCI6XCI0MC4wNTcwMjJcIixcImZpbmFsX3BjdnJcIjpcIjEwMDAwLjAwMDAwMFwifSIsInZpZGVvX3VwX21pZCI6Mjk2MDgyNjgxfYAFAJAFI5AFM5AFSJAFVZAFcpAFtAGQBdABkAXRAZAF2AGQBY4CkAWaApAFwAKQBcICkAXFApAFywKQBc4CkAXTApAF1gKQBdgCkAXZApAF2gKQBd8CkAXhApAF4wKQBeUCkAXwApAF8QKQBfUCkAX%2FApAFjAOQBY0DkAWTA5AFlAOQBZUDkAWYA5AFmQOQBZoDkAWbA5AFpQOQBacDkAW2A5AFtwOQBcADkAXBA5AFxAOQBc0DkAXUA5AF4AOQBeEDkAXkA5AF8wOQBfUDkAX4A5AF%2FwOQBYcEkAWJBJAFtASQBckEkAXLBJAFzQSQBYMFkAWgBZAFqgWQBa8FkAWxBZAFtQWQBcYFkAXOBZAF0gWQBdMFkAXvBZAF8wWQBY8GkAWYBpAFowaQBaYGkAWwBpAFugaQBdoGkAXwBpAF%2BQaQBf8GkAWIB5AFkweQBbsHkAXCB5AF2QeQBfUHkAWBCJAFtwiQBcgIkAXLEJAFlRGQBaERkAWrEZAFhhKgBZq8gJDqsxq4BQnABb4hyAUF4AUB6AUA8gVoQ0F3UUFUQUpWVUtnbmtKbEFFQWNSbTBBUUJ4R2RRQUFnRCtnQWI3cDUyYW9BZWJDNTRZRXNBRUJ3QUVTeUFFSjdRRUFBSUEvOVFFQUFJQS9wUUlBQUlBL3JRSUFBSUEvdFFJQUFJQS%2F4Bb7p52aABv%2BT69wDiAbmwueGBA%3D%3D%2Cf%7Cclick_sync_3%2Cg%7C1%2Ch%7C%2Ci%7C%2Cj%7C%2Ck%7C1775322256235%2Cl%7C5646%2Cm%7C1775322255974%2Cn%7C%2Co%7C1349070064%2Cp%7Cad_card&ts=1775322256235
+              - heading "清华大佬马士兵预测计算机行业2026年将淘汰的五个编程语言，入坑程序员请注意" [level=3] [ref=e500]:
+                - text: 清华大佬马士兵预测计算机行业2026年将淘汰的五个编程语言，入坑
+                - emphasis [ref=e501]: 程序员
+                - text: 请注意
+            - link "2千点赞 马士兵教育官网 · 02-25" [ref=e503] [cursor=pointer]:
+              - /url: //cm.bilibili.com/cm/api/fees/pc/sync/v2?msg=a%7C5652%2Cb%7Cbilibili%2Cc%7C1%2Cd%7C%2Ce%7CCKikqg4Q2u3bexjw2aSDBSBPKAEwruKoATiULEIhMTc3NTMyMjI1NDYwMHExNzJhMjZhMTczYTI0NnE5MDEwSIiaz8vVM1IG5bi45beeWgbmsZ%2Foi49iBuS4reWbvWhkcAB4gICAgKAmgAEBiAEAkgEMMjIzLjY2LjY4LjEwoAFPqAEosgEg3gfgm801mMeSNeow0gy543Qo58eoY0MsF45SUsNexBO6AbYDaHR0cHM6Ly93d3cuYmlsaWJpbGkuY29tL3ZpZGVvL0JWMXV1ZjRCTUV6Nz90cmFja2lkPTE3MjE0NjI5ODcxNDE3NDk0NDk2JnRyYWNrX2lkPXBiYWVzLjhyaTFadGRHXzQ0X0ItaWNLSHlBalFJWm1yTURmQnROYUhUYXpGeWg1Tk15Zy1CNVJtaks0WXhqNm1uV1oxUm8yVW9vX3FVek82ZndoVjU2cjVqOTc1SEc1RGVNQnlUM1puNmk4cUpKSUVOS0pMcl9lQXk0TkpXTXp2MWZiWTVBS09nT0QtNDFCSGtmMWJ5eTlwak5nTWVJODBocDBOLVBOZzhweDJibE91USZjYWlkPV9fQ0FJRF9fJnJlc291cmNlX2lkPV9fUkVTT1VSQ0VJRF9fJnNvdXJjZV9pZD01NjUyJmZyb21fc3BtaWQ9X19GUk9NU1BNSURfXyZyZXF1ZXN0X2lkPTE3NzUzMjIyNTQ2MDBxMTcyYTI2YTE3M2EyNDZxOTAxMCZjcmVhdGl2ZV9pZD0xMDg4MDIwODM4JmxpbmtlZF9jcmVhdGl2ZV9pZD0xMzQ5MDcwMDY0wgEBMNIBANgBsgLgAYCU69wD6AGU1wHwAQD4AUiAAkCIAgCSAgCYAq5eoALyAagC5wKwAgi4AgDAAgDIApBO6gIA%2BALRD4gDAJIDAKgDALADALgDAMgDANIDxQF7IjEiOiIxMzQ5MDcwMDY0IiwiMTEiOiIyMzEiLCIxMiI6IjU2NTIiLCIxMyI6IjQyODYiLCIxNiI6IjQyODZfMjAwMSIsIjIiOiIyNzY1MTAyIiwiMjQiOiIxIiwiMjUiOiI0NDciLCIyNiI6IjQ3NyIsIjMiOiIyNzY1MTAyIiwiNCI6IjAiLCI1IjoiMCIsIjYiOiIyNzY1MTAyIiwiNyI6IjExNjEzMDA0MzY2NTk0NiIsIjgiOiIyOTYwODI2ODEifeADAOgDAPADAPoDBW90aGVyggQJbnVsbDpudWxsiARPkAQAmAQBoAQDqgQHCKCZqT8QBKoEBwiKl6k%2FEAG4BArABAnKBADQBADYBADiBIUCNTYueyJwc0lkIjoxMTkyMDcsInYyIjoiQkg3ZllHaFZiQmstaGZPaVhfZVA0bHpiR3JMZWxKcG9DUmNpY3gwZ1o5U1BfSWppTjlxcC03elhFRkRZV1UtaFRaWW5nZmFxdWZkZUlvdmh0QXVlTWNLdE1iMFJZbXljbE1ncTJYSTNLUFBFWl9VeHlnaElvZmh4WEFoM0RpaHIweEptZVNTel9VZkV1dmt3bjdJeTlnYk5RVHJvYWxYTk0yNDgyQjJ0N1FreWF6ZVkifTs2My57InBzSWQiOjExODczMywidjIiOiJCRWcifTs3MC57InBzSWQiOjExNDc4MCwidjIiOiJBQSJ96AQA8AQA%2BgS1BXsiYWNjZWxlcmF0ZV9mYWN0b3IiOjEuMCwiYWNjZWxlcmF0ZV9pZCI6MCwiYWRfdHlwZV9maXgiOiJjcG0iLCJhZHZ2X2luZm8iOiJ7XCJhZGp1c3RfYmVmb3JlX2Nvc3RcIjpcIjc5LjMxM1wiLFwiYWRqdXN0X3JhdGlvXCI6XCIxLjAwMFwiLFwiYmFsYW5jZXJfaWRcIjowLFwiYmFsYW5jZXJfcmF0aW9cIjpcIjAuMDAwXCIsXCJjaGFyZ2VfZXhwX2tleV9kZXB0aFwiOlwiXCIsXCJjaGFyZ2VfZXhwX2tleV9saWdodFwiOlwiX2ZseV9jcGFfb25saW5lX2NoYXJnZThcIixcImNvc3RfZGlmZlwiOlwiMC4wMDBcIn0iLCJiaWRfdHlwZSI6MSwiYml6X3R5cGUiOjEyLCJiaXpfdHlwZV9maXgiOjMsImNwYSI6IntcImNwYV9sZXZlbFwiOjk5LFwiY3BhX3NldFwiOjB9IiwiY3BhVGFyZ2V0VHlwZSI6OSwiZnJvbVRyYWNraWQiOiIxNzIxNDYyOTg3MTQxNzQ5NDQ5NiIsImlhYV9jaGVhdF9mbG93IjowLCJpbm5lciI6MCwiaXNfY29tbWVyY2UiOjEsImlzX29jcGNfYW50b3Vfb2NwbSI6MCwiaXNfdHJhY2tpbmdfdXJscyI6MCwibWluaV9nYW1lX2lkIjoiIiwibWluaV9nYW1lX3Bvc2l0aW9uX2lkIjoiIiwibW9kZWxTY29yZSI6IntcImN0clwiOlwiNDAuMDU3MDIyXCIsXCJmaW5hbF9wY3RyXCI6XCI0MC4wNTcwMjJcIixcImZpbmFsX3BjdnJcIjpcIjEwMDAwLjAwMDAwMFwifSIsInZpZGVvX3VwX21pZCI6Mjk2MDgyNjgxfYAFAJAFI5AFM5AFSJAFVZAFcpAFtAGQBdABkAXRAZAF2AGQBY4CkAWaApAFwAKQBcICkAXFApAFywKQBc4CkAXTApAF1gKQBdgCkAXZApAF2gKQBd8CkAXhApAF4wKQBeUCkAXwApAF8QKQBfUCkAX%2FApAFjAOQBY0DkAWTA5AFlAOQBZUDkAWYA5AFmQOQBZoDkAWbA5AFpQOQBacDkAW2A5AFtwOQBcADkAXBA5AFxAOQBc0DkAXUA5AF4AOQBeEDkAXkA5AF8wOQBfUDkAX4A5AF%2FwOQBYcEkAWJBJAFtASQBckEkAXLBJAFzQSQBYMFkAWgBZAFqgWQBa8FkAWxBZAFtQWQBcYFkAXOBZAF0gWQBdMFkAXvBZAF8wWQBY8GkAWYBpAFowaQBaYGkAWwBpAFugaQBdoGkAXwBpAF%2BQaQBf8GkAWIB5AFkweQBbsHkAXCB5AF2QeQBfUHkAWBCJAFtwiQBcgIkAXLEJAFlRGQBaERkAWrEZAFhhKgBZq8gJDqsxq4BQnABb4hyAUF4AUB6AUA8gVoQ0F3UUFUQUpWVUtnbmtKbEFFQWNSbTBBUUJ4R2RRQUFnRCtnQWI3cDUyYW9BZWJDNTRZRXNBRUJ3QUVTeUFFSjdRRUFBSUEvOVFFQUFJQS9wUUlBQUlBL3JRSUFBSUEvdFFJQUFJQS%2F4Bb7p52aABv%2BT69wDiAbmwueGBA%3D%3D%2Cf%7Cclick_sync_3%2Cg%7C1%2Ch%7C%2Ci%7C%2Cj%7C%2Ck%7C1775322256236%2Cl%7C5646%2Cm%7C1775322255974%2Cn%7C%2Co%7C1349070064%2Cp%7Cad_logo&ts=1775322256236
+              - generic [ref=e504]: 2千点赞
+              - generic [ref=e505]: 马士兵教育官网
+              - generic [ref=e506]: · 02-25
+        - generic [ref=e509]:
+          - link "黑马程序员AI大模型《神经网络与深度学习》全套视频课程，涵盖Pytorch深度学习框架、BP神经网络、CNN图像分类算法及RNN文本生成算法 92.6万 5055 31:40:39" [ref=e510] [cursor=pointer]:
+            - /url: //www.bilibili.com/video/BV1c5yrBcEEX/
+            - generic [ref=e511]:
+              - img "黑马程序员AI大模型《神经网络与深度学习》全套视频课程，涵盖Pytorch深度学习框架、BP神经网络、CNN图像分类算法及RNN文本生成算法" [ref=e514]
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - img
+                      - generic: 92.6万
+                    - generic:
+                      - img
+                      - generic: "5055"
+                  - generic: 31:40:39
+          - generic [ref=e516]:
+            - link "黑马程序员AI大模型《神经网络与深度学习》全套视频课程，涵盖Pytorch深度学习框架、BP神经网络、CNN图像分类算法及RNN文本生成算法" [ref=e517] [cursor=pointer]:
+              - /url: //www.bilibili.com/video/BV1c5yrBcEEX/
+              - heading "黑马程序员AI大模型《神经网络与深度学习》全套视频课程，涵盖Pytorch深度学习框架、BP神经网络、CNN图像分类算法及RNN文本生成算法" [level=3] [ref=e518]:
+                - emphasis [ref=e519]: 黑马程序员
+                - text: AI大模型《神经网络与深度学习》全套视频课程，涵盖Pytorch深度学习框架、BP神经网络、CNN图像分类算法及RNN文本生成算法
+            - link "黑马程序员 · 2025-10-29" [ref=e521] [cursor=pointer]:
+              - /url: //space.bilibili.com/37974444
+              - img [ref=e522]
+              - generic [ref=e526]: 黑马程序员
+              - generic [ref=e527]: · 2025-10-29
+        - generic [ref=e530]:
+          - link "前端Web开发HTML5+CSS3+移动web视频教程，前端web入门首选黑马程序员 411.6万 6万 44:47:00" [ref=e531] [cursor=pointer]:
+            - /url: //www.bilibili.com/video/BV1kM4y127Li/
+            - generic [ref=e532]:
+              - img "前端Web开发HTML5+CSS3+移动web视频教程，前端web入门首选黑马程序员" [ref=e535]
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - img
+                      - generic: 411.6万
+                    - generic:
+                      - img
+                      - generic: 6万
+                  - generic: 44:47:00
+          - generic [ref=e537]:
+            - link "前端Web开发HTML5+CSS3+移动web视频教程，前端web入门首选黑马程序员" [ref=e538] [cursor=pointer]:
+              - /url: //www.bilibili.com/video/BV1kM4y127Li/
+              - heading "前端Web开发HTML5+CSS3+移动web视频教程，前端web入门首选黑马程序员" [level=3] [ref=e539]:
+                - text: 前端Web开发HTML5+CSS3+移动web视频教程，前端web入门首选
+                - emphasis [ref=e540]: 黑马程序员
+            - link "黑马程序员 · 2023-04-04" [ref=e542] [cursor=pointer]:
+              - /url: //space.bilibili.com/37974444
+              - img [ref=e543]
+              - generic [ref=e547]: 黑马程序员
+              - generic [ref=e548]: · 2023-04-04
+        - generic [ref=e551]:
+          - link "黑马程序员Java项目实战《苍穹外卖》，最适合新手的SpringBoot+SSM的企业级Java项目实战 621.6万 13.9万 37:50:35" [ref=e552] [cursor=pointer]:
+            - /url: //www.bilibili.com/video/BV1TP411v7v6/
+            - generic [ref=e553]:
+              - img "黑马程序员Java项目实战《苍穹外卖》，最适合新手的SpringBoot+SSM的企业级Java项目实战" [ref=e556]
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - img
+                      - generic: 621.6万
+                    - generic:
+                      - img
+                      - generic: 13.9万
+                  - generic: 37:50:35
+          - generic [ref=e558]:
+            - link "黑马程序员Java项目实战《苍穹外卖》，最适合新手的SpringBoot+SSM的企业级Java项目实战" [ref=e559] [cursor=pointer]:
+              - /url: //www.bilibili.com/video/BV1TP411v7v6/
+              - heading "黑马程序员Java项目实战《苍穹外卖》，最适合新手的SpringBoot+SSM的企业级Java项目实战" [level=3] [ref=e560]:
+                - emphasis [ref=e561]: 黑马程序员
+                - text: Java项目实战《苍穹外卖》，最适合新手的SpringBoot+SSM的企业级Java项目实战
+            - link "黑马程序员 · 2023-07-05" [ref=e563] [cursor=pointer]:
+              - /url: //space.bilibili.com/37974444
+              - img [ref=e564]
+              - generic [ref=e568]: 黑马程序员
+              - generic [ref=e569]: · 2023-07-05
+        - generic [ref=e572]:
+          - link "黑马程序员10小时搞定毕业设计全套教程，AI智能助力毕业生打造自己专属毕设（含毕设论文模板、毕设选题、开题报告、项目案例、毕业论文写作、论文查重降重、答辩技巧） 55.1万 1500 10:09:38" [ref=e573] [cursor=pointer]:
+            - /url: //www.bilibili.com/video/BV15BqAYNErA/
+            - generic [ref=e574]:
+              - img "黑马程序员10小时搞定毕业设计全套教程，AI智能助力毕业生打造自己专属毕设（含毕设论文模板、毕设选题、开题报告、项目案例、毕业论文写作、论文查重降重、答辩技巧）" [ref=e577]
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - img
+                      - generic: 55.1万
+                    - generic:
+                      - img
+                      - generic: "1500"
+                  - generic: 10:09:38
+          - generic [ref=e579]:
+            - link "黑马程序员10小时搞定毕业设计全套教程，AI智能助力毕业生打造自己专属毕设（含毕设论文模板、毕设选题、开题报告、项目案例、毕业论文写作、论文查重降重、答辩技巧）" [ref=e580] [cursor=pointer]:
+              - /url: //www.bilibili.com/video/BV15BqAYNErA/
+              - heading "黑马程序员10小时搞定毕业设计全套教程，AI智能助力毕业生打造自己专属毕设（含毕设论文模板、毕设选题、开题报告、项目案例、毕业论文写作、论文查重降重、答辩技巧）" [level=3] [ref=e581]:
+                - emphasis [ref=e582]: 黑马程序员
+                - text: 10小时搞定毕业设计全套教程，AI智能助力毕业生打造自己专属毕设（含毕设论文模板、毕设选题、开题报告、项目案例、毕业论文写作、论文查重降重、答辩技巧）
+            - link "黑马程序员 · 2024-12-10" [ref=e584] [cursor=pointer]:
+              - /url: //space.bilibili.com/37974444
+              - img [ref=e585]
+              - generic [ref=e589]: 黑马程序员
+              - generic [ref=e590]: · 2024-12-10
+        - generic [ref=e593]:
+          - link "黑马程序员C语言基础教程【源码，笔记，软件，案例全，初学者值得收藏的教程】 290.6万 3.8万 46:31:31" [ref=e594] [cursor=pointer]:
+            - /url: //www.bilibili.com/video/BV1vs411n7TH/
+            - generic [ref=e595]:
+              - img "黑马程序员C语言基础教程【源码，笔记，软件，案例全，初学者值得收藏的教程】" [ref=e598]
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - img
+                      - generic: 290.6万
+                    - generic:
+                      - img
+                      - generic: 3.8万
+                  - generic: 46:31:31
+          - generic [ref=e600]:
+            - link "黑马程序员C语言基础教程【源码，笔记，软件，案例全，初学者值得收藏的教程】" [ref=e601] [cursor=pointer]:
+              - /url: //www.bilibili.com/video/BV1vs411n7TH/
+              - heading "黑马程序员C语言基础教程【源码，笔记，软件，案例全，初学者值得收藏的教程】" [level=3] [ref=e602]:
+                - emphasis [ref=e603]: 黑马程序员
+                - text: C语言基础教程【源码，笔记，软件，案例全，初学者值得收藏的教程】
+            - link "黑马程序员 · 2018-07-10" [ref=e605] [cursor=pointer]:
+              - /url: //space.bilibili.com/37974444
+              - img [ref=e606]
+              - generic [ref=e610]: 黑马程序员
+              - generic [ref=e611]: · 2018-07-10
+        - generic [ref=e614]:
+          - link "黑马程序员Python教程_600集Python从入门到精通教程（懂中文就能学会） 2072.9万 25.9万 55:03:06" [ref=e615] [cursor=pointer]:
+            - /url: //www.bilibili.com/video/BV1ex411x7Em/
+            - generic [ref=e616]:
+              - img "黑马程序员Python教程_600集Python从入门到精通教程（懂中文就能学会）" [ref=e619]
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - img
+                      - generic: 2072.9万
+                    - generic:
+                      - img
+                      - generic: 25.9万
+                  - generic: 55:03:06
+          - generic [ref=e621]:
+            - link "黑马程序员Python教程_600集Python从入门到精通教程（懂中文就能学会）" [ref=e622] [cursor=pointer]:
+              - /url: //www.bilibili.com/video/BV1ex411x7Em/
+              - heading "黑马程序员Python教程_600集Python从入门到精通教程（懂中文就能学会）" [level=3] [ref=e623]:
+                - emphasis [ref=e624]: 黑马程序员
+                - text: Python教程_600集Python从入门到精通教程（懂中文就能学会）
+            - link "黑马程序员 · 2017-09-05" [ref=e626] [cursor=pointer]:
+              - /url: //space.bilibili.com/37974444
+              - img [ref=e627]
+              - generic [ref=e631]: 黑马程序员
+              - generic [ref=e632]: · 2017-09-05
+        - generic [ref=e635]:
+          - link "黑马程序员Redis入门到实战教程，深度透析redis底层原理+redis分布式锁+企业解决方案+黑马点评实战项目 514.4万 14.3万 42:48:52" [ref=e636] [cursor=pointer]:
+            - /url: //www.bilibili.com/video/BV1cr4y1671t/
+            - generic [ref=e637]:
+              - img "黑马程序员Redis入门到实战教程，深度透析redis底层原理+redis分布式锁+企业解决方案+黑马点评实战项目" [ref=e640]
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - img
+                      - generic: 514.4万
+                    - generic:
+                      - img
+                      - generic: 14.3万
+                  - generic: 42:48:52
+          - generic [ref=e642]:
+            - link "黑马程序员Redis入门到实战教程，深度透析redis底层原理+redis分布式锁+企业解决方案+黑马点评实战项目" [ref=e643] [cursor=pointer]:
+              - /url: //www.bilibili.com/video/BV1cr4y1671t/
+              - heading "黑马程序员Redis入门到实战教程，深度透析redis底层原理+redis分布式锁+企业解决方案+黑马点评实战项目" [level=3] [ref=e644]:
+                - emphasis [ref=e645]: 黑马程序员
+                - text: Redis入门到实战教程，深度透析redis底层原理+redis分布式锁+企业解决方案+黑马点评实战项目
+            - link "黑马程序员 · 2022-02-28" [ref=e647] [cursor=pointer]:
+              - /url: //space.bilibili.com/37974444
+              - img [ref=e648]
+              - generic [ref=e652]: 黑马程序员
+              - generic [ref=e653]: · 2022-02-28
+        - generic [ref=e656]:
+          - link "黑马程序员全网最全Coze智能体入门到项目实战全套教程，从AI Agent开发入门到6大AI智能体实战项目，涵盖提示词Prompt、RAG、Bot发布微信公众号 59.6万 1502 05:28:32" [ref=e657] [cursor=pointer]:
+            - /url: //www.bilibili.com/video/BV12omoB4ExF/
+            - generic [ref=e658]:
+              - img "黑马程序员全网最全Coze智能体入门到项目实战全套教程，从AI Agent开发入门到6大AI智能体实战项目，涵盖提示词Prompt、RAG、Bot发布微信公众号" [ref=e661]
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - img
+                      - generic: 59.6万
+                    - generic:
+                      - img
+                      - generic: "1502"
+                  - generic: 05:28:32
+          - generic [ref=e663]:
+            - link "黑马程序员全网最全Coze智能体入门到项目实战全套教程，从AI Agent开发入门到6大AI智能体实战项目，涵盖提示词Prompt、RAG、Bot发布微信公众号" [ref=e664] [cursor=pointer]:
+              - /url: //www.bilibili.com/video/BV12omoB4ExF/
+              - heading "黑马程序员全网最全Coze智能体入门到项目实战全套教程，从AI Agent开发入门到6大AI智能体实战项目，涵盖提示词Prompt、RAG、Bot发布微信公众号" [level=3] [ref=e665]:
+                - emphasis [ref=e666]: 黑马程序员
+                - text: 全网最全Coze智能体入门到项目实战全套教程，从AI Agent开发入门到6大AI智能体实战项目，涵盖提示词Prompt、RAG、Bot发布微信公众号
+            - link "黑马程序员 · 2025-12-15" [ref=e668] [cursor=pointer]:
+              - /url: //space.bilibili.com/37974444
+              - img [ref=e669]
+              - generic [ref=e673]: 黑马程序员
+              - generic [ref=e674]: · 2025-12-15
+        - generic [ref=e677]:
+          - link "黑马程序员Python+AI大模型零基础到项目实战，涵盖Python、Linux、LangChain、Ollama等，从大模型私有化部署到搭建聊天机器人一套通关 126.2万 3657 30:00:39" [ref=e678] [cursor=pointer]:
+            - /url: //www.bilibili.com/video/BV1h1VbzHER2/
+            - generic [ref=e679]:
+              - img "黑马程序员Python+AI大模型零基础到项目实战，涵盖Python、Linux、LangChain、Ollama等，从大模型私有化部署到搭建聊天机器人一套通关" [ref=e682]
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - img
+                      - generic: 126.2万
+                    - generic:
+                      - img
+                      - generic: "3657"
+                  - generic: 30:00:39
+          - generic [ref=e684]:
+            - link "黑马程序员Python+AI大模型零基础到项目实战，涵盖Python、Linux、LangChain、Ollama等，从大模型私有化部署到搭建聊天机器人一套通关" [ref=e685] [cursor=pointer]:
+              - /url: //www.bilibili.com/video/BV1h1VbzHER2/
+              - heading "黑马程序员Python+AI大模型零基础到项目实战，涵盖Python、Linux、LangChain、Ollama等，从大模型私有化部署到搭建聊天机器人一套通关" [level=3] [ref=e686]:
+                - emphasis [ref=e687]: 黑马程序员
+                - text: Python+AI大模型零基础到项目实战，涵盖Python、Linux、LangChain、Ollama等，从大模型私有化部署到搭建聊天机器人一套通关
+            - link "黑马程序员 · 2025-05-08" [ref=e689] [cursor=pointer]:
+              - /url: //space.bilibili.com/37974444
+              - img [ref=e690]
+              - generic [ref=e694]: 黑马程序员
+              - generic [ref=e695]: · 2025-05-08
+        - generic [ref=e698]:
+          - link "不脱产！在职读计算机硕士，让你在职场中不断进步，掌握前沿科技 广告" [ref=e699] [cursor=pointer]:
+            - /url: //cm.bilibili.com/cm/api/fees/pc/sync/v2?msg=a%7C5653%2Cb%7Cbilibili%2Cc%7C1%2Cd%7C%2Ce%7CCOnxiBAQsdiwfBj8xLyHBSBIKAEwxv7mATiVLEIhMTc3NTMyMjI1NDYwMHExNzJhMjZhMTczYTI0NnE5MDEwSIiaz8vVM1IG5bi45beeWgbmsZ%2Foi49iBuS4reWbvWhkcAB4gICAgKA5gAEBiAEAkgEMMjIzLjY2LjY4LjEwoAFIqAEGsgEg%2BYQ0Tr7v%2FZlqoi6oACqpER6sRWJm4fSJBxSpFxAIdKi6AY0FaHR0cHM6Ly9nYW9uZW5nLmJpbGliaWxpLmNvbS90ZXRyaXMvcGFnZS8%2FcGFnZUlkPTExNDI0NjE4NjE2MjUyOTA3NTImcHJlX3JlbmRlcl9nbG9iYWw9MCZhdXRvX21lZGlhX3BsYXliYWNrPTEmbmF2aGlkZT0wJnRyYWZmaWNfdHlwZT1fX1RSQUZGSUNUWVBFX18mYWR0eXBlPUNQTSZkdWlkPV9fRFVJRF9fJm9zPTMmYnV2aWQ9X19CVVZJRF9fJmZyb21fYmNnPWJjZ18xMV8xMzQxODYxOTE2JmlkZmE9X19JREZBX18mbWlkPV9fTUlEX18mY3JlYXRpdmVfaWQ9MTM0MTg2MTkxNiZ0cmFja19pZD1wYmFlcy44cmkxWnRkR180NF9CLWljS0h5QWpRSVptck1EZkJ0TmFIVGF6RnloNU5NeWctQjVSbWpLNFl4ajZtbldaMVJvMlVvb19xVXpPNmZ3aFY1NnI1ajk3NUhHNURlTUJ5VDNabjZpOHFKSklFUE1pOUd3d0hjVk1tbEVBWHJ4UkpNMGlwd2JxZE5iTDRtRkppeW52bTR0WkFHXzREb1VoeHVsWXp4MGNSSUV5SkkmY2FpZD1fX0NBSURfXyZpbWVpPV9fSU1FSV9fJnJlc291cmNlX2lkPV9fUkVTT1VSQ0VJRF9fJnNvdXJjZV9pZD01NjUzJmFuZHJvaWRfaWQ9X19BTkRST0lESURfXyZyZXF1ZXN0X2lkPTE3NzUzMjIyNTQ2MDBxMTcyYTI2YTE3M2EyNDZxOTAxMCZmcm9tX3NwbWlkPV9fRlJPTVNQTUlEX18mbGlua2VkX2NyZWF0aXZlX2lkPTEzNTc4NDkyMTLCAQEw0gEA2AHKA%2BABgJTr3APoAaCcAfABAPgBR4ACAogCAJICAJgC4gKgAgOoAhqwAgC4AgDAAgDIAhPqAgD4Aq0iiAMAkgMAqAMAsAMAuAMAyAMA0gPJAXsiMSI6IjEzNTc4NDkyMTIiLCIxMSI6IjIxIiwiMTIiOiI1NjUzIiwiMTMiOiIyODU0NDYiLCIxNiI6IjI4NTQ0Nl80Mzk3IiwiMiI6IjM3ODQ1MTgiLCIyNCI6IjEiLCIyNSI6IjQ0NyIsIjI2IjoiNDYzIiwiMyI6IjM3ODQ1MTgiLCI0IjoiMCIsIjUiOiIwIiwiNiI6IjM3ODQ1MTgiLCI3IjoiMTE2Mjc2NTc1ODY2OTg1IiwiOCI6IjE4NDQ3OTU2MjEifeADAOgDAPADAPoDBW90aGVyggQJbnVsbDpudWxsiARIkAQAmAQBoAQEqgQHCIzlgx8QBKoEBwig0ONCEAGqBAQIABAIuAQKwAQEygQA0AQA2AQA4gSFAjU2LnsicHNJZCI6MTE5MjA3LCJ2MiI6IkJIN2ZZR2hWYkJrLWhmT2lYX2VQNGx6YkdyTGVsSnBvQ1JjaWN4MGdaOVNQX0lqaU45cXAtN3pYRUZEWVdVLWhUWlluZ2ZhcXVmZGVJb3ZodEF1ZU1jS3RNYjBSWW15Y2xNZ3EyWEkzS1BQRVpfVXh5Z2hJb2ZoeFhBaDNEaWhyMHhKbWVTU3pfVWZFdXZrd243SXk5Z2JOUVRyb2FsWE5NMjQ4MkIydDdRa3lhemVZIn07NjMueyJwc0lkIjoxMTg3MzMsInYyIjoiQkVnIn07NzAueyJwc0lkIjoxMTQ3ODAsInYyIjoiQUEifegEAPAEgMDtvKngte0P%2BgTDBXsiYWNjZWxlcmF0ZV9mYWN0b3IiOjEuMCwiYWNjZWxlcmF0ZV9pZCI6MCwiYWRfdHlwZV9maXgiOiJjcG0iLCJhZHZ2X2luZm8iOiJ7XCJhZGp1c3RfYmVmb3JlX2Nvc3RcIjpcIjcyLjMyM1wiLFwiYWRqdXN0X3JhdGlvXCI6XCIxLjAwMFwiLFwiYmFsYW5jZXJfaWRcIjowLFwiYmFsYW5jZXJfcmF0aW9cIjpcIjAuMDAwXCIsXCJjaGFyZ2VfZXhwX2tleV9kZXB0aFwiOlwiXCIsXCJjaGFyZ2VfZXhwX2tleV9saWdodFwiOlwiX2NwYV9jb3N0X3BpZF92NFwiLFwiY29zdF9kaWZmXCI6XCIwLjAwMFwifSIsImJpZF90eXBlIjoxLCJiaXpfdHlwZSI6MTIsImJpel90eXBlX2ZpeCI6MywiY3BhIjoie1wiY3BhX2xldmVsXCI6OTksXCJjcGFfc2V0XCI6MH0iLCJjcGFUYXJnZXRUeXBlIjo0LCJmcm9tVHJhY2tpZCI6IjE3MjE0NjI5ODcxNDE3NDk0NDk2IiwiaWFhX2NoZWF0X2Zsb3ciOjAsImlubmVyIjowLCJpc19jb21tZXJjZSI6MSwiaXNfb2NwY19hbnRvdV9vY3BtIjowLCJpc190cmFja2luZ191cmxzIjowLCJtaW5pX2dhbWVfaWQiOiIiLCJtaW5pX2dhbWVfcG9zaXRpb25faWQiOiIiLCJtb2RlbFNjb3JlIjoie1wiY3RyXCI6XCI2LjA0Mzk4MFwiLFwiY3ZyX2wwXCI6XCIxOS4yMDI0MjVcIixcImZpbmFsX3BjdHJcIjpcIjYuMDQzOTgwXCIsXCJmaW5hbF9wY3ZyXCI6XCIxOS4yMDI0MjVcIn0iLCJ2aWRlb191cF9taWQiOjE4NDQ3OTU2MjF9gAUAkAUjkAUzkAVIkAVVkAVykAW0AZAF0AGQBdEBkAXYAZAFjgKQBZoCkAXAApAFwgKQBcUCkAXLApAFzgKQBdMCkAXWApAF2AKQBdkCkAXaApAF3wKQBeECkAXjApAF5QKQBfACkAXxApAF9QKQBf8CkAWMA5AFjQOQBZMDkAWUA5AFlQOQBZgDkAWZA5AFmgOQBZsDkAWlA5AFpwOQBbYDkAW3A5AFwAOQBcEDkAXEA5AFzQOQBdQDkAXgA5AF4QOQBeQDkAXzA5AF9QOQBfgDkAX%2FA5AFhwSQBYkEkAW0BJAFyQSQBcsEkAXNBJAFgwWQBaAFkAWqBZAFrwWQBbEFkAW1BZAFxgWQBc4FkAXSBZAF0wWQBe8FkAWPBpAFowaQBaYGkAW6BpAF2gaQBfAGkAX5BpAF%2FwaQBZMHkAW7B5AFwgeQBfUHkAWBCJAFjwiQBZAIkAW3CJAFyAiQBcsQkAWhEZAFhhKgBemggICMuBq4BQTABYa2EcgFBeAFAegFAPIFfENBd1FBVEFFVldDbGtFSmxrWjZaUVcwQVFCeEdkUUFBZ0QrVkFaR2VtVUdnQWRETmxIdW9BWnpnN1A4RXNBRUJ3QUhrd2dQSUFRVHRBUUFBZ0QvMUFRQUFnRCtkQXBxWm1UK2xBcHFabVQrdEFnQUFnRCsxQXBxWm1UOD34BdDNlHuABv%2BT69wDiAac4Oz%2FBA%3D%3D%2Cf%7Cclick_sync_3%2Cg%7C1%2Ch%7C%2Ci%7C%2Cj%7C%2Ck%7C1775322256236%2Cl%7C5646%2Cm%7C1775322255974%2Cn%7C%2Co%7C1357849212%2Cp%7Cad_card&ts=1775322256236
+            - generic [ref=e700]:
+              - img "不脱产！在职读计算机硕士，让你在职场中不断进步，掌握前沿科技" [ref=e703]
+              - generic:
+                - generic:
+                  - generic: 广告
+          - generic [ref=e705]:
+            - link "不脱产！在职读计算机硕士，让你在职场中不断进步，掌握前沿科技" [ref=e706] [cursor=pointer]:
+              - /url: //cm.bilibili.com/cm/api/fees/pc/sync/v2?msg=a%7C5653%2Cb%7Cbilibili%2Cc%7C1%2Cd%7C%2Ce%7CCOnxiBAQsdiwfBj8xLyHBSBIKAEwxv7mATiVLEIhMTc3NTMyMjI1NDYwMHExNzJhMjZhMTczYTI0NnE5MDEwSIiaz8vVM1IG5bi45beeWgbmsZ%2Foi49iBuS4reWbvWhkcAB4gICAgKA5gAEBiAEAkgEMMjIzLjY2LjY4LjEwoAFIqAEGsgEg%2BYQ0Tr7v%2FZlqoi6oACqpER6sRWJm4fSJBxSpFxAIdKi6AY0FaHR0cHM6Ly9nYW9uZW5nLmJpbGliaWxpLmNvbS90ZXRyaXMvcGFnZS8%2FcGFnZUlkPTExNDI0NjE4NjE2MjUyOTA3NTImcHJlX3JlbmRlcl9nbG9iYWw9MCZhdXRvX21lZGlhX3BsYXliYWNrPTEmbmF2aGlkZT0wJnRyYWZmaWNfdHlwZT1fX1RSQUZGSUNUWVBFX18mYWR0eXBlPUNQTSZkdWlkPV9fRFVJRF9fJm9zPTMmYnV2aWQ9X19CVVZJRF9fJmZyb21fYmNnPWJjZ18xMV8xMzQxODYxOTE2JmlkZmE9X19JREZBX18mbWlkPV9fTUlEX18mY3JlYXRpdmVfaWQ9MTM0MTg2MTkxNiZ0cmFja19pZD1wYmFlcy44cmkxWnRkR180NF9CLWljS0h5QWpRSVptck1EZkJ0TmFIVGF6RnloNU5NeWctQjVSbWpLNFl4ajZtbldaMVJvMlVvb19xVXpPNmZ3aFY1NnI1ajk3NUhHNURlTUJ5VDNabjZpOHFKSklFUE1pOUd3d0hjVk1tbEVBWHJ4UkpNMGlwd2JxZE5iTDRtRkppeW52bTR0WkFHXzREb1VoeHVsWXp4MGNSSUV5SkkmY2FpZD1fX0NBSURfXyZpbWVpPV9fSU1FSV9fJnJlc291cmNlX2lkPV9fUkVTT1VSQ0VJRF9fJnNvdXJjZV9pZD01NjUzJmFuZHJvaWRfaWQ9X19BTkRST0lESURfXyZyZXF1ZXN0X2lkPTE3NzUzMjIyNTQ2MDBxMTcyYTI2YTE3M2EyNDZxOTAxMCZmcm9tX3NwbWlkPV9fRlJPTVNQTUlEX18mbGlua2VkX2NyZWF0aXZlX2lkPTEzNTc4NDkyMTLCAQEw0gEA2AHKA%2BABgJTr3APoAaCcAfABAPgBR4ACAogCAJICAJgC4gKgAgOoAhqwAgC4AgDAAgDIAhPqAgD4Aq0iiAMAkgMAqAMAsAMAuAMAyAMA0gPJAXsiMSI6IjEzNTc4NDkyMTIiLCIxMSI6IjIxIiwiMTIiOiI1NjUzIiwiMTMiOiIyODU0NDYiLCIxNiI6IjI4NTQ0Nl80Mzk3IiwiMiI6IjM3ODQ1MTgiLCIyNCI6IjEiLCIyNSI6IjQ0NyIsIjI2IjoiNDYzIiwiMyI6IjM3ODQ1MTgiLCI0IjoiMCIsIjUiOiIwIiwiNiI6IjM3ODQ1MTgiLCI3IjoiMTE2Mjc2NTc1ODY2OTg1IiwiOCI6IjE4NDQ3OTU2MjEifeADAOgDAPADAPoDBW90aGVyggQJbnVsbDpudWxsiARIkAQAmAQBoAQEqgQHCIzlgx8QBKoEBwig0ONCEAGqBAQIABAIuAQKwAQEygQA0AQA2AQA4gSFAjU2LnsicHNJZCI6MTE5MjA3LCJ2MiI6IkJIN2ZZR2hWYkJrLWhmT2lYX2VQNGx6YkdyTGVsSnBvQ1JjaWN4MGdaOVNQX0lqaU45cXAtN3pYRUZEWVdVLWhUWlluZ2ZhcXVmZGVJb3ZodEF1ZU1jS3RNYjBSWW15Y2xNZ3EyWEkzS1BQRVpfVXh5Z2hJb2ZoeFhBaDNEaWhyMHhKbWVTU3pfVWZFdXZrd243SXk5Z2JOUVRyb2FsWE5NMjQ4MkIydDdRa3lhemVZIn07NjMueyJwc0lkIjoxMTg3MzMsInYyIjoiQkVnIn07NzAueyJwc0lkIjoxMTQ3ODAsInYyIjoiQUEifegEAPAEgMDtvKngte0P%2BgTDBXsiYWNjZWxlcmF0ZV9mYWN0b3IiOjEuMCwiYWNjZWxlcmF0ZV9pZCI6MCwiYWRfdHlwZV9maXgiOiJjcG0iLCJhZHZ2X2luZm8iOiJ7XCJhZGp1c3RfYmVmb3JlX2Nvc3RcIjpcIjcyLjMyM1wiLFwiYWRqdXN0X3JhdGlvXCI6XCIxLjAwMFwiLFwiYmFsYW5jZXJfaWRcIjowLFwiYmFsYW5jZXJfcmF0aW9cIjpcIjAuMDAwXCIsXCJjaGFyZ2VfZXhwX2tleV9kZXB0aFwiOlwiXCIsXCJjaGFyZ2VfZXhwX2tleV9saWdodFwiOlwiX2NwYV9jb3N0X3BpZF92NFwiLFwiY29zdF9kaWZmXCI6XCIwLjAwMFwifSIsImJpZF90eXBlIjoxLCJiaXpfdHlwZSI6MTIsImJpel90eXBlX2ZpeCI6MywiY3BhIjoie1wiY3BhX2xldmVsXCI6OTksXCJjcGFfc2V0XCI6MH0iLCJjcGFUYXJnZXRUeXBlIjo0LCJmcm9tVHJhY2tpZCI6IjE3MjE0NjI5ODcxNDE3NDk0NDk2IiwiaWFhX2NoZWF0X2Zsb3ciOjAsImlubmVyIjowLCJpc19jb21tZXJjZSI6MSwiaXNfb2NwY19hbnRvdV9vY3BtIjowLCJpc190cmFja2luZ191cmxzIjowLCJtaW5pX2dhbWVfaWQiOiIiLCJtaW5pX2dhbWVfcG9zaXRpb25faWQiOiIiLCJtb2RlbFNjb3JlIjoie1wiY3RyXCI6XCI2LjA0Mzk4MFwiLFwiY3ZyX2wwXCI6XCIxOS4yMDI0MjVcIixcImZpbmFsX3BjdHJcIjpcIjYuMDQzOTgwXCIsXCJmaW5hbF9wY3ZyXCI6XCIxOS4yMDI0MjVcIn0iLCJ2aWRlb191cF9taWQiOjE4NDQ3OTU2MjF9gAUAkAUjkAUzkAVIkAVVkAVykAW0AZAF0AGQBdEBkAXYAZAFjgKQBZoCkAXAApAFwgKQBcUCkAXLApAFzgKQBdMCkAXWApAF2AKQBdkCkAXaApAF3wKQBeECkAXjApAF5QKQBfACkAXxApAF9QKQBf8CkAWMA5AFjQOQBZMDkAWUA5AFlQOQBZgDkAWZA5AFmgOQBZsDkAWlA5AFpwOQBbYDkAW3A5AFwAOQBcEDkAXEA5AFzQOQBdQDkAXgA5AF4QOQBeQDkAXzA5AF9QOQBfgDkAX%2FA5AFhwSQBYkEkAW0BJAFyQSQBcsEkAXNBJAFgwWQBaAFkAWqBZAFrwWQBbEFkAW1BZAFxgWQBc4FkAXSBZAF0wWQBe8FkAWPBpAFowaQBaYGkAW6BpAF2gaQBfAGkAX5BpAF%2FwaQBZMHkAW7B5AFwgeQBfUHkAWBCJAFjwiQBZAIkAW3CJAFyAiQBcsQkAWhEZAFhhKgBemggICMuBq4BQTABYa2EcgFBeAFAegFAPIFfENBd1FBVEFFVldDbGtFSmxrWjZaUVcwQVFCeEdkUUFBZ0QrVkFaR2VtVUdnQWRETmxIdW9BWnpnN1A4RXNBRUJ3QUhrd2dQSUFRVHRBUUFBZ0QvMUFRQUFnRCtkQXBxWm1UK2xBcHFabVQrdEFnQUFnRCsxQXBxWm1UOD34BdDNlHuABv%2BT69wDiAac4Oz%2FBA%3D%3D%2Cf%7Cclick_sync_3%2Cg%7C1%2Ch%7C%2Ci%7C%2Cj%7C%2Ck%7C1775322256236%2Cl%7C5646%2Cm%7C1775322255974%2Cn%7C%2Co%7C1357849212%2Cp%7Cad_card&ts=1775322256236
+              - heading "不脱产！在职读计算机硕士，让你在职场中不断进步，掌握前沿科技" [level=3] [ref=e707]
+            - link "1000+人感兴趣" [ref=e709] [cursor=pointer]:
+              - /url: //cm.bilibili.com/cm/api/fees/pc/sync/v2?msg=a%7C5653%2Cb%7Cbilibili%2Cc%7C1%2Cd%7C%2Ce%7CCOnxiBAQsdiwfBj8xLyHBSBIKAEwxv7mATiVLEIhMTc3NTMyMjI1NDYwMHExNzJhMjZhMTczYTI0NnE5MDEwSIiaz8vVM1IG5bi45beeWgbmsZ%2Foi49iBuS4reWbvWhkcAB4gICAgKA5gAEBiAEAkgEMMjIzLjY2LjY4LjEwoAFIqAEGsgEg%2BYQ0Tr7v%2FZlqoi6oACqpER6sRWJm4fSJBxSpFxAIdKi6AY0FaHR0cHM6Ly9nYW9uZW5nLmJpbGliaWxpLmNvbS90ZXRyaXMvcGFnZS8%2FcGFnZUlkPTExNDI0NjE4NjE2MjUyOTA3NTImcHJlX3JlbmRlcl9nbG9iYWw9MCZhdXRvX21lZGlhX3BsYXliYWNrPTEmbmF2aGlkZT0wJnRyYWZmaWNfdHlwZT1fX1RSQUZGSUNUWVBFX18mYWR0eXBlPUNQTSZkdWlkPV9fRFVJRF9fJm9zPTMmYnV2aWQ9X19CVVZJRF9fJmZyb21fYmNnPWJjZ18xMV8xMzQxODYxOTE2JmlkZmE9X19JREZBX18mbWlkPV9fTUlEX18mY3JlYXRpdmVfaWQ9MTM0MTg2MTkxNiZ0cmFja19pZD1wYmFlcy44cmkxWnRkR180NF9CLWljS0h5QWpRSVptck1EZkJ0TmFIVGF6RnloNU5NeWctQjVSbWpLNFl4ajZtbldaMVJvMlVvb19xVXpPNmZ3aFY1NnI1ajk3NUhHNURlTUJ5VDNabjZpOHFKSklFUE1pOUd3d0hjVk1tbEVBWHJ4UkpNMGlwd2JxZE5iTDRtRkppeW52bTR0WkFHXzREb1VoeHVsWXp4MGNSSUV5SkkmY2FpZD1fX0NBSURfXyZpbWVpPV9fSU1FSV9fJnJlc291cmNlX2lkPV9fUkVTT1VSQ0VJRF9fJnNvdXJjZV9pZD01NjUzJmFuZHJvaWRfaWQ9X19BTkRST0lESURfXyZyZXF1ZXN0X2lkPTE3NzUzMjIyNTQ2MDBxMTcyYTI2YTE3M2EyNDZxOTAxMCZmcm9tX3NwbWlkPV9fRlJPTVNQTUlEX18mbGlua2VkX2NyZWF0aXZlX2lkPTEzNTc4NDkyMTLCAQEw0gEA2AHKA%2BABgJTr3APoAaCcAfABAPgBR4ACAogCAJICAJgC4gKgAgOoAhqwAgC4AgDAAgDIAhPqAgD4Aq0iiAMAkgMAqAMAsAMAuAMAyAMA0gPJAXsiMSI6IjEzNTc4NDkyMTIiLCIxMSI6IjIxIiwiMTIiOiI1NjUzIiwiMTMiOiIyODU0NDYiLCIxNiI6IjI4NTQ0Nl80Mzk3IiwiMiI6IjM3ODQ1MTgiLCIyNCI6IjEiLCIyNSI6IjQ0NyIsIjI2IjoiNDYzIiwiMyI6IjM3ODQ1MTgiLCI0IjoiMCIsIjUiOiIwIiwiNiI6IjM3ODQ1MTgiLCI3IjoiMTE2Mjc2NTc1ODY2OTg1IiwiOCI6IjE4NDQ3OTU2MjEifeADAOgDAPADAPoDBW90aGVyggQJbnVsbDpudWxsiARIkAQAmAQBoAQEqgQHCIzlgx8QBKoEBwig0ONCEAGqBAQIABAIuAQKwAQEygQA0AQA2AQA4gSFAjU2LnsicHNJZCI6MTE5MjA3LCJ2MiI6IkJIN2ZZR2hWYkJrLWhmT2lYX2VQNGx6YkdyTGVsSnBvQ1JjaWN4MGdaOVNQX0lqaU45cXAtN3pYRUZEWVdVLWhUWlluZ2ZhcXVmZGVJb3ZodEF1ZU1jS3RNYjBSWW15Y2xNZ3EyWEkzS1BQRVpfVXh5Z2hJb2ZoeFhBaDNEaWhyMHhKbWVTU3pfVWZFdXZrd243SXk5Z2JOUVRyb2FsWE5NMjQ4MkIydDdRa3lhemVZIn07NjMueyJwc0lkIjoxMTg3MzMsInYyIjoiQkVnIn07NzAueyJwc0lkIjoxMTQ3ODAsInYyIjoiQUEifegEAPAEgMDtvKngte0P%2BgTDBXsiYWNjZWxlcmF0ZV9mYWN0b3IiOjEuMCwiYWNjZWxlcmF0ZV9pZCI6MCwiYWRfdHlwZV9maXgiOiJjcG0iLCJhZHZ2X2luZm8iOiJ7XCJhZGp1c3RfYmVmb3JlX2Nvc3RcIjpcIjcyLjMyM1wiLFwiYWRqdXN0X3JhdGlvXCI6XCIxLjAwMFwiLFwiYmFsYW5jZXJfaWRcIjowLFwiYmFsYW5jZXJfcmF0aW9cIjpcIjAuMDAwXCIsXCJjaGFyZ2VfZXhwX2tleV9kZXB0aFwiOlwiXCIsXCJjaGFyZ2VfZXhwX2tleV9saWdodFwiOlwiX2NwYV9jb3N0X3BpZF92NFwiLFwiY29zdF9kaWZmXCI6XCIwLjAwMFwifSIsImJpZF90eXBlIjoxLCJiaXpfdHlwZSI6MTIsImJpel90eXBlX2ZpeCI6MywiY3BhIjoie1wiY3BhX2xldmVsXCI6OTksXCJjcGFfc2V0XCI6MH0iLCJjcGFUYXJnZXRUeXBlIjo0LCJmcm9tVHJhY2tpZCI6IjE3MjE0NjI5ODcxNDE3NDk0NDk2IiwiaWFhX2NoZWF0X2Zsb3ciOjAsImlubmVyIjowLCJpc19jb21tZXJjZSI6MSwiaXNfb2NwY19hbnRvdV9vY3BtIjowLCJpc190cmFja2luZ191cmxzIjowLCJtaW5pX2dhbWVfaWQiOiIiLCJtaW5pX2dhbWVfcG9zaXRpb25faWQiOiIiLCJtb2RlbFNjb3JlIjoie1wiY3RyXCI6XCI2LjA0Mzk4MFwiLFwiY3ZyX2wwXCI6XCIxOS4yMDI0MjVcIixcImZpbmFsX3BjdHJcIjpcIjYuMDQzOTgwXCIsXCJmaW5hbF9wY3ZyXCI6XCIxOS4yMDI0MjVcIn0iLCJ2aWRlb191cF9taWQiOjE4NDQ3OTU2MjF9gAUAkAUjkAUzkAVIkAVVkAVykAW0AZAF0AGQBdEBkAXYAZAFjgKQBZoCkAXAApAFwgKQBcUCkAXLApAFzgKQBdMCkAXWApAF2AKQBdkCkAXaApAF3wKQBeECkAXjApAF5QKQBfACkAXxApAF9QKQBf8CkAWMA5AFjQOQBZMDkAWUA5AFlQOQBZgDkAWZA5AFmgOQBZsDkAWlA5AFpwOQBbYDkAW3A5AFwAOQBcEDkAXEA5AFzQOQBdQDkAXgA5AF4QOQBeQDkAXzA5AF9QOQBfgDkAX%2FA5AFhwSQBYkEkAW0BJAFyQSQBcsEkAXNBJAFgwWQBaAFkAWqBZAFrwWQBbEFkAW1BZAFxgWQBc4FkAXSBZAF0wWQBe8FkAWPBpAFowaQBaYGkAW6BpAF2gaQBfAGkAX5BpAF%2FwaQBZMHkAW7B5AFwgeQBfUHkAWBCJAFjwiQBZAIkAW3CJAFyAiQBcsQkAWhEZAFhhKgBemggICMuBq4BQTABYa2EcgFBeAFAegFAPIFfENBd1FBVEFFVldDbGtFSmxrWjZaUVcwQVFCeEdkUUFBZ0QrVkFaR2VtVUdnQWRETmxIdW9BWnpnN1A4RXNBRUJ3QUhrd2dQSUFRVHRBUUFBZ0QvMUFRQUFnRCtkQXBxWm1UK2xBcHFabVQrdEFnQUFnRCsxQXBxWm1UOD34BdDNlHuABv%2BT69wDiAac4Oz%2FBA%3D%3D%2Cf%7Cclick_sync_3%2Cg%7C1%2Ch%7C%2Ci%7C%2Cj%7C%2Ck%7C1775322256236%2Cl%7C5646%2Cm%7C1775322255974%2Cn%7C%2Co%7C1357849212%2Cp%7Cad_logo&ts=1775322256236
+              - generic [ref=e710]: 1000+人感兴趣
+        - generic [ref=e713]:
+          - link "黑马程序员AI大模型必备《机器学习》全套视频教程，从算法到实战项目，覆盖KNN算法、线性回归、逻辑回归、决策树、集成学习、KMeans算法、数据挖掘等 73.7万 6098 46:49:49" [ref=e714] [cursor=pointer]:
+            - /url: //www.bilibili.com/video/BV1Fzszz4Ek7/
+            - generic [ref=e715]:
+              - img "黑马程序员AI大模型必备《机器学习》全套视频教程，从算法到实战项目，覆盖KNN算法、线性回归、逻辑回归、决策树、集成学习、KMeans算法、数据挖掘等" [ref=e718]
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - img
+                      - generic: 73.7万
+                    - generic:
+                      - img
+                      - generic: "6098"
+                  - generic: 46:49:49
+          - generic [ref=e720]:
+            - link "黑马程序员AI大模型必备《机器学习》全套视频教程，从算法到实战项目，覆盖KNN算法、线性回归、逻辑回归、决策树、集成学习、KMeans算法、数据挖掘等" [ref=e721] [cursor=pointer]:
+              - /url: //www.bilibili.com/video/BV1Fzszz4Ek7/
+              - heading "黑马程序员AI大模型必备《机器学习》全套视频教程，从算法到实战项目，覆盖KNN算法、线性回归、逻辑回归、决策树、集成学习、KMeans算法、数据挖掘等" [level=3] [ref=e722]:
+                - emphasis [ref=e723]: 黑马程序员
+                - text: AI大模型必备《机器学习》全套视频教程，从算法到实战项目，覆盖KNN算法、线性回归、逻辑回归、决策树、集成学习、KMeans算法、数据挖掘等
+            - link "黑马程序员 · 2025-10-27" [ref=e725] [cursor=pointer]:
+              - /url: //space.bilibili.com/37974444
+              - img [ref=e726]
+              - generic [ref=e730]: 黑马程序员
+              - generic [ref=e731]: · 2025-10-27
+      - generic [ref=e734]:
+        - button "上一页" [disabled] [ref=e735]
+        - button "1" [ref=e736] [cursor=pointer]
+        - button "2" [ref=e737] [cursor=pointer]
+        - button "3" [ref=e738] [cursor=pointer]
+        - button "4" [ref=e739] [cursor=pointer]
+        - button "5" [ref=e740] [cursor=pointer]
+        - button "6" [ref=e741] [cursor=pointer]
+        - button "7" [ref=e742] [cursor=pointer]
+        - generic [ref=e743]: ...
+        - button "42" [ref=e744] [cursor=pointer]
+        - button "下一页" [ref=e745] [cursor=pointer]
+  - generic [ref=e750]:
+    - generic [ref=e751]:
+      - generic [ref=e752]:
+        - generic [ref=e753]: bilibili
+        - generic [ref=e754]:
+          - link "关于我们" [ref=e755] [cursor=pointer]:
+            - /url: //www.bilibili.com/blackboard/aboutUs.html
+          - link "联系我们" [ref=e756] [cursor=pointer]:
+            - /url: //www.bilibili.com/blackboard/contact.html
+          - link "用户协议" [ref=e757] [cursor=pointer]:
+            - /url: //www.bilibili.com/protocal/licence.html
+          - link "加入我们" [ref=e758] [cursor=pointer]:
+            - /url: //www.bilibili.com/blackboard/join.html
+          - link "隐私协议" [ref=e759] [cursor=pointer]:
+            - /url: //www.bilibili.com/blackboard/privacy-pc.html
+          - link "bilibili认证" [ref=e760] [cursor=pointer]:
+            - /url: //account.bilibili.com/account/official/home
+          - link "Investor Relations" [ref=e761] [cursor=pointer]:
+            - /url: //ir.bilibili.com/
+      - generic [ref=e762]:
+        - generic [ref=e763]: 传送门
+        - generic [ref=e764]:
+          - link "协议汇总" [ref=e765] [cursor=pointer]:
+            - /url: //www.bilibili.com/blackboard/topic/activity-cn8bxPLzz.html
+          - link "活动中心" [ref=e766] [cursor=pointer]:
+            - /url: //www.bilibili.com/blackboard/activity-list.html
+          - link "活动专题页" [ref=e767] [cursor=pointer]:
+            - /url: //www.bilibili.com/blackboard/topic_list.html
+          - link "侵权申诉" [ref=e768] [cursor=pointer]:
+            - /url: //www.bilibili.com/v/copyright/intro/
+          - link "帮助中心" [ref=e769] [cursor=pointer]:
+            - /url: //www.bilibili.com/blackboard/help.html
+          - link "社区中心" [ref=e770] [cursor=pointer]:
+            - /url: https://www.bilibili.com/blackboard/activity-5zJxM3spoS.html
+          - link "壁纸站" [ref=e771] [cursor=pointer]:
+            - /url: //space.bilibili.com/6823116#/album
+          - link "广告合作" [ref=e772] [cursor=pointer]:
+            - /url: //e.bilibili.com/
+          - link "名人堂" [ref=e773] [cursor=pointer]:
+            - /url: //www.bilibili.com/blackboard/activity-S1jfy69Jz.html
+          - link "MCN管理中心" [ref=e774] [cursor=pointer]:
+            - /url: //mcn.bilibili.com/studio/mcn/entry
+          - link "高级弹幕" [ref=e775] [cursor=pointer]:
+            - /url: //www.bilibili.com/video/BV1Xx411c7cH/
+          - link "品牌号官网" [ref=e776] [cursor=pointer]:
+            - /url: //b.bilibili.com/
+      - generic [ref=e777]:
+        - link "下载APP" [ref=e779] [cursor=pointer]:
+          - /url: //app.bilibili.com/
+          - img [ref=e781]
+          - paragraph [ref=e783]: 下载APP
+        - link "公益" [ref=e785] [cursor=pointer]:
+          - /url: //love.bilibili.com/
+          - img [ref=e787]
+          - paragraph [ref=e792]: 公益
+        - link "官方微博" [ref=e794] [cursor=pointer]:
+          - /url: //weibo.com/bilibiliweb
+          - img [ref=e796]
+          - paragraph [ref=e798]: 官方微博
+        - generic [ref=e800]:
+          - img [ref=e802]
+          - paragraph [ref=e804]: 官方微信
+    - generic [ref=e807]:
+      - generic [ref=e808]:
+        - link "营业执照" [ref=e809] [cursor=pointer]:
+          - /url: //i0.hdslb.com/bfs/activity-plat/static/20240516/9ccf041718e5d6d6dfaebc91b85c791c/gd85E6tDco.jpg
+        - text: 信息网络传播视听节目许可证：0910417
+        - link "网络文化经营许可证 沪网文【2025】0258-085号" [ref=e810] [cursor=pointer]:
+          - /url: //i0.hdslb.com/bfs/activity-plat/static/20260209/3b3c5705bda98d50983f6f47df360fef/K4t52YryBV.jpeg
+        - text: 广播电视节目制作经营许可证：（沪）字第01248号增值电信业务经营许可证 沪B2-20100043
+      - generic [ref=e811]:
+        - link "互联网ICP备案：沪ICP备13002172号-3" [ref=e812] [cursor=pointer]:
+          - /url: //beian.miit.gov.cn/
+        - link "出版物经营许可证 沪批字第U6699 号" [ref=e813] [cursor=pointer]:
+          - /url: //i0.hdslb.com/bfs/activity-plat/static/20240516/9ccf041718e5d6d6dfaebc91b85c791c/4ainzbFKao.jpg
+        - text: 互联网药品信息服务资格证 沪-非经营性-2022-0011营业性演出许可证 沪市文演（经）00-2253 |
+      - generic [ref=e814]:
+        - link "不良信息举报邮箱：help@bilibili.com" [ref=e815] [cursor=pointer]:
+          - /url: mailto:help@bilibili.com
+        - link "涉未成年举报邮箱：teenprotect@bilibili.com" [ref=e816] [cursor=pointer]:
+          - /url: mailto:teenprotect@bilibili.com
+        - text: 不良信息举报电话：4006262233转3
+        - link "上海互联网举报中心 |" [ref=e818] [cursor=pointer]:
+          - /url: http://www.shjbzx.cn/
+        - link "12345政务服务便民热线 |" [ref=e819] [cursor=pointer]:
+          - /url: http://www.sh12345.gov.cn/
+      - generic [ref=e820]:
+        - link "沪公网安备31011002002436号 |" [ref=e822] [cursor=pointer]:
+          - /url: http://www.beian.gov.cn/portal/registerSystemInfo?recordcode=31011002002436
+        - link "儿童色情信息举报专区 |" [ref=e823] [cursor=pointer]:
+          - /url: mailto:userreport@bilibili.com
+        - link "扫黄打非举报" [ref=e824] [cursor=pointer]:
+          - /url: https://bzpt.shdf.gov.cn/www/shouye/gzfw/wsjb/index.shtml
+      - generic [ref=e825]:
+        - link "网信算备310110764385705230011号" [ref=e826] [cursor=pointer]:
+          - /url: https://beian.cac.gov.cn/api/static/fileUpload/principalOrithm/additional/user_699bbd78-36f4-459c-aeb0-bf98a2a562d8_6185ea2c-c84c-404a-9280-c5465af05948.pdf
+        - link "网信算备310110764385702230013号" [ref=e827] [cursor=pointer]:
+          - /url: https://beian.cac.gov.cn/api/static/fileUpload/principalOrithm/additional/user_699bbd78-36f4-459c-aeb0-bf98a2a562d8_e03e6855-76a6-43fb-b799-d090e7fce25d.pdf
+      - generic [ref=e828]:
+        - text: 网上有害信息举报专区：
+        - link "中国互联网违法和不良信息举报中心" [ref=e830] [cursor=pointer]:
+          - /url: https://www.12377.cn/
+        - text: 亲爱的市民朋友，上海警方反诈劝阻电话"96110"系专门针对避免您财产被骗受损而设，请您一旦收到来电，立即接听。
+      - generic [ref=e831]: 公司名称：上海宽娱数码科技有限公司 |公司地址：上海市杨浦区政立路489号 |电话：021-25099888
+    - generic [ref=e832]:
+      - img [ref=e833]
+      - img [ref=e834]
+      - img [ref=e835]

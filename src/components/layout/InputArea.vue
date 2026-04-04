@@ -1,14 +1,17 @@
 <script setup lang="ts">
 import { nextTick, onMounted, onUnmounted, ref, watch, computed } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
+import type { AgentMode } from '../../lib/chat-types';
 
 const props = defineProps<{
   isGenerating?: boolean;
+  agentMode?: AgentMode;
 }>();
 
 const emit = defineEmits<{
   (e: 'send', msg: string): void;
   (e: 'cancel'): void;
+  (e: 'mode-change', mode: AgentMode): void;
 }>();
 
 const currentInput = ref("");
@@ -53,6 +56,19 @@ const currentModel = computed({
   },
 });
 
+const localAgentMode = computed<AgentMode>({
+  get: () => props.agentMode ?? 'agent',
+  set: (value: AgentMode) => {
+    emit('mode-change', value);
+  },
+});
+
+const onAgentModeChange = (event: Event) => {
+  const select = event.target as HTMLSelectElement;
+  const value = (select.value as AgentMode) || 'agent';
+  localAgentMode.value = value;
+};
+
 const loadSettings = async () => {
   try {
     settings.value = await invoke('get_settings');
@@ -86,8 +102,7 @@ const autoResize = () => {
 
 
 // 发送消息，支持 Shift + Enter 换行，当 isGenerating 为 true 时禁用发送功能
-// isSubmittingSlashCommand 参数用于区分是否正在提交斜杠命令
-const sendMessage = (e?: KeyboardEvent, isSubmittingSlashCommand = false) => {
+const sendMessage = (e?: KeyboardEvent) => {
   if (e && e.shiftKey) return;
   e?.preventDefault();
   if (!currentInput.value.trim() || props.isGenerating) return;
@@ -147,6 +162,21 @@ defineExpose({
               <path d="M12 5v14M5 12h14" />
             </svg>
           </button>
+
+          <div class="flex items-center gap-1 border border-[#e5e5e5] dark:border-[#3a3a3a] rounded-md px-2 py-1 hover:bg-secondary/60 transition-colors">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-muted-foreground">
+              <path d="M9 18l6-6-6-6" />
+            </svg>
+            <select
+              :value="localAgentMode"
+              @change="onAgentModeChange"
+              class="bg-transparent text-xs outline-none text-muted-foreground cursor-pointer"
+            >
+              <option value="agent">Agent 模式</option>
+              <option value="plan">Plan 模式</option>
+              <option value="auto">自动迭代模式</option>
+            </select>
+          </div>
 
           <select v-if="availableModels.length > 0 && settings" v-model="currentModel" @change="onModelChange"
             class="bg-transparent border border-[#e5e5e5] dark:border-[#3a3a3a] text-xs rounded-md px-2 py-1 outline-none text-muted-foreground hover:bg-secondary/80 transition-colors cursor-pointer max-w-[200px]">

@@ -13,6 +13,7 @@ use crate::llm::types::{
 };
 use crate::llm::utils::error_event::emit_backend_error;
 use crate::llm::utils::system_prompt::load_system_prompt;
+use crate::llm::types::AgentMode;
 
 // Anthropic Provider 的实现结构体，用于与 Anthropic API 交互。
 pub struct AnthropicProvider;
@@ -109,7 +110,7 @@ impl AnthropicProvider {
         &self,
         app: &AppHandle,
         messages: &[Message],
-        plan_mode: bool,
+        agent_mode: AgentMode,
         conversation_id: Option<&str>,
     ) -> Result<ProviderTurnResult, String> {
         // 读取设置与当前 provider profile。
@@ -131,7 +132,7 @@ impl AnthropicProvider {
         let request = AnthropicRequest {
             model: profile.model.clone(),
             max_tokens: 4096,
-            system: Some(load_system_prompt(app, plan_mode)?),
+            system: Some(load_system_prompt(app, agent_mode)?),
             messages: messages.to_vec(),
             tools: available_tools,
             stream: true,

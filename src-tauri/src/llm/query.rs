@@ -3,7 +3,7 @@ use tauri::{AppHandle, Emitter};
 use crate::llm::providers::LlmProvider;
 use crate::llm::query_engine::ChatMessageEvent;
 use crate::llm::services::compact;
-use crate::llm::types::{Content, ContentBlock, Message};
+use crate::llm::types::{AgentMode, Content, ContentBlock, Message};
 use crate::llm::utils::context_assembler::{self, AssembleOptions};
 use crate::llm::utils::error_event::emit_backend_error;
 
@@ -19,18 +19,25 @@ use state_machine::TurnOutcome;
 //     ├─ 2. compact             → 压缩历史消息
 //     │
 //     └─ 3. 主循环 loop
-//             ├─ 取消检查
+//             ├─ 取消检查                          → cancelled → break
 //             ├─ 权限决策消费
-//             ├─ provider.send_request (流式)
-//             ├─ 工具结果检测 → 有 tool_result → continue
-//             ├─ needs_user_input → break
-//             ├─ stop hooks
-	//             └─ 无工具结果时完成回合
+//             ├─ provider.send_request (流式)      → 错误 → emit stop(error) → return Err
+//             ├─ provider 报告 cancelled           → break
+//             ├─ 合并新消息到 current_messages
+//             ├─ provider.prevent_continuation     → stop_hook_prevented → break
+//             ├─ 工具结果检测
+//             │       ├─ has_tool_result           → continue (下一轮)
+//             │       └─ !has_tool_result
+//             │               ├─ run_stop_hooks
+//             │               │       ├─ prevent_continuation → break
+//             │               │       └─ added_context → current_messages.extend → continue
+//             │               └─ 正常结束           → completed → break
+//             └─ needs_user_input                  → break
 pub async fn send_chat_message(
 	app: AppHandle,
 	conversation_id: Option<String>,
 	messages: Vec<Message>,
-	plan_mode: bool,
+	agent_mode: AgentMode,
 ) -> Result<(), String> {
 	// 1. 先组装上下文（会话恢复等），再执行压缩。
 	let assembled_messages = context_assembler::assemble_messages_for_turn(
@@ -73,7 +80,7 @@ pub async fn send_chat_message(
 
 		// 发起 provider 请求并等待结果。
 		let provider_result = match provider
-			.send_request(&app, &current_messages, plan_mode, conversation_id.as_deref())
+			.send_request(&app, &current_messages, agent_mode, conversation_id.as_deref())
 			.await
 		{
 			// 请求成功时拿到结果对象。

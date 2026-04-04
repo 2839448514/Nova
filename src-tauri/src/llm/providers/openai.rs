@@ -11,7 +11,7 @@ use crate::llm::query_engine::ChatMessageEvent;
 use crate::llm::providers::ProviderTurnResult;
 use crate::llm::services::mcp_tools;
 use crate::llm::tools;
-use crate::llm::types::{ContentBlock, Message, Role};
+use crate::llm::types::{AgentMode, ContentBlock, Message, Role};
 use crate::llm::utils::error_event::emit_backend_error;
 use crate::llm::utils::system_prompt::load_system_prompt;
 
@@ -142,7 +142,7 @@ impl OpenAiProvider {
         &self,
         app: &AppHandle,
         messages: &[Message],
-        plan_mode: bool,
+        agent_mode: AgentMode,
         conversation_id: Option<&str>,
     ) -> Result<ProviderTurnResult, String> {
         // 读取设置并拿到当前 provider profile。
@@ -153,8 +153,8 @@ impl OpenAiProvider {
         let mut available_tools = tools::get_available_tools();
         available_tools.extend(mcp_tools::collect_mcp_tools(app).await);
 
-        // 加载系统提示词（含 plan mode 逻辑）。
-        let system_prompt = load_system_prompt(app, plan_mode)?;
+        // 加载系统提示词（含 Agent/Plan/Auto 模式逻辑）。
+        let system_prompt = load_system_prompt(app, agent_mode)?;
         
         // 先注入 system 消息。
         let mut oai_messages = vec![OpenAiMessage {

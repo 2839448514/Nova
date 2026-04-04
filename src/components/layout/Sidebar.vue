@@ -118,10 +118,9 @@ const openSettings = () => {
     <!-- User Profile -->
     <div @click="openSettings" class="p-3 border-t border-[#e5e5e5] dark:border-[#333] flex items-center justify-between hover:bg-[#ebebeb] dark:hover:bg-[#2d2d2d] transition-colors cursor-pointer rounded-b-xl">
       <div class="flex items-center gap-2">
-        <div class="w-8 h-8 rounded-full bg-[#3d3d3d] text-white flex items-center justify-center font-medium text-sm">Y</div>
+        <div class="w-8 h-8 rounded-full bg-[#3d3d3d] text-white flex items-center justify-center font-medium text-sm">N</div>
         <div class="flex flex-col">
-          <span class="text-sm font-medium leading-tight">yileina</span>
-          <span class="text-[0.7rem] text-muted-foreground leading-tight">Free plan</span>
+          <span class="text-sm font-medium leading-tight">Nova</span>
         </div>
       </div>
       <div class="flex items-center gap-1">

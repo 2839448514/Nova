@@ -2,10 +2,12 @@ use std::path::PathBuf;
 
 use tauri::AppHandle;
 
+use crate::llm::types::AgentMode;
+
 // 系统提示文件名（相对工程目录 src/prompt）
 const SYSTEM_PROMPT_FILE_NAME: &str = "system_prompt.md";
 
-// 计划模式附加内容：当 plan_mode=true 时合并到系统提示中。
+// 计划模式附加内容：当 agent_mode=plan 时合并到系统提示中。
 // 该段与正常模式分离方便 semantics 清晰、可测。
 const PLAN_MODE_SECTION: &str = r#"
 
@@ -15,6 +17,16 @@ const PLAN_MODE_SECTION: &str = r#"
 - Avoid editing files unless the user explicitly asks to skip planning or approves implementation.
 - Use `ask_user_question` if a design decision still depends on user intent.
 - When the plan is ready and aligned, use `exit_plan_mode` before proceeding with implementation.
+"#;
+
+// 自动迭代模式附加内容：鼓励在单轮中自主推进，只有被真实阻塞时再请求用户输入。
+const AUTO_MODE_SECTION: &str = r#"
+
+## Auto Iteration Mode
+- You are currently in auto iteration mode.
+- Drive the task forward proactively with focused tool usage and iterative verification.
+- Keep iterating until the task is meaningfully complete, then present a concise outcome.
+- Ask for user input only when blocked by missing requirements, permissions, or irreversible decisions.
 "#;
 
 fn read_non_empty_file(path: &PathBuf) -> Option<String> {
@@ -41,7 +53,7 @@ fn main_prompt_path() -> PathBuf {
         .join(SYSTEM_PROMPT_FILE_NAME)
 }
 
-pub fn load_system_prompt(_app: &AppHandle, plan_mode: bool) -> Result<String, String> {
+pub fn load_system_prompt(_app: &AppHandle, agent_mode: AgentMode) -> Result<String, String> {
     // 计算系统提示文件路径。
     let path = main_prompt_path();
     // 读取并校验主提示词文件，失败时拒绝 fallback。
@@ -52,11 +64,10 @@ pub fn load_system_prompt(_app: &AppHandle, plan_mode: bool) -> Result<String, S
         )
     })?;
 
-    // 计划模式下在主提示词后拼接计划附加段。
-    if plan_mode {
-        Ok(format!("{}{}", prompt, PLAN_MODE_SECTION))
-    } else {
-        // 普通模式直接返回主提示词。
-        Ok(prompt)
+    // 按执行模式拼接附加段。
+    match agent_mode {
+        AgentMode::Plan => Ok(format!("{}{}", prompt, PLAN_MODE_SECTION)),
+        AgentMode::Auto => Ok(format!("{}{}", prompt, AUTO_MODE_SECTION)),
+        AgentMode::Agent => Ok(prompt),
     }
 }
