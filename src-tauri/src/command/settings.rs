@@ -18,18 +18,21 @@ fn default_hook_env() -> HashMap<String, String> {
     HashMap::new()
 }
 
-const HOOK_ENV_KEYS: &[&str] = &[
-    "NOVA_PRE_TOOL_DENY_TOOLS",
-    "NOVA_PRE_TOOL_CONTEXT",
-    "NOVA_POST_TOOL_CONTEXT",
-    "NOVA_POST_TOOL_STOP_ON_ERROR",
-    "NOVA_POST_TOOL_BLOCK_PATTERN",
-    "NOVA_POST_TOOL_FAILURE_CONTEXT",
-    "NOVA_POST_TOOL_FAILURE_STOP",
-    "NOVA_STOP_HOOK_MAX_ASSISTANT_MESSAGES",
-    "NOVA_STOP_HOOK_BLOCK_PATTERN",
-    "NOVA_STOP_HOOK_APPEND_CONTEXT",
-];
+fn default_rag_chunk_size() -> usize {
+    900
+}
+
+fn default_rag_chunk_overlap() -> usize {
+    120
+}
+
+fn default_rag_max_file_size_kb() -> usize {
+    2048
+}
+
+fn default_rag_settings() -> RagSettings {
+    RagSettings::default()
+}
 
 const STOP_HOOK_MAX_ASSISTANT_MESSAGES_KEY: &str = "NOVA_STOP_HOOK_MAX_ASSISTANT_MESSAGES";
 
@@ -61,6 +64,34 @@ pub struct ProviderProfile {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+pub struct RagSettings {
+    #[serde(default)]
+    // embedding 模型名称。
+    pub embedding_model: String,
+    #[serde(default = "default_rag_chunk_size")]
+    // 默认切块大小。
+    pub chunk_size: usize,
+    #[serde(default = "default_rag_chunk_overlap")]
+    // 相邻切块重叠大小。
+    pub chunk_overlap: usize,
+    #[serde(default = "default_rag_max_file_size_kb")]
+    // 上传文件大小上限（KB）。
+    pub max_file_size_kb: usize,
+}
+
+impl Default for RagSettings {
+    fn default() -> Self {
+        Self {
+            embedding_model: String::new(),
+            chunk_size: default_rag_chunk_size(),
+            chunk_overlap: default_rag_chunk_overlap(),
+            max_file_size_kb: default_rag_max_file_size_kb(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct AppSettings {
     // 兼容旧字段：当前 API key。
     pub api_key: String,
@@ -82,6 +113,9 @@ pub struct AppSettings {
     #[serde(default = "default_hook_env", alias = "hook_env")]
     // 钩子环境变量配置。
     pub hook_env: HashMap<String, String>,
+    #[serde(default = "default_rag_settings")]
+    // RAG 相关配置。
+    pub rag: RagSettings,
 }
 
 impl Default for AppSettings {
@@ -96,6 +130,7 @@ impl Default for AppSettings {
             provider_profiles: HashMap::new(),
             disabled_skills: Vec::new(),
             hook_env: HashMap::new(),
+            rag: RagSettings::default(),
         }
     }
 }
@@ -169,6 +204,18 @@ impl AppSettings {
                 self.model = active.model.clone();
             }
         }
+
+        // 规范化 RAG 配置。
+        self.rag.embedding_model = self.rag.embedding_model.trim().to_string();
+        if self.rag.chunk_size == 0 {
+            self.rag.chunk_size = default_rag_chunk_size();
+        }
+        if self.rag.chunk_overlap >= self.rag.chunk_size {
+            self.rag.chunk_overlap = self.rag.chunk_size.saturating_sub(1);
+        }
+        if self.rag.max_file_size_kb == 0 {
+            self.rag.max_file_size_kb = default_rag_max_file_size_kb();
+        }
     }
 }
 
@@ -180,22 +227,6 @@ pub fn get_settings_path(app: &AppHandle) -> PathBuf {
             .unwrap_or_else(|_| PathBuf::from("."))
             .join(".nova")
             .join("settings.json"),
-    }
-}
-
-fn sync_hook_env_vars(settings: &AppSettings) {
-    for key in HOOK_ENV_KEYS {
-        let value = settings
-            .hook_env
-            .get(*key)
-            .map(|v| v.trim().to_string())
-            .unwrap_or_default();
-
-        if value.is_empty() {
-            std::env::remove_var(key);
-        } else {
-            std::env::set_var(key, value);
-        }
     }
 }
 
@@ -218,6 +249,33 @@ fn validate_hook_env(settings: &AppSettings) -> Result<(), String> {
     Ok(())
 }
 
+fn validate_rag_settings(settings: &AppSettings) -> Result<(), String> {
+    let rag = &settings.rag;
+
+    if rag.chunk_size < 100 || rag.chunk_size > 8000 {
+        return Err(format!(
+            "Invalid rag.chunkSize: {} (must be between 100 and 8000)",
+            rag.chunk_size
+        ));
+    }
+
+    if rag.chunk_overlap >= rag.chunk_size {
+        return Err(format!(
+            "Invalid rag.chunkOverlap: {} (must be smaller than chunkSize)",
+            rag.chunk_overlap
+        ));
+    }
+
+    if rag.max_file_size_kb < 64 || rag.max_file_size_kb > 10240 {
+        return Err(format!(
+            "Invalid rag.maxFileSizeKb: {} (must be between 64 and 10240)",
+            rag.max_file_size_kb
+        ));
+    }
+
+    Ok(())
+}
+
 #[tauri::command]
 pub fn get_settings(app: AppHandle) -> AppSettings {
     // 获取 settings.json 路径。
@@ -228,7 +286,6 @@ pub fn get_settings(app: AppHandle) -> AppSettings {
             if let Ok(mut settings) = serde_json::from_str::<AppSettings>(&content) {
                 // 运行时规范化后返回。
                 settings.normalize_for_runtime();
-                sync_hook_env_vars(&settings);
                 return settings;
             }
         }
@@ -236,7 +293,6 @@ pub fn get_settings(app: AppHandle) -> AppSettings {
     // 读取失败时回退默认配置并规范化。
     let mut settings = AppSettings::default();
     settings.normalize_for_runtime();
-    sync_hook_env_vars(&settings);
     settings
 }
 
@@ -254,7 +310,7 @@ pub fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), String
     let mut normalized = settings;
     normalized.normalize_for_runtime();
     validate_hook_env(&normalized)?;
-    sync_hook_env_vars(&normalized);
+    validate_rag_settings(&normalized)?;
     // 序列化为美化 JSON。
     let content = serde_json::to_string_pretty(&normalized).map_err(|e| e.to_string())?;
     // 写入文件。

@@ -3,13 +3,26 @@ use tauri::{AppHandle, Emitter};
 use crate::llm::providers::LlmProvider;
 use crate::llm::query_engine::ChatMessageEvent;
 use crate::llm::services::compact;
-use crate::llm::types::{AgentMode, Content, ContentBlock, Message};
+use crate::llm::types::{AgentMode, Content, ContentBlock, Message, Role};
 use crate::llm::utils::context_assembler::{self, AssembleOptions};
 use crate::llm::utils::error_event::emit_backend_error;
 
 mod state_machine;
 
 use state_machine::TurnOutcome;
+
+fn is_session_start_turn(messages: &[Message]) -> bool {
+	let assistant_count = messages
+		.iter()
+		.filter(|m| m.role == Role::Assistant)
+		.count();
+	let user_count = messages
+		.iter()
+		.filter(|m| m.role == Role::User)
+		.count();
+
+	assistant_count == 0 && user_count <= 1
+}
 
 // 入口函数：发送用户聊天消息，驱动 LLM 请求和工具调用流程。
 // 这个函数负责准备消息、循环调度 provider、处理 tool-result 掉回、最后发送 stop 事件。
@@ -39,14 +52,44 @@ pub async fn send_chat_message(
 	messages: Vec<Message>,
 	agent_mode: AgentMode,
 ) -> Result<(), String> {
-	// 1. 先组装上下文（会话恢复等），再执行压缩。
-	let assembled_messages = context_assembler::assemble_messages_for_turn(
+	let session_start_turn = is_session_start_turn(&messages);
+	let mut turn_messages = messages;
+
+	let prompt_submit_hook = crate::llm::services::hooks::run_user_prompt_submit_hooks(
 		&app,
 		conversation_id.as_deref(),
-		&messages,
+	);
+	if !prompt_submit_hook.additional_messages.is_empty() {
+		turn_messages.extend(prompt_submit_hook.additional_messages);
+	}
+
+	if session_start_turn {
+		let session_start_hook = crate::llm::services::hooks::run_session_start_hooks(
+			&app,
+			conversation_id.as_deref(),
+		);
+		if !session_start_hook.additional_messages.is_empty() {
+			turn_messages.extend(session_start_hook.additional_messages);
+		}
+	}
+
+	// 1. 先组装上下文（会话恢复等），再执行压缩。
+	let mut assembled_messages = context_assembler::assemble_messages_for_turn(
+		&app,
+		conversation_id.as_deref(),
+		&turn_messages,
 		AssembleOptions::default(),
 	)
 	.await;
+
+	let pre_compact_hook = crate::llm::services::hooks::run_pre_compact_hooks(
+		&app,
+		conversation_id.as_deref(),
+	);
+	if !pre_compact_hook.additional_messages.is_empty() {
+		assembled_messages.extend(pre_compact_hook.additional_messages);
+	}
+
 	let mut current_messages = compact::compact_messages_for_turn(
 		&app,
 		conversation_id.as_deref(),
@@ -61,7 +104,7 @@ pub async fn send_chat_message(
 	// 3. 主循环：调用 provider.send_request（流式），并根据 tool 执行情况决定是否继续下一步。
 	//    - 如果发生工具调用，结果会被“注入”到 current_messages 继续下一轮。
 	//    - 如果 provider 返回 needs_user_input / 无工具结果，则结束。
-	let final_outcome = loop {
+	let mut final_outcome = loop {
 		// 若收到取消请求，则立即以 cancelled 结束。
 		if crate::llm::cancellation::is_cancelled(conversation_id.as_deref()) {
 			break TurnOutcome::cancelled();
@@ -86,12 +129,18 @@ pub async fn send_chat_message(
 			// 请求成功时拿到结果对象。
 			Ok(v) => v,
 			Err(e) => {
+				let error_hook = crate::llm::services::hooks::run_error_hooks(
+					&app,
+					&e,
+					conversation_id.as_deref(),
+				);
+				let error_text = error_hook.override_error.unwrap_or_else(|| e.clone());
 				// 出错直接通知前端 stop(error) 并返回错误。
 				// 同时上报后端错误事件用于统一监控。
 				emit_backend_error(
 					&app,
 					"llm.query_engine",
-					e.clone(),
+					error_text.clone(),
 					Some("provider.send_request"),
 				);
 				// 通知前端当前回合以错误状态结束。
@@ -101,7 +150,7 @@ pub async fn send_chat_message(
 						// 事件类型为 stop。
 						r#type: "stop".into(),
 						// 把错误文本透传给前端。
-						text: Some(e.clone()),
+						text: Some(error_text.clone()),
 						// 以下字段在 stop 事件中均为空。
 						tool_use_id: None,
 						tool_use_name: None,
@@ -117,7 +166,7 @@ pub async fn send_chat_message(
 				// 忽略 emit 错误，保证主错误路径返回。
 				.ok();
 				// 将 provider 错误返回给上层调用方。
-				return Err(e);
+				return Err(error_text);
 			}
 		};
 
@@ -171,7 +220,7 @@ pub async fn send_chat_message(
 		if !has_tool_result {
 			// 在回合结束前执行 stop hooks。
 			let stop_hook_result =
-				crate::llm::services::tools::run_stop_hooks(&current_messages, conversation_id.as_deref());
+				crate::llm::services::hooks::run_stop_hooks(&app, &current_messages, conversation_id.as_deref());
 			// 判断 stop hooks 是否注入了附加上下文。
 			let stop_hook_added_context = !stop_hook_result.additional_messages.is_empty();
 			if stop_hook_added_context {
@@ -202,6 +251,15 @@ pub async fn send_chat_message(
 			);
 		}
 	};
+
+	let session_end_hook = crate::llm::services::hooks::run_session_end_hooks(
+		&app,
+		&final_outcome.stop_reason,
+		conversation_id.as_deref(),
+	);
+	if let Some(hooked_reason) = session_end_hook.stop_reason {
+		final_outcome.stop_reason = hooked_reason;
+	}
 
 	// 4. 业务终止：告知前端本轮结束，并携带 stop_reason/turn_state 以区分 completed/needs_user_input/error。
 	// 统一发送 stop 事件，前端据此收口渲染状态。

@@ -46,6 +46,11 @@ pub fn run() {
             command::mcp::list_mcp_resources,
             command::mcp::read_mcp_resource,
             command::mcp::call_mcp_tool,
+            command::rag::rag_get_stats,
+            command::rag::rag_list_documents,
+            command::rag::rag_upsert_documents,
+            command::rag::rag_remove_document,
+            command::rag::rag_clear_documents,
             command::skill::list_skills
         ])
         .run(tauri::generate_context!())

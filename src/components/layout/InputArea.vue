@@ -2,6 +2,7 @@
 import { nextTick, onMounted, onUnmounted, ref, watch, computed } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import type { AgentMode } from '../../lib/chat-types';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 const props = defineProps<{
   isGenerating?: boolean;
@@ -63,12 +64,6 @@ const localAgentMode = computed<AgentMode>({
   },
 });
 
-const onAgentModeChange = (event: Event) => {
-  const select = event.target as HTMLSelectElement;
-  const value = (select.value as AgentMode) || 'agent';
-  localAgentMode.value = value;
-};
-
 const loadSettings = async () => {
   try {
     settings.value = await invoke('get_settings');
@@ -77,10 +72,9 @@ const loadSettings = async () => {
   }
 };
 
-const onModelChange = async (event: Event) => {
-  const select = event.target as HTMLSelectElement;
-  if (!settings.value) return;
-  currentModel.value = select.value;
+const onModelValueChange = async (value: unknown) => {
+  if (typeof value !== 'string' || !settings.value) return;
+  currentModel.value = value;
   try {
     await invoke('save_settings', { settings: settings.value });
   } catch (error) {
@@ -163,27 +157,31 @@ defineExpose({
             </svg>
           </button>
 
-          <div class="flex items-center gap-1 border border-[#e5e5e5] dark:border-[#3a3a3a] rounded-md px-2 py-1 hover:bg-secondary/60 transition-colors">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-muted-foreground">
-              <path d="M9 18l6-6-6-6" />
-            </svg>
-            <select
-              :value="localAgentMode"
-              @change="onAgentModeChange"
-              class="bg-transparent text-xs outline-none text-muted-foreground cursor-pointer"
-            >
-              <option value="agent">Agent 模式</option>
-              <option value="plan">Plan 模式</option>
-              <option value="auto">自动迭代模式</option>
-            </select>
+          <div class="w-[150px]">
+            <Select v-model="localAgentMode">
+              <SelectTrigger size="sm" class="w-full text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent class="text-xs">
+                <SelectItem value="agent">Agent 模式</SelectItem>
+                <SelectItem value="plan">Plan 模式</SelectItem>
+                <SelectItem value="auto">自动迭代模式</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
-          <select v-if="availableModels.length > 0 && settings" v-model="currentModel" @change="onModelChange"
-            class="bg-transparent border border-[#e5e5e5] dark:border-[#3a3a3a] text-xs rounded-md px-2 py-1 outline-none text-muted-foreground hover:bg-secondary/80 transition-colors cursor-pointer max-w-[200px]">
-            <option v-for="model in availableModels" :key="model" :value="model">
-              {{ model }}
-            </option>
-          </select>
+          <div v-if="availableModels.length > 0 && settings" class="w-[200px]">
+            <Select :model-value="currentModel" @update:model-value="onModelValueChange">
+              <SelectTrigger size="sm" class="w-full text-xs">
+                <SelectValue placeholder="选择模型" />
+              </SelectTrigger>
+              <SelectContent class="text-xs">
+                <SelectItem v-for="model in availableModels" :key="model" :value="model">
+                  {{ model }}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
         <button class="w-8 h-8 rounded-full flex items-center justify-center transition-colors shadow-sm"
           :class="isGenerating

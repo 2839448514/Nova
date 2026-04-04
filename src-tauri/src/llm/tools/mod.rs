@@ -227,6 +227,20 @@ fn infer_is_error(output: &str) -> bool {
     v.get("error").is_some() && v.get("ok").is_none()
 }
 
+fn is_subagent_start_tool(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "taskcreate" | "task_create"
+    )
+}
+
+fn is_subagent_stop_tool(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "taskstop" | "task_stop"
+    )
+}
+
 pub(crate) fn is_read_only_tool(name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
     match lower.as_str() {
@@ -288,7 +302,23 @@ pub(crate) async fn execute_single_tool_call(
     let mut prevent_continuation = false;
     let mut stop_reason: Option<String> = None;
 
-    let pre_hook = crate::llm::services::tools::run_pre_tool_use_hooks(
+    if is_subagent_start_tool(&name) {
+        let subagent_start_hook = crate::llm::services::hooks::run_subagent_start_hooks(
+            app,
+            &name,
+            conversation_id,
+        );
+        additional_messages.extend(subagent_start_hook.additional_messages);
+        if subagent_start_hook.prevent_continuation {
+            prevent_continuation = true;
+            if stop_reason.is_none() {
+                stop_reason = subagent_start_hook.stop_reason;
+            }
+        }
+    }
+
+    let pre_hook = crate::llm::services::hooks::run_pre_tool_use_hooks(
+        app,
         &name,
         &input,
         conversation_id,
@@ -313,7 +343,8 @@ pub(crate) async fn execute_single_tool_call(
     }
 
     if let Err(e) = validate_tool_input(&name, &input) {
-        let failure_hook = crate::llm::services::tools::run_post_tool_use_failure_hooks(
+        let failure_hook = crate::llm::services::hooks::run_post_tool_use_failure_hooks(
+            app,
             &name,
             &input,
             &e,
@@ -364,7 +395,8 @@ pub(crate) async fn execute_single_tool_call(
     let mut is_error = infer_is_error(&validated_output);
 
     if is_error {
-        let failure_hook = crate::llm::services::tools::run_post_tool_use_failure_hooks(
+        let failure_hook = crate::llm::services::hooks::run_post_tool_use_failure_hooks(
+            app,
             &name,
             &input,
             &validated_output,
@@ -379,7 +411,8 @@ pub(crate) async fn execute_single_tool_call(
         }
     }
 
-    let post_hook = crate::llm::services::tools::run_post_tool_use_hooks(
+    let post_hook = crate::llm::services::hooks::run_post_tool_use_hooks(
+        app,
         &name,
         &input,
         &validated_output,
@@ -400,6 +433,21 @@ pub(crate) async fn execute_single_tool_call(
     } else {
         validated_output
     };
+
+    if is_subagent_stop_tool(&name) {
+        let subagent_stop_hook = crate::llm::services::hooks::run_subagent_stop_hooks(
+            app,
+            &name,
+            conversation_id,
+        );
+        additional_messages.extend(subagent_stop_hook.additional_messages);
+        if subagent_stop_hook.prevent_continuation {
+            prevent_continuation = true;
+            if stop_reason.is_none() {
+                stop_reason = subagent_stop_hook.stop_reason;
+            }
+        }
+    }
 
     ToolCallResult {
         id,

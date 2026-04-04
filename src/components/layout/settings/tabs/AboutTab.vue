@@ -11,7 +11,7 @@
     </div>
     <div class="text-xs text-muted-foreground mb-4 font-mono">v0.1.0</div>
     <p class="text-[0.95rem] text-[#666] dark:text-[#aaa] leading-relaxed mb-4 max-w-[360px]">
-      基于 Tauri 2 + Vue 3 + TailwindCSS 构建的桌面 AI 助手，完全复刻 Claude UI，支持本地文件、Bash 与多 MCP Server 工具链。
+      基于 Tauri 2 + Vue 3 + TailwindCSS 构建的桌面 AI 助手，支持本地文件、Bash 与多 MCP Server 工具链。
     </p>
 
     <div class="flex items-center gap-2 mb-6">

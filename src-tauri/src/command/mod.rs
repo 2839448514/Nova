@@ -6,3 +6,5 @@ pub mod history;
 pub mod mcp;
 // 技能列表相关命令入口。
 pub mod skill;
+// RAG 知识库相关命令入口。
+pub mod rag;
