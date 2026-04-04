@@ -28,24 +28,33 @@ fn is_session_start_turn(messages: &[Message]) -> bool {
 // 这个函数负责准备消息、循环调度 provider、处理 tool-result 掉回、最后发送 stop 事件。
 // send_chat_message
 //     │
-//     ├─ 1. context_assembler   → 注入会话恢复上下文
-//     ├─ 2. compact             → 压缩历史消息
+//     ├─ 1. 回合前准备
+//     │       ├─ run_user_prompt_submit_hooks      → 追加提示提交上下文
+//     │       └─ (首轮) run_session_start_hooks    → 追加会话开始上下文
 //     │
-//     └─ 3. 主循环 loop
-//             ├─ 取消检查                          → cancelled → break
-//             ├─ 权限决策消费
-//             ├─ provider.send_request (流式)      → 错误 → emit stop(error) → return Err
-//             ├─ provider 报告 cancelled           → break
-//             ├─ 合并新消息到 current_messages
-//             ├─ provider.prevent_continuation     → stop_hook_prevented → break
-//             ├─ 工具结果检测
-//             │       ├─ has_tool_result           → continue (下一轮)
-//             │       └─ !has_tool_result
-//             │               ├─ run_stop_hooks
-//             │               │       ├─ prevent_continuation → break
-//             │               │       └─ added_context → current_messages.extend → continue
-//             │               └─ 正常结束           → completed → break
-//             └─ needs_user_input                  → break
+//     ├─ 2. 上下文构建
+//     │       ├─ context_assembler                 → 注入会话恢复上下文
+//     │       ├─ run_pre_compact_hooks             → 压缩前上下文扩展
+//     │       └─ compact                           → 压缩历史消息
+//     │
+//     ├─ 3. 主循环 loop
+//     │       ├─ 取消检查                          → cancelled → break
+//     │       ├─ 权限决策消费
+//     │       ├─ provider.send_request (流式)      → 错误: run_error_hooks + emit stop(error) + return Err
+//     │       ├─ provider 报告 cancelled           → break
+//     │       ├─ 合并新消息到 current_messages
+//     │       ├─ needs_user_input                  → break
+//     │       ├─ provider.prevent_continuation     → stop_hook_prevented → break
+//     │       ├─ has_tool_result                   → continue (下一轮)
+//     │       └─ !has_tool_result
+//     │               ├─ run_stop_hooks
+//     │               │       ├─ prevent_continuation → break
+//     │               │       └─ added_context → current_messages.extend → continue
+//     │               └─ 正常结束                 → completed → break
+//     │
+//     └─ 4. 回合收尾
+//             ├─ run_session_end_hooks             → 可覆盖 stop_reason
+//             └─ emit stop                         → return Ok
 pub async fn send_chat_message(
 	app: AppHandle,
 	conversation_id: Option<String>,

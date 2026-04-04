@@ -1,5 +1,6 @@
 use crate::llm::types::Tool;
 use serde_json::{json, Value};
+use tauri::AppHandle;
 
 pub fn tool() -> Tool {
     Tool {
@@ -23,4 +24,26 @@ pub fn execute(input: Value) -> String {
         "message": "list_mcp_resources requires AppHandle-aware execution and should be routed via execute_tool_with_app."
     })
     .to_string()
+}
+
+pub async fn execute_with_app(app: &AppHandle, input: Value) -> String {
+    let server_name = input
+        .get("server")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+
+    if server_name.is_empty() {
+        return json!({
+            "ok": false,
+            "error": "list_mcp_resources requires non-empty 'server'"
+        })
+        .to_string();
+    }
+
+    match crate::command::mcp::list_mcp_resources(app.clone(), server_name).await {
+        Ok(v) => json!({ "ok": true, "resources": v }).to_string(),
+        Err(e) => json!({ "ok": false, "error": e }).to_string(),
+    }
 }
