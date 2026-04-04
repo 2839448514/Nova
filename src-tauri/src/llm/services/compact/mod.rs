@@ -43,14 +43,9 @@ struct CompactDecision {
 // 判断字符是否属于中日韩Unicode块。此处通过字节范围直接判断，避免调用 heavy regex。
 fn is_cjk_char(ch: char) -> bool {
     let cp = ch as u32;
-    matches!(
-        cp,
-        0x3400..=0x4DBF
-            | 0x4E00..=0x9FFF
-            | 0x3040..=0x30FF
-            | 0xAC00..=0xD7AF
-            | 0xF900..=0xFAFF
-    )
+    // cp: Unicode code point of the character，用于范围匹配判断是否为 CJK 字符块。
+    // 通过匹配 Unicode 范围判断，避免使用复杂或重量级的正则库。
+    matches!(cp, 0x3400..=0x4DBF | 0x4E00..=0x9FFF | 0x3040..=0x30FF | 0xAC00..=0xD7AF | 0xF900..=0xFAFF)
 }
 
 // 估算纯文本片段的 token 数量。
@@ -60,13 +55,18 @@ fn is_cjk_char(ch: char) -> bool {
 // - 标点/符号按 2 字符 1 token
 // - 空白按 16 字符 1 token
 fn estimate_text_tokens(text: &str) -> i64 {
-    // 统计各类字符数量
+    // 统计各类字符数量，用于按经验规则估算 token 数。
+    // cjk: 中日韩字符计数（每字符 ~1 token）
     let mut cjk = 0_i64;
+    // latin_or_digit: ASCII 字母或数字计数，约 4 字符 = 1 token
     let mut latin_or_digit = 0_i64;
+    // punctuation_or_symbol: 标点或符号计数，约 2 字符 = 1 token
     let mut punctuation_or_symbol = 0_i64;
+    // whitespace: 空白字符计数，按更低权重合并
     let mut whitespace = 0_i64;
 
     for ch in text.chars() {
+        // ch: 当前遍历到的字符
         if ch.is_whitespace() {
             // 空白字符（空格、换行等）按更低权重计算
             whitespace += 1;
@@ -82,7 +82,8 @@ fn estimate_text_tokens(text: &str) -> i64 {
         }
     }
 
-    // 最终汇总：每类按比例归一并加权
+    // 最终汇总：按经验系数合并各类计数，使用上取整技巧避免低估
+    // cjk + ceil(latin_or_digit/4) + ceil(punctuation_or_symbol/2) + ceil(whitespace/16)
     cjk + (latin_or_digit + 3) / 4 + (punctuation_or_symbol + 1) / 2 + (whitespace + 15) / 16
 }
 
@@ -90,16 +91,18 @@ fn estimate_text_tokens(text: &str) -> i64 {
 // 用于 tool_use / tool_result 中包含结构化 JSON 字符串时提供更加合理的估算。
 fn estimate_json_tokens(value: &Value) -> i64 {
     match value {
+        // 基本类型成本估算：Null/Bool/Number 使用低位成本
         Value::Null => 1,
         Value::Bool(_) => 1,
         Value::Number(_) => 2,
+        // 字符串先按文本估算再加上结构符成本
         Value::String(s) => estimate_text_tokens(s) + 1,
         Value::Array(items) => {
-            // array 头尾 + 项目分隔符
+            // array: 计算头尾符号成本 + 每个项目的递归成本 + 项目分隔符成本
             2 + items.iter().map(estimate_json_tokens).sum::<i64>() + items.len() as i64
         }
         Value::Object(map) => {
-            // object 头尾 + key/value + key value 分隔符
+            // object: 头尾成本 + 每个 key 的文本成本 + 对应 value 的递归成本 + 分隔符
             3 + map
                 .iter()
                 .map(|(k, v)| estimate_text_tokens(k) + estimate_json_tokens(v) + 2)
@@ -114,10 +117,13 @@ fn estimate_json_tokens(value: &Value) -> i64 {
 // - ToolResult 递归估算嵌套块，并加上工具结果固定开销
 fn estimate_block_tokens(block: &ContentBlock) -> i64 {
     match block {
+        // 文本块：块开销 + 文本估算
         ContentBlock::Text { text } => TOKEN_OVERHEAD_PER_BLOCK + estimate_text_tokens(text),
+        // 工具调用：块开销 + 固定工具使用开销 + 输入 JSON 的结构化估算
         ContentBlock::ToolUse { input, .. } => {
             TOKEN_OVERHEAD_PER_BLOCK + TOKEN_OVERHEAD_TOOL_USE + estimate_json_tokens(input)
         }
+        // 工具结果：块开销 + 工具结果固定开销 + 嵌套内容的递归估算
         ContentBlock::ToolResult { content, .. } => {
             TOKEN_OVERHEAD_PER_BLOCK
                 + TOKEN_OVERHEAD_TOOL_RESULT
@@ -130,54 +136,75 @@ fn estimate_block_tokens(block: &ContentBlock) -> i64 {
 // - 文本按 CJK/ASCII/符号分桶估算
 // - 工具结构按 message/block/json 增加固定结构开销
 fn estimate_message_tokens(messages: &[Message]) -> i64 {
+    // 逐条消息估算：每条消息包含固定开销 + 消息体开销
     messages
         .iter()
         .map(|m| {
+            // m: 当前消息引用
             let body = match &m.content {
+                // 文本消息直接估算字符 token
                 Content::Text(text) => estimate_text_tokens(text),
+                // 块消息对每个块递归估算并求和
                 Content::Blocks(blocks) => blocks.iter().map(estimate_block_tokens).sum::<i64>(),
             };
+            // 每条消息的总估算 = 消息开销 + 内容开销
             TOKEN_OVERHEAD_PER_MESSAGE + body
         })
         .sum::<i64>()
 }
 
 fn max_tool_result_text_chars(messages: &[Message]) -> usize {
+    // 计算 messages 中所有 ToolResult 内文本块的最大字符数
     messages
         .iter()
+        // 只关注 Content::Blocks 类型消息，丢弃纯文本消息
         .filter_map(|m| match &m.content {
             Content::Blocks(blocks) => Some(blocks),
             Content::Text(_) => None,
         })
+        // 将消息的块集合扁平化为单个块序列
         .flat_map(|blocks| blocks.iter())
+        // 仅保留 ToolResult 块，提取其内部 content（嵌套块数组）
         .filter_map(|b| match b {
             ContentBlock::ToolResult { content, .. } => Some(content),
             _ => None,
         })
+        // 展开每个 ToolResult 的内部块序列
         .flat_map(|content| content.iter())
+        // 仅统计内部的 Text 块的字符数
         .filter_map(|inner| match inner {
             ContentBlock::Text { text } => Some(text.chars().count()),
             _ => None,
         })
+        // 取得最大字符数，若无任何文本块则返回 0
         .max()
         .unwrap_or(0)
 }
 
 fn decide_compact_strategy(messages: &[Message]) -> CompactDecision {
+    // 估算消息总体 token 与消息数，用于决定压缩等级
     let estimated_tokens = estimate_message_tokens(messages);
+    // estimated_tokens: 全部消息的 token 估算值
     let message_count = messages.len();
-    let has_large_tool_result = max_tool_result_text_chars(messages) >= LARGE_TOOL_RESULT_CHAR_THRESHOLD;
+    // message_count: 当前消息数量
+    let has_large_tool_result =
+        max_tool_result_text_chars(messages) >= LARGE_TOOL_RESULT_CHAR_THRESHOLD;
+    // has_large_tool_result: 是否存在超长的工具结果文本
 
+    // 决策逻辑：优先判断 Full，再判断 Micro，否则 None
     let level = if message_count >= FULL_COMPACT_MESSAGE_THRESHOLD
         || estimated_tokens >= FULL_COMPACT_TOKEN_THRESHOLD
     {
+        // 满足任一 Full 条件时使用 Full 压缩
         CompactLevel::Full
     } else if message_count >= MICRO_COMPACT_MESSAGE_THRESHOLD
         || estimated_tokens >= MICRO_COMPACT_TOKEN_THRESHOLD
         || has_large_tool_result
     {
+        // 满足任一 Micro 条件时使用 Micro 压缩
         CompactLevel::Micro
     } else {
+        // 否则不压缩
         CompactLevel::None
     };
 
@@ -190,27 +217,37 @@ fn decide_compact_strategy(messages: &[Message]) -> CompactDecision {
 }
 
 fn maybe_needs_user_input_payload(text: &str) -> bool {
+    // 尝试将 text 解析为 JSON 并检查 type 字段是否等于 "needs_user_input"
     serde_json::from_str::<serde_json::Value>(text)
+        // 解析失败时返回 None
         .ok()
+        // 若解析成功，尝试读取 v.get("type") 的字符串值并比较
         .and_then(|v| {
             v.get("type")
                 .and_then(|t| t.as_str())
                 .map(|s| s == "needs_user_input")
         })
+        // 若任一步失败则返回 false
         .unwrap_or(false)
 }
 
 fn truncate_text_by_chars(text: &str, limit: usize) -> String {
+    // len: 原文本字符长度
     let len = text.chars().count();
+    // 若长度未超限则直接返回原文
     if len <= limit {
         return text.to_string();
     }
 
+    // 将限制拆分为头部/尾部保留比例，留中间为省略信息
     let head_len = (limit * 60) / 100;
     let tail_len = (limit * 30) / 100;
+    // omitted: 被截断省略的字符数（安全 saturating_sub 避免下溢）
     let omitted = len.saturating_sub(head_len + tail_len);
 
+    // head: 文本前段
     let head: String = text.chars().take(head_len).collect();
+    // tail: 文本后段，通过反向取并再反过来恢复原顺序
     let tail: String = text
         .chars()
         .rev()
@@ -220,6 +257,7 @@ fn truncate_text_by_chars(text: &str, limit: usize) -> String {
         .rev()
         .collect();
 
+    // 最终格式包含 head、省略提示和 tail
     format!(
         "{}\n...[micro-compact truncated {} chars]...\n{}",
         head, omitted, tail
@@ -227,17 +265,20 @@ fn truncate_text_by_chars(text: &str, limit: usize) -> String {
 }
 
 fn compact_json_value(value: &Value, depth: usize) -> Value {
+    // 深度限制：超过阈值直接返回占位字符串，避免递归展开过深导致成本爆炸
     if depth >= TOOL_RESULT_JSON_MAX_DEPTH {
         return Value::String("<truncated: max depth reached>".to_string());
     }
 
     match value {
+        // 数组：只保留前 N 个元素并递归压缩每个元素
         Value::Array(items) => {
             let mut out: Vec<Value> = items
                 .iter()
                 .take(TOOL_RESULT_JSON_MAX_ITEMS)
                 .map(|v| compact_json_value(v, depth + 1))
                 .collect();
+            // 若元素超出上限，记录被截断的数量
             if items.len() > TOOL_RESULT_JSON_MAX_ITEMS {
                 out.push(serde_json::json!({
                     "_truncated_items": items.len() - TOOL_RESULT_JSON_MAX_ITEMS
@@ -245,6 +286,7 @@ fn compact_json_value(value: &Value, depth: usize) -> Value {
             }
             Value::Array(out)
         }
+        // 对象：按键排序后截断并递归压缩值
         Value::Object(map) => {
             let mut keys: Vec<&String> = map.keys().collect();
             keys.sort();
@@ -255,6 +297,7 @@ fn compact_json_value(value: &Value, depth: usize) -> Value {
                     out.insert(key.clone(), compact_json_value(v, depth + 1));
                 }
             }
+            // 若键数量超限，则在结果中记录被截断键的数量
             if map.len() > TOOL_RESULT_JSON_MAX_ITEMS {
                 out.insert(
                     "_truncated_keys".to_string(),
@@ -263,7 +306,9 @@ fn compact_json_value(value: &Value, depth: usize) -> Value {
             }
             Value::Object(out)
         }
+        // 字符串：对长文本进行截断
         Value::String(s) => Value::String(truncate_text_by_chars(s, TOOL_RESULT_TEXT_TRUNCATE_LIMIT)),
+        // 其他原样返回
         _ => value.clone(),
     }
 }
@@ -271,25 +316,33 @@ fn compact_json_value(value: &Value, depth: usize) -> Value {
 fn compact_tool_result_text(text: &str) -> String {
     // 交互类 payload 不能压缩，否则会破坏后续 ask-user 的语义。
     if maybe_needs_user_input_payload(text) {
+        // 直接返回原文，不进行任何压缩或截断
         return text.to_string();
     }
 
+    // 尝试解析为 JSON，并对 JSON 结构进行递归压缩与截断
     if let Ok(value) = serde_json::from_str::<Value>(text) {
         let compacted = compact_json_value(&value, 0);
         if let Ok(serialized) = serde_json::to_string(&compacted) {
+            // 将压缩后的 JSON 序列化并截断为可接受长度
             return truncate_text_by_chars(&serialized, TOOL_RESULT_TEXT_TRUNCATE_LIMIT);
         }
     }
 
+    // 非 JSON 或序列化失败时对原始文本按字符截断
     truncate_text_by_chars(text, TOOL_RESULT_TEXT_TRUNCATE_LIMIT)
 }
 
 fn apply_micro_compact(messages: &[Message]) -> Vec<Message> {
+    // 对每条消息进行微压缩：仅压缩 ToolResult 内的长文本/JSON
     messages
         .iter()
         .map(|m| {
+            // m: 当前消息
             let content = match &m.content {
+                // 文本消息直接克隆
                 Content::Text(text) => Content::Text(text.clone()),
+                // 块消息：遍历每个块并只对 ToolResult 内部文本进行 compact
                 Content::Blocks(blocks) => Content::Blocks(
                     blocks
                         .iter()
@@ -299,28 +352,34 @@ fn apply_micro_compact(messages: &[Message]) -> Vec<Message> {
                                 is_error,
                                 content,
                             } => {
+                                // compacted_content: 对 ToolResult 的内部块进行逐个压缩
                                 let compacted_content = content
                                     .iter()
                                     .map(|inner| match inner {
+                                        // 只压缩内部 Text 块的文本
                                         ContentBlock::Text { text } => ContentBlock::Text {
                                             text: compact_tool_result_text(text),
                                         },
+                                        // 其他内部块保持不变
                                         _ => inner.clone(),
                                     })
                                     .collect();
 
+                                // 返回压缩后的 ToolResult 块
                                 ContentBlock::ToolResult {
                                     tool_use_id: tool_use_id.clone(),
                                     is_error: *is_error,
                                     content: compacted_content,
                                 }
                             }
+                            // 非 ToolResult 块直接克隆
                             _ => block.clone(),
                         })
                         .collect(),
                 ),
             };
 
+            // 构建并返回新的消息实体
             Message {
                 role: m.role.clone(),
                 content,
@@ -334,10 +393,12 @@ async fn apply_full_compact(
     conversation_id: Option<&str>,
     messages: &[Message],
 ) -> Vec<Message> {
+    // 若 conversation_id 为空或仅空白则不做 Full 压缩，直接返回原消息
     let Some(conversation_id) = conversation_id.filter(|id| !id.trim().is_empty()) else {
         return messages.to_vec();
     };
 
+    // 获取 compact 上下文（历史摘要），使用较大的 token 限制与条目限制
     let compact = match crate::command::history::get_conversation_compact_context(
         app.clone(),
         conversation_id.to_string(),
@@ -347,9 +408,11 @@ async fn apply_full_compact(
     .await
     {
         Ok(v) => v,
+        // 获取失败时回退为不压缩
         Err(_) => return messages.to_vec(),
     };
 
+    // 尝试获取 handover 信息（用于记录新的 compact boundary）
     let handover = crate::command::history::get_conversation_handover(
         app.clone(),
         conversation_id.to_string(),
@@ -358,6 +421,7 @@ async fn apply_full_compact(
     .await
     .ok();
 
+    // 若存在 handover，则尝试记录新的 compact boundary（忽略返回值）
     if let Some(handover) = handover {
         let _ = crate::command::history::record_compact_boundary(
             app.clone(),
@@ -368,18 +432,22 @@ async fn apply_full_compact(
         .await;
     }
 
+    // keep_count: 保留最近消息的数量，受 compact.recent_limit 限制并在 [6,30] 范围内
     let keep_count = compact.recent_limit.clamp(6, 30) as usize;
+    // recent_messages: 若消息数大于保留数则截取末尾窗口，否则保留全部
     let recent_messages = if messages.len() > keep_count {
         messages[messages.len() - keep_count..].to_vec()
     } else {
         messages.to_vec()
     };
 
+    // 将 compact 的 context_text 放到最前面作为一条 User 消息
     let compact_message = Message {
         role: Role::User,
         content: Content::Text(compact.context_text),
     };
 
+    // prepared: 预构建消息向量，预留容量以减少 realloc
     let mut prepared = Vec::with_capacity(recent_messages.len() + 1);
     prepared.push(compact_message);
     prepared.extend(recent_messages);
@@ -395,7 +463,9 @@ pub async fn prepare_messages_for_turn(
     conversation_id: Option<&str>,
     messages: &[Message],
 ) -> Vec<Message> {
+    // 决策并记录调试信息
     let decision = decide_compact_strategy(messages);
+    // 打印调试日志，便于观察何时触发哪种压缩策略
     eprintln!(
         "[compact] level={:?} message_count={} estimated_tokens={} has_large_tool_result={}",
         decision.level,
@@ -404,10 +474,12 @@ pub async fn prepare_messages_for_turn(
         decision.has_large_tool_result
     );
 
+    // 根据决策执行对应的压缩流程
     match decision.level {
         CompactLevel::None => messages.to_vec(),
         CompactLevel::Micro => apply_micro_compact(messages),
         CompactLevel::Full => {
+            // Full 先做 Micro 级别的局部压缩，再拼接远端 compact 上下文
             let micro_compacted = apply_micro_compact(messages);
             apply_full_compact(app, conversation_id, &micro_compacted).await
         }
@@ -417,22 +489,27 @@ pub async fn prepare_messages_for_turn(
 // 检查当前输出消息是否包含工具结果里标记为需要用户输入的 payload，
 // 用于跑宏任务时暂停回合并向前端触发交互。
 pub fn has_needs_user_input(messages: &[Message]) -> bool {
+    // 遍历消息，判断任一 ToolResult 内是否包含需要用户输入的 payload
     messages.iter().any(|m| {
+        // 使用 let-else 结构快速排除非 blocks 类型的消息
         let Content::Blocks(blocks) = &m.content else {
             return false;
         };
 
+        // blocks: 消息内的块序列，查找任一 ToolResult
         blocks.iter().any(|b| {
+            // 只关注 ToolResult 块
             let ContentBlock::ToolResult { content, .. } = b else {
                 return false;
             };
 
+            // 在 ToolResult 的内部块中查找 Text 块并解析其 JSON 字符串
             content.iter().any(|inner| {
                 let ContentBlock::Text { text } = inner else {
                     return false;
                 };
 
-                // 解析 JSON 字符串，若 type==needs_user_input 则认为需要用户继续输入。
+                // 解析 JSON 字符串，若 type=="needs_user_input" 则认为需要用户继续输入
                 serde_json::from_str::<serde_json::Value>(text)
                     .ok()
                     .and_then(|v| {

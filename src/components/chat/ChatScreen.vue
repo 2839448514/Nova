@@ -34,7 +34,9 @@ const reactionMap = ref<Record<number, 'up' | 'down' | undefined>>({});
 const copiedMap = ref<Record<string, boolean>>({});
 const copyTimers: Record<string, ReturnType<typeof setTimeout> | undefined> = {};
 
-const toolLogPattern = /^(?:>\s*)?Using tool:\s*(.+?)\.{0,3}\s*$/i;
+const toolStartPattern = /^(?:>\s*)?Using tool:\s*(.+?)\.{0,3}\s*$/i;
+const toolInfoPattern = /^(?:>\s*)?Tool info:\s*(.+?)\s*$/i;
+const toolDonePattern = /^(?:>\s*)?Tool done:\s*(.+?)\s*$/i;
 
 const formatNowTime = () => {
   const now = new Date();
@@ -96,11 +98,35 @@ const handleSend = (msg: string) => {
 const extractToolLog = (content: string): string[] => {
   if (!content) return [];
   const items: string[] = [];
+  let pendingIndex = -1;
   for (const rawLine of content.split('\n')) {
     const line = rawLine.trim();
-    const m = line.match(toolLogPattern);
-    if (!m) continue;
-    items.push(`Using tool: ${m[1]}`);
+    const start = line.match(toolStartPattern);
+    if (start) {
+      items.push(`Using tool: ${start[1]}`);
+      pendingIndex = items.length - 1;
+      continue;
+    }
+
+    const info = line.match(toolInfoPattern);
+    if (info) {
+      if (pendingIndex >= 0) {
+        items[pendingIndex] = `${items[pendingIndex]} | ${info[1]}`;
+      } else {
+        items.push(`Tool info: ${info[1]}`);
+      }
+      continue;
+    }
+
+    const done = line.match(toolDonePattern);
+    if (done) {
+      if (pendingIndex >= 0) {
+        items[pendingIndex] = `${items[pendingIndex]} | done`;
+        pendingIndex = -1;
+      } else {
+        items.push(`Tool done: ${done[1]}`);
+      }
+    }
   }
   return items;
 };
@@ -109,7 +135,10 @@ const stripToolLog = (content: string): string => {
   if (!content) return '';
   const lines = content
     .split('\n')
-    .filter((line) => !toolLogPattern.test(line.trim()));
+    .filter((line) => {
+      const t = line.trim();
+      return !toolStartPattern.test(t) && !toolInfoPattern.test(t) && !toolDonePattern.test(t);
+    });
   return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 };
 

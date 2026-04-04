@@ -61,67 +61,83 @@ struct StdioMcpConnection {
 
 impl StdioMcpConnection {
     async fn send_message(&mut self, value: &Value) -> Result<(), String> {
+        // value: 要通过 stdio 发送的 JSON 值
+        // 将 Value 序列化为字节数组
         let mut bytes = serde_json::to_vec(value).map_err(|e| e.to_string())?;
+        // 在 stdio 行协议上以换行符分隔消息
         bytes.push(b'\n');
+        // 将字节写入子进程 stdin
         self.writer.write_all(&bytes).await.map_err(|e| e.to_string())?;
+        // 确保数据被刷新到子进程
         self.writer.flush().await.map_err(|e| e.to_string())
     }
 
     async fn read_message(&mut self) -> Result<Value, String> {
+        // 持续读取直到解析到合法的 JSON 行或遇到流关闭
         loop {
             let mut line = String::new();
+            // read_line 将读取到的字节数返回到 n
             let n = self
                 .reader
                 .read_line(&mut line)
                 .await
                 .map_err(|e| e.to_string())?;
+            // n == 0 表示流已关闭
             if n == 0 {
                 return Err("MCP stdio stream closed".into());
             }
 
+            // trim 并检查是否为空行，跳过空白或日志行
             let line = line.trim();
             if line.is_empty() {
                 continue;
             }
 
+            // 尝试解析该行为 JSON 值；某些服务器在启动时会在 stdout 打印日志，解析失败则跳过
             match serde_json::from_str::<Value>(line) {
                 Ok(v) => return Ok(v),
-                Err(_) => {
-                    // Some servers may print startup logs on stdout before JSON-RPC messages.
-                    continue;
-                }
+                Err(_) => continue,
             }
         }
     }
 
     async fn send_request(&mut self, method: &str, params: Value) -> Result<Value, String> {
+        // 使用自增 id 来关联请求与响应
         let id = self.next_id;
         self.next_id += 1;
 
+        // 构造 JSON-RPC 请求体
         let req = json!({
             "jsonrpc": "2.0",
             "id": id,
             "method": method,
             "params": params
         });
+        // 发送请求
         self.send_message(&req).await?;
 
+        // 持续读取直到遇到匹配 id 的响应
         loop {
             let msg = self.read_message().await?;
+            // 尝试从响应中解析 id（支持数字或字符串类型）
             let msg_id = msg
                 .get("id")
                 .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse::<u64>().ok())));
+            // 如果不是我们请求的 id，则跳过该消息
             if msg_id != Some(id) {
                 continue;
             }
+            // 如果存在 error 字段，返回错误
             if let Some(err) = msg.get("error") {
                 return Err(format!("MCP error: {}", err));
             }
+            // 返回 result 字段或空对象作为默认
             return Ok(msg.get("result").cloned().unwrap_or_else(|| json!({})));
         }
     }
 
     async fn send_notification(&mut self, method: &str, params: Value) -> Result<(), String> {
+        // 通知无 id 字段，按 JSON-RPC 通知规范构造
         let req = json!({
             "jsonrpc": "2.0",
             "method": method,
@@ -131,6 +147,7 @@ impl StdioMcpConnection {
     }
 
     async fn list_tools(&mut self) -> Result<Vec<McpToolInfo>, String> {
+        // 请求工具列表并从返回值中提取 "tools" 数组
         let result = self.send_request("tools/list", json!({})).await?;
         let tools = result
             .get("tools")
@@ -138,14 +155,18 @@ impl StdioMcpConnection {
             .cloned()
             .unwrap_or_default();
 
+        // 将 JSON 值数组映射为 McpToolInfo 结构体向量
         Ok(tools
             .into_iter()
             .filter_map(|t| {
+                // name: 必需字段，缺失则跳过该条目
                 let name = t.get("name").and_then(|v| v.as_str())?.to_string();
+                // description: 可选字段
                 let description = t
                     .get("description")
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string());
+                // input_schema: 可能是嵌套 JSON
                 let input_schema = t.get("inputSchema").cloned();
                 Some(McpToolInfo {
                     name,
@@ -157,6 +178,7 @@ impl StdioMcpConnection {
     }
 
     async fn call_tool(&mut self, tool_name: &str, arguments: Value) -> Result<Value, String> {
+        // 直接调用 tools/call 接口并返回结果
         self.send_request(
             "tools/call",
             json!({
@@ -168,6 +190,7 @@ impl StdioMcpConnection {
     }
 
     async fn list_resources(&mut self) -> Result<Vec<McpResourceInfo>, String> {
+        // 请求资源列表并解析 "resources" 字段
         let result = self.send_request("resources/list", json!({})).await?;
         let resources = result
             .get("resources")
@@ -175,6 +198,7 @@ impl StdioMcpConnection {
             .cloned()
             .unwrap_or_default();
 
+        // 将每个资源 JSON 对象映射为 McpResourceInfo
         Ok(resources
             .into_iter()
             .filter_map(|r| {
@@ -203,10 +227,12 @@ impl StdioMcpConnection {
     }
 
     async fn read_resource(&mut self, uri: &str) -> Result<Value, String> {
+        // 调用 resources/read 并返回原始 JSON 值
         self.send_request("resources/read", json!({ "uri": uri })).await
     }
 
     async fn shutdown(&mut self) {
+        // 终止子进程（忽略错误）
         let _ = self.child.kill().await;
     }
 }
@@ -252,38 +278,49 @@ fn server_type(config: &McpServerConfig) -> String {
 }
 
 async fn connect_stdio(command: &str, args: &[String], env_map: &HashMap<String, String>) -> Result<StdioMcpConnection, String> {
+    // 解析可能的复合命令：如果 args 为空而 command 中含空格，则把 command 拆分为命令名与参数
     let mut parsed_command = command.trim().to_string();
     let mut parsed_args = args.to_vec();
     if parsed_args.is_empty() && parsed_command.contains(' ') {
+        // parts: 将 command 按空白拆分为 token 列表
         let mut parts = parsed_command
             .split_whitespace()
             .map(|s| s.to_string())
             .collect::<Vec<_>>();
         if !parts.is_empty() {
+            // 将首个 token 作为命令名，其余作为参数
             parsed_command = parts.remove(0);
             parsed_args = parts;
         }
     }
 
+    // spawn_once: 封装一次性 spawn 调用，便于在后续做 fallback
     let spawn_once = |cmd_name: &str, cmd_args: &[String]| {
         let mut cmd = Command::new(cmd_name);
+        // 将参数应用到 Command
         cmd.args(cmd_args);
+        // 管道化 stdin/stdout，以便与子进程通信
         cmd.stdin(std::process::Stdio::piped());
         cmd.stdout(std::process::Stdio::piped());
+        // 将 stderr 重定向到 null，避免污染 stdout
         cmd.stderr(std::process::Stdio::null());
 
+        // 将 env_map 中的环境变量注入子进程
         for (k, v) in env_map {
             cmd.env(k, v);
         }
 
+        // 返回 spawn 调用的结果
         cmd.spawn()
     };
 
+    // 尝试启动子进程，如失败则在 Windows 上尝试通过 cmd /C 回退启动
     let mut child = match spawn_once(&parsed_command, &parsed_args) {
         Ok(child) => child,
         Err(primary_err) => {
             #[cfg(windows)]
             {
+                // 如果找不到可执行文件，尝试使用 cmd 回退（支持传入复杂命令行）
                 if primary_err.kind() == std::io::ErrorKind::NotFound {
                     let mut shell_args = vec!["/C".to_string(), parsed_command.clone()];
                     shell_args.extend(parsed_args.clone());
@@ -306,6 +343,7 @@ async fn connect_stdio(command: &str, args: &[String], env_map: &HashMap<String,
             }
             #[cfg(not(windows))]
             {
+                // 非 Windows 平台直接返回错误
                 return Err(format!(
                     "Failed to spawn MCP server: {}. Hint: for Playwright MCP use command 'npx' with args '-y @playwright/mcp@latest'.",
                     primary_err
@@ -313,9 +351,12 @@ async fn connect_stdio(command: &str, args: &[String], env_map: &HashMap<String,
             }
         }
     };
+
+    // 提取子进程的 stdin/stdout 管道句柄，若不存在则认为启动异常
     let stdin = child.stdin.take().ok_or_else(|| "Missing MCP stdin pipe".to_string())?;
     let stdout = child.stdout.take().ok_or_else(|| "Missing MCP stdout pipe".to_string())?;
 
+    // 构造连接对象，reader 用于按行读取 stdout，writer 写入 stdin
     let mut conn = StdioMcpConnection {
         child,
         reader: BufReader::new(stdout),
@@ -323,6 +364,7 @@ async fn connect_stdio(command: &str, args: &[String], env_map: &HashMap<String,
         next_id: 1,
     };
 
+    // 发送 initialize 请求并带超时保护，防止首次 npx 安装等长时阻塞
     let init_result = timeout(
         MCP_CONNECT_TIMEOUT,
         conn.send_request(
@@ -340,14 +382,18 @@ async fn connect_stdio(command: &str, args: &[String], env_map: &HashMap<String,
     .await;
 
     match init_result {
+        // 初始化成功
         Ok(Ok(_)) => {}
+        // MCP 返回错误信息
         Ok(Err(e)) => return Err(e),
+        // 超时则关闭连接并返回超时错误
         Err(_) => {
             let _ = conn.shutdown().await;
             return Err("MCP server initialize timeout (30s). First-time npx install may be slow; please retry or pre-run `npx -y @playwright/mcp@latest --help` in terminal.".to_string());
         }
     }
 
+    // 通知 MCP 已初始化（忽略返回值）
     let _ = conn
         .send_notification("notifications/initialized", json!({}))
         .await;
