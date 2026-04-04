@@ -5,14 +5,23 @@ use crate::llm::types::Message;
 
 #[derive(Debug, Serialize, Clone)]
 pub struct ChatMessageEvent {
+    // 事件类型（text/tool-result/stop 等）。
     pub r#type: String,
+    // 文本内容（按事件类型可选）。
     pub text: Option<String>,
+    // 工具调用 ID（工具事件可选）。
     pub tool_use_id: Option<String>,
+    // 工具名称（工具事件可选）。
     pub tool_use_name: Option<String>,
+    // 工具输入（工具事件可选）。
     pub tool_use_input: Option<String>,
+    // 工具输出（工具事件可选）。
     pub tool_result: Option<String>,
+    // token 使用量（可选）。
     pub token_usage: Option<u32>,
+    // 停止原因（stop 事件可选）。
     pub stop_reason: Option<String>,
+    // 回合状态（completed/error/cancelled 等）。
     pub turn_state: Option<String>,
 }
 
@@ -23,5 +32,6 @@ pub async fn send_chat_message(
     messages: Vec<Message>,
     plan_mode: bool,
 ) -> Result<(), String> {
+    // 直接委托给新版 query 模块，保持旧 API 兼容。
     crate::llm::query::send_chat_message(app, conversation_id, messages, plan_mode).await
 }

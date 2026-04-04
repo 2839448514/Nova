@@ -19,13 +19,17 @@ pub struct AnthropicProvider;
 
 // 判断工具结果是否要求“需要用户输入”，帮助上层 query_engine 决定是否停止并等待交互。
 fn is_needs_user_input_payload(raw: &str) -> bool {
+    // 尝试解析工具输出 JSON 并检查 type 字段。
     serde_json::from_str::<serde_json::Value>(raw)
+        // 解析失败时转 None。
         .ok()
         .and_then(|v| {
             v.get("type")
                 .and_then(|t| t.as_str())
+                // 仅当 type=needs_user_input 视为需要用户输入。
                 .map(|s| s == "needs_user_input")
         })
+        // 默认 false。
         .unwrap_or(false)
 }
 
@@ -39,6 +43,7 @@ fn apply_tool_call_result(
     prevent_continuation: &mut bool,
     hook_stop_reason: &mut Option<String>,
 ) {
+    // 广播工具结果事件。
     app.emit(
         "chat-stream",
         ChatMessageEvent {
@@ -55,6 +60,7 @@ fn apply_tool_call_result(
     )
     .ok();
 
+    // 如果工具结果要求用户输入且尚未发 stop，则发一次 awaiting_user_input。
     let needs_user_input = is_needs_user_input_payload(&executed.output);
     if needs_user_input && !*stop_emitted_for_user_input {
         *stop_emitted_for_user_input = true;
@@ -75,6 +81,7 @@ fn apply_tool_call_result(
         .ok();
     }
 
+    // 把工具结果块写入回灌消息。
     tool_result_blocks.push(ContentBlock::ToolResult {
         tool_use_id: executed.id,
         is_error: executed.is_error,
@@ -83,10 +90,12 @@ fn apply_tool_call_result(
         }],
     });
 
+    // 合并 hooks 附加消息。
     if !executed.additional_messages.is_empty() {
         additional_context_messages.extend(executed.additional_messages);
     }
 
+    // 合并 hooks 阻断状态与原因。
     if executed.prevent_continuation {
         *prevent_continuation = true;
         if hook_stop_reason.is_none() {
@@ -103,17 +112,22 @@ impl AnthropicProvider {
         plan_mode: bool,
         conversation_id: Option<&str>,
     ) -> Result<ProviderTurnResult, String> {
+        // 读取设置与当前 provider profile。
         let settings = crate::command::settings::get_settings(app.clone());
         let profile = settings.active_provider_profile();
+        // 提取 API key。
         let api_key = profile.api_key;
 
+        // API key 缺失时直接失败。
         if api_key.is_empty() {
             return Err("API error: No API key configured. Please set it in Settings.".to_string());
         }
 
+        // 收集本地工具和 MCP 动态工具。
         let mut available_tools = tools::get_available_tools();
         available_tools.extend(mcp_tools::collect_mcp_tools(app).await);
 
+        // 构造 Anthropic 请求体。
         let request = AnthropicRequest {
             model: profile.model.clone(),
             max_tokens: 4096,
@@ -123,6 +137,7 @@ impl AnthropicProvider {
             stream: true,
         };
 
+        // 创建 HTTP 客户端并规范化 URL 到 /v1/messages。
         let client = Client::new();
         let mut url = profile.base_url.trim_end_matches('/').to_string();
         if !url.ends_with("/v1/messages") && !url.ends_with("/messages") {
@@ -133,6 +148,7 @@ impl AnthropicProvider {
             }
         }
 
+        // 发送请求并设置认证头。
         let resp = client
             .post(&url)
             .header("Authorization", format!("Bearer {}", api_key))
@@ -146,6 +162,7 @@ impl AnthropicProvider {
         // 发起 REST 请求（stream=true），本函数本身不做流数据解析，交给 process_stream_response 处理。
         match resp {
             Ok(res) => {
+                // 非 2xx 读取错误体并上报。
                 if !res.status().is_success() {
                     let status = res.status();
                     let error_text = res.text().await.unwrap_or_default();
@@ -173,21 +190,37 @@ impl AnthropicProvider {
         response: reqwest::Response,
         conversation_id: Option<&str>,
     ) -> Result<ProviderTurnResult, String> {
+    // 获取响应字节流。
     let mut stream = response.bytes_stream();
+    // 当前正在累积的工具调用 ID。
     let mut current_tool_id = None;
+    // 当前正在累积的工具名。
     let mut current_tool_name = None;
+    // 当前正在累积的工具输入 JSON 字符串。
     let mut current_tool_input = String::new();
+    // 累积文本输出。
     let mut generated_text = String::new();
+    // assistant 输出块集合。
     let mut output_blocks: Vec<ContentBlock> = Vec::new();
+    // 工具结果块集合（作为 user 回灌）。
     let mut tool_result_blocks: Vec<ContentBlock> = Vec::new();
+    // 流内待执行工具调用批次。
     let mut pending_tool_calls: Vec<tools::ToolCallRequest> = Vec::new();
+    // 是否已发过 stop 事件。
     let mut emitted_stop = false;
+    // 当前输出 token 数（来自 usage）。
     let mut current_output_tokens: Option<u32> = None;
+    // 是否已经因 needs_user_input 发过 stop。
     let mut stop_emitted_for_user_input = false;
+    // 最近一次 stop_reason。
     let mut last_stop_reason: Option<String> = None;
+    // hooks 注入的附加上下文消息。
     let mut additional_context_messages: Vec<Message> = Vec::new();
+    // 是否阻断续跑。
     let mut prevent_continuation = false;
+    // hook 阻断原因。
     let mut hook_stop_reason: Option<String> = None;
+    // 流内工具执行批大小（默认 2）。
     let streaming_batch_size = std::env::var("NOVA_STREAMING_TOOL_BATCH_SIZE")
         .ok()
         .and_then(|v| v.trim().parse::<usize>().ok())
@@ -195,6 +228,7 @@ impl AnthropicProvider {
         .unwrap_or(2);
 
     loop {
+        // 每轮先检查取消标记。
         if crate::llm::cancellation::is_cancelled(conversation_id) {
             return Ok(ProviderTurnResult {
                 messages: Vec::new(),
@@ -204,15 +238,18 @@ impl AnthropicProvider {
             });
         }
 
+        // 200ms 轮询下一块，避免永久阻塞。
         let next_chunk = match timeout(Duration::from_millis(200), stream.next()).await {
             Ok(v) => v,
             Err(_) => continue,
         };
 
+        // 流结束。
         let Some(chunk) = next_chunk else {
             break;
         };
 
+        // 读取 chunk 字节，失败则返回错误。
         let bytes = match chunk {
             Ok(v) => v,
             Err(e) => {
@@ -221,13 +258,18 @@ impl AnthropicProvider {
                 return Err(msg);
             }
         };
+        // 按宽松 UTF-8 解码文本。
         let text = String::from_utf8_lossy(&bytes);
         for line in text.lines() {
+                // 仅解析 data 前缀行。
                 if let Some(data) = line.strip_prefix("data:") {
+                    // 兼容 data: 后可选空格。
                     let data = data.trim_start();
+                    // 流结束标记。
                     if data == "[DONE]" {
                         break;
                     }
+                    // 回传 raw-json 给前端调试。
                     app.emit(
                         "chat-stream",
                         ChatMessageEvent {
@@ -243,9 +285,11 @@ impl AnthropicProvider {
                         },
                     )
                     .ok();
+                    // 解析为 Anthropic StreamEvent。
                     if let Ok(event) = serde_json::from_str::<StreamEvent>(data) {
                         match event {
                             StreamEvent::ContentBlockStart { content_block, .. } => {
+                                // 工具调用块开始。
                                 if let StreamContentBlock::ToolUse { id, name, .. } = content_block {
                                     current_tool_id = Some(id.clone());
                                     current_tool_name = Some(name.clone());
@@ -269,6 +313,7 @@ impl AnthropicProvider {
                             }
                             StreamEvent::ContentBlockDelta { delta, .. } => match delta {
                                 StreamDelta::TextDelta { text } => {
+                                    // 文本增量追加并回传。
                                     generated_text.push_str(&text);
                                     app.emit(
                                         "chat-stream",
@@ -287,6 +332,7 @@ impl AnthropicProvider {
                                     .ok();
                                 }
                                 StreamDelta::InputJsonDelta { partial_json } => {
+                                    // 工具输入 JSON 增量追加并回传。
                                     current_tool_input.push_str(&partial_json);
                                     app.emit(
                                         "chat-stream",
@@ -306,19 +352,23 @@ impl AnthropicProvider {
                                 }
                             },
                             StreamEvent::ContentBlockStop { .. } => {
+                                // 工具块结束：有工具则入队执行；否则收束文本块。
                                 if let (Some(id), Some(name)) =
                                     (current_tool_id.take(), current_tool_name.take())
                                 {
+                                    // 解析工具输入 JSON，失败回退空对象。
                                     let input_value: serde_json::Value =
                                         serde_json::from_str(&current_tool_input)
                                             .unwrap_or_else(|_| serde_json::json!({}));
 
+                                    // 记录 assistant 的 ToolUse 块。
                                     output_blocks.push(ContentBlock::ToolUse {
                                         id: id.clone(),
                                         name: name.clone(),
                                         input: input_value.clone(),
                                     });
 
+                                    // 入队等待批量执行。
                                     pending_tool_calls.push(tools::ToolCallRequest {
                                         id: id.clone(),
                                         name: name.clone(),
@@ -341,6 +391,7 @@ impl AnthropicProvider {
                                     )
                                     .ok();
 
+                                    // 达到批量阈值时执行工具。
                                     if pending_tool_calls.len() >= streaming_batch_size {
                                         let executed_calls = tools::execute_tool_calls_with_app(
                                             app,
@@ -349,6 +400,7 @@ impl AnthropicProvider {
                                         )
                                         .await;
 
+                                        // 把工具执行结果统一应用到状态与消息块。
                                         for executed in executed_calls {
                                             apply_tool_call_result(
                                                 app,
@@ -363,6 +415,7 @@ impl AnthropicProvider {
                                         }
                                     }
                                 } else if !generated_text.is_empty() {
+                                    // 无工具时把累计文本落到输出块。
                                     output_blocks.push(ContentBlock::Text {
                                         text: generated_text.clone(),
                                     });
@@ -370,6 +423,7 @@ impl AnthropicProvider {
                                 }
                             }
                             StreamEvent::MessageDelta { delta, usage } => {
+                                // 更新 stop_reason 与 token usage。
                                 if let Some(reason) = delta.stop_reason.clone() {
                                     last_stop_reason = Some(reason);
                                 }
@@ -391,6 +445,7 @@ impl AnthropicProvider {
                                 .ok();
                             }
                             StreamEvent::MessageStop => {
+                                // message stop 前执行剩余待处理工具调用。
                                 if !pending_tool_calls.is_empty() {
                                     let executed_calls = tools::execute_tool_calls_with_app(
                                         app,
@@ -398,6 +453,7 @@ impl AnthropicProvider {
                                         std::mem::take(&mut pending_tool_calls),
                                     )
                                     .await;
+                                    // 应用剩余工具结果。
                                     for executed in executed_calls {
                                         apply_tool_call_result(
                                             app,
@@ -412,6 +468,7 @@ impl AnthropicProvider {
                                     }
                                 }
 
+                                // 标记并广播中间 stop。
                                 emitted_stop = true;
                                 app.emit(
                                     "chat-stream",
@@ -436,6 +493,7 @@ impl AnthropicProvider {
             }
     }
 
+    // 若流内没发 stop，这里补发一次。
     if !emitted_stop {
         app.emit(
             "chat-stream",
@@ -454,11 +512,13 @@ impl AnthropicProvider {
         .ok();
     }
 
+    // 组装 assistant 消息。
     let mut result_messages = vec![Message {
         role: Role::Assistant,
         content: crate::llm::types::Content::Blocks(output_blocks),
     }];
 
+    // 追加工具结果回灌消息。
     if !tool_result_blocks.is_empty() {
         result_messages.push(Message {
             role: Role::User,
@@ -466,10 +526,12 @@ impl AnthropicProvider {
         });
     }
 
+    // 追加 hooks 上下文消息。
     if !additional_context_messages.is_empty() {
         result_messages.extend(additional_context_messages);
     }
 
+    // 统一最终 stop_reason。
     let final_stop_reason = if prevent_continuation {
         hook_stop_reason
             .or(last_stop_reason)
@@ -478,6 +540,7 @@ impl AnthropicProvider {
         last_stop_reason
     };
 
+    // 返回 provider 回合结果。
     Ok(ProviderTurnResult {
         messages: result_messages,
         stop_reason: final_stop_reason,

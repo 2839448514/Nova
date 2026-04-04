@@ -8,8 +8,10 @@ fn truncate_chars(input: &str, max_chars: usize) -> String {
     let mut out = String::new();
     // out: 用于累积截断后的字符。
     for ch in input.chars().take(max_chars) {
+        // ch: 当前迭代到的字符。
         out.push(ch);
     }
+    // 返回截断后的字符串。
     out
 }
 
@@ -84,14 +86,20 @@ pub async fn build_resume_context_message(
 
     let mut content_parts = Vec::new();
     // content_parts: 构建最终 Message 内容的段落数组。
+    // 固定头部标记，供上游识别恢复上下文。
     content_parts.push("[Session Restore Context]".to_string());
+    // 插入摘要段。
     content_parts.push(format!("Summary: {}", summary));
     if !key_facts.is_empty() {
+        // 关键事实标题段。
         content_parts.push("Key facts:".to_string());
+        // 关键事实正文段。
         content_parts.push(key_facts);
     }
     if !recent.is_empty() {
+        // 最近消息标题段。
         content_parts.push("Recent messages since compact boundary:".to_string());
+        // 最近消息正文段。
         content_parts.push(recent);
     }
 

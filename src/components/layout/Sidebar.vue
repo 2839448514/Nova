@@ -60,24 +60,14 @@ const openSettings = () => {
         <span class="text-[0.9rem]">指令</span>
       </button>
       <button class="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[#ebebeb] dark:hover:bg-[#2d2d2d] transition-colors w-full text-left text-muted-foreground">
-        <!-- 提示（复用 Code 风格箭头图标，简单明了） -->
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M16 18l6-6-6-6M8 6l-6 6 6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        <span class="text-[0.9rem]">提示</span>
-      </button>
-      <button class="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[#ebebeb] dark:hover:bg-[#2d2d2d] transition-colors w-full text-left text-muted-foreground">
         <!-- 挂钩（复用搜索图标样式） -->
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="8" stroke="currentColor" stroke-width="2"/><path d="M21 21l-4.35-4.35" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
         <span class="text-[0.9rem]">挂钩</span>
       </button>
-      <button class="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[#ebebeb] dark:hover:bg-[#2d2d2d] transition-colors w-full text-left text-muted-foreground">
+      <button class="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[#ebebeb] dark:hover:bg-[#2d2d2d] transition-colors w-full text-left text-muted-foreground mb-4">
         <!-- MCP 服务器（使用齿轮/自定义图标） -->
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 20.5V20m0-16v-.5m0 0a2.5 2.5 0 100 5 2.5 2.5 0 000-5zm0 16a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         <span class="text-[0.9rem]">MCP 服务器</span>
-      </button>
-      <button class="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[#ebebeb] dark:hover:bg-[#2d2d2d] transition-colors w-full text-left text-muted-foreground mb-4">
-        <!-- 插件（复用箭头/展开图标，与项目图标风格匹配） -->
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M16 18l6-6-6-6M8 6l-6 6 6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        <span class="text-[0.9rem]">插件</span>
       </button>
 
       <!-- Recents -->
