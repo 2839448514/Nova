@@ -39,3 +39,19 @@ pub async fn cancel_chat_message(conversation_id: Option<String>) -> Result<bool
         conversation_id.as_deref(),
     ))
 }
+
+#[tauri::command]
+pub async fn submit_permission_decision(
+    conversation_id: Option<String>,
+    request_id: String,
+    action: String,
+) -> Result<bool, String> {
+    let parsed_action = crate::llm::utils::permissions::parse_permission_action_name(&action)
+        .ok_or_else(|| format!("Unknown permission action '{}'", action))?;
+
+    crate::llm::utils::permissions::submit_permission_decision(
+        conversation_id.as_deref(),
+        &request_id,
+        parsed_action,
+    )
+}

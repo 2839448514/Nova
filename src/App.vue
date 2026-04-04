@@ -5,6 +5,7 @@ import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { emitToast } from "./lib/toast";
 import {
   buildPendingQuestionReply,
+  extractPermissionActionFromAnswers,
   parseNeedsUserInput,
   parsePlanModeChange,
   renderToolResult,
@@ -22,6 +23,7 @@ import type {
 import Sidebar from "./components/layout/Sidebar.vue";
 import WelcomeScreen from "./components/chat/WelcomeScreen.vue";
 import ChatScreen from "./components/chat/ChatScreen.vue";
+import HooksConfigScreen from "./components/hooks/HooksConfigScreen.vue";
 import GlobalToastHost from "./components/layout/GlobalToastHost.vue";
 
 type BackendErrorEvent = {
@@ -29,6 +31,8 @@ type BackendErrorEvent = {
   message?: string;
   stage?: string | null;
 };
+
+type MainView = "chat" | "hooks";
 
 const messages = ref<ChatMessage[]>([]);
 const isGenerating = ref(false);
@@ -38,7 +42,9 @@ const assistantTurnCost = ref<TurnCost | undefined>(undefined);
 const conversations = ref<ConversationMeta[]>([]);
 const activeConversationId = ref("");
 const pendingQuestion = ref<NeedsUserInputPayload | null>(null);
+const pendingPermissionRequestId = ref<string | null>(null);
 const conversationMemory = ref<ConversationMemory | null>(null);
+const mainView = ref<MainView>("chat");
 const currentToolStartedAt = ref<number | null>(null);
 const currentToolCalls = ref(0);
 const currentToolDurationMs = ref(0);
@@ -339,6 +345,23 @@ onMounted(async () => {
           const prev = toolInputById.get(toolId) ?? "";
           toolInputById.set(toolId, prev + payload.tool_use_input);
         }
+      } else if (payload.type === "permission-request") {
+        const requestId = (payload.tool_use_id ?? "").trim();
+        const promptPayload = (payload.text ?? "").trim();
+        const parsed = parseNeedsUserInput(promptPayload);
+
+        if (!requestId || !parsed) {
+          emitToast({
+            variant: "error",
+            source: "permission-request",
+            message: "收到权限请求但缺少有效参数，无法显示审批弹窗。",
+          });
+          return;
+        }
+
+        pendingPermissionRequestId.value = requestId;
+        pendingQuestion.value = parsed;
+        chatScreenRef.value?.scrollToBottom();
       } else if (payload.type === "tool-result") {
         if (currentToolStartedAt.value) {
           currentToolDurationMs.value += Math.max(0, Date.now() - currentToolStartedAt.value);
@@ -366,6 +389,7 @@ onMounted(async () => {
           }
           const needsUserInput = parseNeedsUserInput(result);
           if (needsUserInput) {
+            pendingPermissionRequestId.value = null;
             pendingQuestion.value = needsUserInput;
             isGenerating.value = false;
             const rendered = renderToolResult(result);
@@ -392,6 +416,8 @@ onMounted(async () => {
             isGenerating.value = false;
           }
           currentToolStartedAt.value = null;
+          pendingPermissionRequestId.value = null;
+          pendingQuestion.value = null;
           toolInputById.clear();
           toolNameById.clear();
           return;
@@ -399,6 +425,8 @@ onMounted(async () => {
 
         if (turnState === "error") {
           isGenerating.value = false;
+          pendingPermissionRequestId.value = null;
+          pendingQuestion.value = null;
           const detail = (payload.text ?? "").trim();
           emitToast({
             variant: "error",
@@ -445,7 +473,9 @@ onUnmounted(() => {
 
 async function handleSendMessage(userText: string) {
   if (!userText.trim() || isGenerating.value) return;
+  mainView.value = "chat";
   pendingQuestion.value = null;
+  pendingPermissionRequestId.value = null;
 
   if (!activeConversationId.value) {
     const id = await createNewConversation(userText);
@@ -511,10 +541,58 @@ async function handleCancelGeneration() {
 }
 
 async function handlePendingQuestionSubmit(payload: AskUserAnswerSubmission) {
+  if (pendingPermissionRequestId.value) {
+    const action = extractPermissionActionFromAnswers(payload);
+    if (!action) {
+      emitToast({
+        variant: "error",
+        source: "permission",
+        message: "未识别到权限操作，请重新选择允许/拒绝选项。",
+      });
+      return;
+    }
+
+    try {
+      await invoke<boolean>("submit_permission_decision", {
+        conversationId: activeConversationId.value || null,
+        requestId: pendingPermissionRequestId.value,
+        action,
+      });
+      pendingQuestion.value = null;
+      pendingPermissionRequestId.value = null;
+    } catch (err) {
+      emitToast({
+        variant: "error",
+        source: "permission",
+        message: `提交权限决策失败: ${String(err)}`,
+      });
+    }
+    return;
+  }
+
   await handleSendMessage(buildPendingQuestionReply(payload, "submit"));
 }
 
 async function handlePendingQuestionSkip() {
+  if (pendingPermissionRequestId.value) {
+    try {
+      await invoke<boolean>("submit_permission_decision", {
+        conversationId: activeConversationId.value || null,
+        requestId: pendingPermissionRequestId.value,
+        action: "deny_session",
+      });
+      pendingQuestion.value = null;
+      pendingPermissionRequestId.value = null;
+    } catch (err) {
+      emitToast({
+        variant: "error",
+        source: "permission",
+        message: `提交权限拒绝失败: ${String(err)}`,
+      });
+    }
+    return;
+  }
+
   await handleSendMessage(buildPendingQuestionReply(null, "skip"));
 }
 
@@ -523,6 +601,9 @@ async function handleNewChat() {
   if (!id) return;
   activeConversationId.value = id;
   messages.value = [];
+  mainView.value = "chat";
+  pendingQuestion.value = null;
+  pendingPermissionRequestId.value = null;
   assistantResponse.value = "";
   isGenerating.value = false;
   planMode.value = false;
@@ -530,6 +611,9 @@ async function handleNewChat() {
 
 async function handleSelectConversation(id: string) {
   if (!id || id === activeConversationId.value || isGenerating.value) return;
+  mainView.value = "chat";
+  pendingQuestion.value = null;
+  pendingPermissionRequestId.value = null;
   assistantResponse.value = "";
   isGenerating.value = false;
   planMode.value = false;
@@ -559,6 +643,10 @@ async function handleDeleteConversation(id: string) {
     console.error("Failed to delete conversation:", err);
   }
 }
+
+function handleChangeMainView(view: MainView) {
+  mainView.value = view;
+}
 </script>
 
 <template>
@@ -569,9 +657,11 @@ async function handleDeleteConversation(id: string) {
       v-if="isSidebarOpen"
       :recents="conversations"
       :activeConversationId="activeConversationId"
+      :activeMainView="mainView"
       @new-chat="handleNewChat"
       @select-conversation="handleSelectConversation"
       @delete-conversation="handleDeleteConversation"
+      @change-main-view="handleChangeMainView"
       @toggle-sidebar="isSidebarOpen = !isSidebarOpen"
     />
 
@@ -590,27 +680,34 @@ async function handleDeleteConversation(id: string) {
         </div>
       </header>
 
-      <WelcomeScreen 
-        v-if="messages.length === 0" 
-        :isGenerating="isGenerating"
-        @send="handleSendMessage" 
+      <HooksConfigScreen
+        v-if="mainView === 'hooks'"
+        @change-main-view="handleChangeMainView"
       />
 
-      <ChatScreen 
-        v-else 
-        ref="chatScreenRef"
-        :messages="messages"
-        :isGenerating="isGenerating"
-        :assistantResponse="assistantResponse"
-        :assistantTokenUsage="assistantTokenUsage"
-        :assistantTurnCost="assistantTurnCost"
-        :pendingQuestion="pendingQuestion"
-        :planMode="planMode"
-        @send="handleSendMessage"
-        @cancel="handleCancelGeneration"
-        @ask-submit="handlePendingQuestionSubmit"
-        @ask-skip="handlePendingQuestionSkip"
-      />
+      <template v-else>
+        <WelcomeScreen 
+          v-if="messages.length === 0" 
+          :isGenerating="isGenerating"
+          @send="handleSendMessage" 
+        />
+
+        <ChatScreen 
+          v-else 
+          ref="chatScreenRef"
+          :messages="messages"
+          :isGenerating="isGenerating"
+          :assistantResponse="assistantResponse"
+          :assistantTokenUsage="assistantTokenUsage"
+          :assistantTurnCost="assistantTurnCost"
+          :pendingQuestion="pendingQuestion"
+          :planMode="planMode"
+          @send="handleSendMessage"
+          @cancel="handleCancelGeneration"
+          @ask-submit="handlePendingQuestionSubmit"
+          @ask-skip="handlePendingQuestionSkip"
+        />
+      </template>
 
     </main>
   </div>

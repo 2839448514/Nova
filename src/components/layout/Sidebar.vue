@@ -7,9 +7,12 @@ interface ConversationItem {
   title: string;
 }
 
+type MainView = "chat" | "hooks";
+
 const props = defineProps<{
   recents: ConversationItem[];
   activeConversationId: string;
+  activeMainView?: MainView;
 }>();
 
 const emit = defineEmits<{
@@ -17,6 +20,7 @@ const emit = defineEmits<{
   (e: "new-chat"): void;
   (e: "select-conversation", id: string): void;
   (e: "delete-conversation", id: string): void;
+  (e: "change-main-view", view: MainView): void;
 }>();
 
 const isSettingsOpen = ref(false);
@@ -44,7 +48,13 @@ const openSettings = () => {
 
       <!-- 导航（已根据图片调整为中文标签与顺序） -->
       <h3 class="text-xs font-semibold text-[#8b8b8b] px-3 mt-2 mb-1">导航</h3>
-      <button class="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[#ebebeb] dark:hover:bg-[#2d2d2d] transition-colors w-full text-left text-muted-foreground">
+      <button
+        class="flex items-center gap-3 px-3 py-2 rounded-lg transition-colors w-full text-left"
+        :class="props.activeMainView === 'chat'
+          ? 'bg-[#ebebeb] dark:bg-[#2d2d2d] text-[#222] dark:text-[#f2f2f2]'
+          : 'hover:bg-[#ebebeb] dark:hover:bg-[#2d2d2d] text-muted-foreground'"
+        @click="emit('change-main-view', 'chat')"
+      >
         <!-- 智能体（复用聊天气泡图标，样式与项目一致） -->
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         <span class="text-[0.9rem]">智能体</span>
@@ -59,7 +69,13 @@ const openSettings = () => {
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><rect x="3" y="3" width="18" height="18" rx="2" stroke="currentColor" stroke-width="2"/><path d="M3 9h18M9 21V9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
         <span class="text-[0.9rem]">指令</span>
       </button>
-      <button class="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[#ebebeb] dark:hover:bg-[#2d2d2d] transition-colors w-full text-left text-muted-foreground">
+      <button
+        class="flex items-center gap-3 px-3 py-2 rounded-lg transition-colors w-full text-left"
+        :class="props.activeMainView === 'hooks'
+          ? 'bg-[#ebebeb] dark:bg-[#2d2d2d] text-[#222] dark:text-[#f2f2f2]'
+          : 'hover:bg-[#ebebeb] dark:hover:bg-[#2d2d2d] text-muted-foreground'"
+        @click="emit('change-main-view', 'hooks')"
+      >
         <!-- 挂钩（复用搜索图标样式） -->
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="8" stroke="currentColor" stroke-width="2"/><path d="M21 21l-4.35-4.35" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
         <span class="text-[0.9rem]">挂钩</span>

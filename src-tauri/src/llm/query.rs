@@ -3,187 +3,55 @@ use tauri::{AppHandle, Emitter};
 use crate::llm::providers::LlmProvider;
 use crate::llm::query_engine::ChatMessageEvent;
 use crate::llm::services::compact;
-use crate::llm::types::{Content, ContentBlock, Message, Role};
+use crate::llm::types::{Content, ContentBlock, Message};
+use crate::llm::utils::context_assembler::{self, AssembleOptions};
 use crate::llm::utils::error_event::emit_backend_error;
 
 mod state_machine;
 
 use state_machine::TurnOutcome;
 
-// 当本轮输出达到预算 90% 以上时，不再触发续跑提示。
-const TOKEN_BUDGET_COMPLETION_THRESHOLD_PERCENT: i64 = 90;
-// 连续续跑时，若新增 token 低于该阈值则判定收益递减。
-const TOKEN_BUDGET_DIMINISHING_THRESHOLD_TOKENS: i64 = 500;
-// 未配置时允许的默认最大续跑次数。
-const TOKEN_BUDGET_DEFAULT_MAX_CONTINUATIONS: u32 = 6;
-
-#[derive(Debug, Default)]
-struct BudgetTracker {
-	// 已触发的续跑次数。
-	continuation_count: u32,
-	// 最近一次检查相对上一轮的增量 token。
-	last_delta_tokens: i64,
-	// 最近一次检查时累计的输出 token。
-	last_turn_tokens: i64,
-}
-
-fn env_positive_i64(key: &str) -> Option<i64> {
-	// 从环境变量读取原始字符串。
-	std::env::var(key)
-		// 环境变量不存在时转为 None。
-		.ok()
-		// 字符串去空白后尝试解析为 i64。
-		.and_then(|v| v.trim().parse::<i64>().ok())
-		// 仅保留正数值。
-		.filter(|v| *v > 0)
-}
-
-fn token_budget_for_turn() -> Option<i64> {
-	// 读取每轮预算配置（正整数）。
-	env_positive_i64("NOVA_TURN_TOKEN_BUDGET")
-}
-
-fn token_budget_max_continuations() -> u32 {
-	// 读取最大续跑次数配置。
-	std::env::var("NOVA_TURN_TOKEN_BUDGET_MAX_CONTINUATIONS")
-		// 未配置时转为 None。
-		.ok()
-		// 去空白并尝试解析为 u32。
-		.and_then(|v| v.trim().parse::<u32>().ok())
-		// 仅接受大于 0 的配置值。
-		.filter(|v| *v > 0)
-		// 配置缺失或非法时回落到默认值。
-		.unwrap_or(TOKEN_BUDGET_DEFAULT_MAX_CONTINUATIONS)
-}
-
-fn estimate_assistant_output_tokens(messages: &[Message]) -> i64 {
-	// 从消息列表中过滤 assistant 角色消息。
-	let assistant_messages = messages
-		// 遍历消息切片。
-		.iter()
-		// 仅保留 assistant 消息。
-		.filter(|m| m.role == Role::Assistant)
-		// 克隆消息供后续估算使用。
-		.cloned()
-		// 收集为向量。
-		.collect::<Vec<_>>();
-	// 使用 compact 模块统一估算 token 数。
-	compact::estimate_tokens_for_messages(&assistant_messages)
-}
-
-fn next_token_budget_nudge(
-	tracker: &mut BudgetTracker,
-	budget: i64,
-	turn_output_tokens: i64,
-	max_continuations: u32,
-) -> Option<String> {
-	// 预算或输出无效时不触发续跑。
-	if budget <= 0 || turn_output_tokens <= 0 {
-		return None;
-	}
-
-	// 超过最大续跑次数时不再继续。
-	if tracker.continuation_count >= max_continuations {
-		return None;
-	}
-
-	// 计算相对上次检查新增的 token。
-	let delta_since_last_check = turn_output_tokens - tracker.last_turn_tokens;
-	// 判断是否进入收益递减状态。
-	let is_diminishing = tracker.continuation_count >= 3
-		&& delta_since_last_check < TOKEN_BUDGET_DIMINISHING_THRESHOLD_TOKENS
-		&& tracker.last_delta_tokens < TOKEN_BUDGET_DIMINISHING_THRESHOLD_TOKENS;
-
-	// 未递减且仍低于预算完成阈值时，注入续跑提示。
-	if !is_diminishing
-		&& turn_output_tokens < (budget * TOKEN_BUDGET_COMPLETION_THRESHOLD_PERCENT) / 100
-	{
-		// 续跑计数加一。
-		tracker.continuation_count += 1;
-		// 记录本次增量用于下轮递减判断。
-		tracker.last_delta_tokens = delta_since_last_check;
-		// 记录本次累计输出。
-		tracker.last_turn_tokens = turn_output_tokens;
-
-		// 计算已用预算百分比并限制显示范围。
-		let pct = ((turn_output_tokens * 100) / budget).clamp(0, 999);
-		// 返回追加给模型的续跑指令文本。
-		return Some(format!(
-			"[TokenBudget] continuation #{} ({}% of budget, {} / {} tokens). Continue directly without recap and finish the remaining work in smaller chunks.",
-			tracker.continuation_count,
-			pct,
-			turn_output_tokens,
-			budget,
-		));
-	}
-
-	None
-}
-
-// 检查一轮消息里是否已经包含过会话恢复标记，避免重复叠加恢复上下文。
-fn has_session_restore_marker(messages: &[Message]) -> bool {
-	// 任意消息命中恢复标记即返回 true。
-	messages.iter().any(|m| match &m.content {
-		// 纯文本消息直接检查标记子串。
-		Content::Text(t) => t.contains("[Session Restore Context]"),
-		// 多块内容消息需要逐块检查文本块。
-		Content::Blocks(blocks) => blocks.iter().any(|b| {
-			// 仅文本块参与标记匹配。
-			if let ContentBlock::Text { text } = b {
-				text.contains("[Session Restore Context]")
-			} else {
-				// 非文本块不视为命中。
-				false
-			}
-		}),
-	})
-}
-
 // 入口函数：发送用户聊天消息，驱动 LLM 请求和工具调用流程。
 // 这个函数负责准备消息、循环调度 provider、处理 tool-result 掉回、最后发送 stop 事件。
+// send_chat_message
+//     │
+//     ├─ 1. context_assembler   → 注入会话恢复上下文
+//     ├─ 2. compact             → 压缩历史消息
+//     │
+//     └─ 3. 主循环 loop
+//             ├─ 取消检查
+//             ├─ 权限决策消费
+//             ├─ provider.send_request (流式)
+//             ├─ 工具结果检测 → 有 tool_result → continue
+//             ├─ needs_user_input → break
+//             ├─ stop hooks
+	//             └─ 无工具结果时完成回合
 pub async fn send_chat_message(
 	app: AppHandle,
 	conversation_id: Option<String>,
 	messages: Vec<Message>,
 	plan_mode: bool,
 ) -> Result<(), String> {
-	// 1. 预处理消息：把用户本轮输入和历史消息压缩为本次模型请求的 current_messages。
-	// 这里会做上下文裁剪和必要格式整理。
-	let mut current_messages =
-		compact::prepare_messages_for_turn(&app, conversation_id.as_deref(), &messages).await;
+	// 1. 先组装上下文（会话恢复等），再执行压缩。
+	let assembled_messages = context_assembler::assemble_messages_for_turn(
+		&app,
+		conversation_id.as_deref(),
+		&messages,
+		AssembleOptions::default(),
+	)
+	.await;
+	let mut current_messages = compact::compact_messages_for_turn(
+		&app,
+		conversation_id.as_deref(),
+		&assembled_messages,
+	)
+	.await;
 
-	// 2. 如果有会话 ID，尝试插入会话恢复上下文（仅当当前内容里未标记时）。
-	//    这块会返回类似: "[Session Restore Context] ..." 的 system/user 信息。
-	if let Some(conversation_id) = conversation_id.as_deref() {
-		// 只有当前消息尚未包含恢复标记时才补充恢复上下文。
-		if !has_session_restore_marker(&current_messages) {
-			// 从会话历史中构建恢复消息。
-			if let Some(restore_msg) =
-				crate::llm::utils::session_restore::build_resume_context_message(
-					&app,
-					conversation_id,
-				)
-				.await
-			{
-				// 将恢复消息插入消息头部，让模型优先看到。
-				current_messages.insert(0, restore_msg);
-			}
-		}
-	}
-
-	// 3. 根据设置选择模型提供方（Anthropic/OpenAI）。
+	// 2. 根据设置选择模型提供方（Anthropic/OpenAI）。
 	// Provider 实例封装了底层调用细节。
 	let provider = LlmProvider::new(&app);
-	// 读取本轮 token 预算（可选）。
-	let token_budget = token_budget_for_turn();
-	// 读取本轮最大续跑次数。
-	let max_budget_continuations = token_budget_max_continuations();
-	// 初始化预算跟踪器。
-	let mut budget_tracker = BudgetTracker::default();
-	// 统计本轮累计输出 token。
-	let mut turn_output_tokens: i64 = 0;
 
-	// 4. 主循环：调用 provider.send_request（流式），并根据 tool 执行情况决定是否继续下一步。
+	// 3. 主循环：调用 provider.send_request（流式），并根据 tool 执行情况决定是否继续下一步。
 	//    - 如果发生工具调用，结果会被“注入”到 current_messages 继续下一轮。
 	//    - 如果 provider 返回 needs_user_input / 无工具结果，则结束。
 	let final_outcome = loop {
@@ -254,11 +122,6 @@ pub async fn send_chat_message(
 		// 本轮 provider 输出合并到 current_messages 以支持工具环回。
 		// 取出本轮新增消息。
 		let new_messages = provider_result.messages;
-		// 先累加 provider 显式上报的 output token；缺失时走估算。
-		turn_output_tokens += provider_result
-			.output_tokens
-			.map(|v| v as i64)
-			.unwrap_or_else(|| estimate_assistant_output_tokens(&new_messages));
 		// 将新增消息并入上下文，供后续轮继续使用。
 		current_messages.extend(new_messages.clone());
 
@@ -324,26 +187,6 @@ pub async fn send_chat_message(
 				continue;
 			}
 
-			// 当启用 token_budget 时尝试生成续跑 nudge。
-			if let Some(budget) = token_budget {
-				if let Some(nudge) = next_token_budget_nudge(
-					&mut budget_tracker,
-					budget,
-					turn_output_tokens,
-					max_budget_continuations,
-				) {
-					// 将续跑提示以用户消息形式压入上下文。
-					current_messages.push(Message {
-						// 续跑提示使用 user 角色，以驱动下一轮继续输出。
-						role: Role::User,
-						// 提示内容为文本块。
-						content: Content::Text(nudge),
-					});
-					// 继续下一轮循环。
-					continue;
-				}
-			}
-
 			// 正常结束本轮，若 provider 未给 stop_reason 则使用 end_turn。
 			break TurnOutcome::completed(
 				provider_result
@@ -353,7 +196,7 @@ pub async fn send_chat_message(
 		}
 	};
 
-	// 5. 业务终止：告知前端本轮结束，并携带 stop_reason/turn_state 以区分 completed/needs_user_input/error。
+	// 4. 业务终止：告知前端本轮结束，并携带 stop_reason/turn_state 以区分 completed/needs_user_input/error。
 	// 统一发送 stop 事件，前端据此收口渲染状态。
 	app.emit(
 		"chat-stream",

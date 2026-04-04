@@ -22,6 +22,7 @@ pub fn run() {
             greet, 
             llm::client::send_chat_message,
             llm::client::cancel_chat_message,
+            llm::client::submit_permission_decision,
             command::settings::get_settings,
             command::settings::save_settings,
             command::history::create_conversation,

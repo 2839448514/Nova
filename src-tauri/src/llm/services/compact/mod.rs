@@ -24,6 +24,7 @@ const TOOL_RESULT_TEXT_TRUNCATE_LIMIT: usize = 1200;
 // JSON 压缩上限，避免深层数组/对象导致多次迭代爆炸。
 const TOOL_RESULT_JSON_MAX_DEPTH: usize = 3;
 const TOOL_RESULT_JSON_MAX_ITEMS: usize = 12;
+const SESSION_RESTORE_MARKER: &str = "[Session Restore Context]";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CompactLevel {
@@ -153,6 +154,38 @@ fn estimate_message_tokens(messages: &[Message]) -> i64 {
         .sum::<i64>()
 }
 
+fn message_has_session_restore_marker(message: &Message) -> bool {
+    match &message.content {
+        Content::Text(t) => t.contains(SESSION_RESTORE_MARKER),
+        Content::Blocks(blocks) => blocks.iter().any(|b| {
+            if let ContentBlock::Text { text } = b {
+                text.contains(SESSION_RESTORE_MARKER)
+            } else {
+                false
+            }
+        }),
+    }
+}
+
+fn split_session_restore_message(messages: &[Message]) -> (Option<Message>, Vec<Message>) {
+    let marker_index = messages
+        .iter()
+        .position(message_has_session_restore_marker);
+    let Some(marker_index) = marker_index else {
+        return (None, messages.to_vec());
+    };
+
+    let mut rest = Vec::with_capacity(messages.len().saturating_sub(1));
+    for (idx, msg) in messages.iter().enumerate() {
+        if idx == marker_index {
+            continue;
+        }
+        rest.push(msg.clone());
+    }
+
+    (Some(messages[marker_index].clone()), rest)
+}
+
 pub fn estimate_tokens_for_messages(messages: &[Message]) -> i64 {
     estimate_message_tokens(messages)
 }
@@ -185,6 +218,8 @@ fn max_tool_result_text_chars(messages: &[Message]) -> usize {
         .unwrap_or(0)
 }
 
+
+// 根据消息数量、估算 token 数和是否存在超大工具结果文本来决定压缩策略。
 fn decide_compact_strategy(messages: &[Message]) -> CompactDecision {
     // 估算消息总体 token 与消息数，用于决定压缩等级
     let estimated_tokens = estimate_message_tokens(messages);
@@ -436,13 +471,17 @@ async fn apply_full_compact(
         .await;
     }
 
+    // 优先提取会话恢复消息，保证 Full compact 后仍保持恢复消息在最前。
+    let (session_restore_message, messages_without_restore) =
+        split_session_restore_message(messages);
+
     // keep_count: 保留最近消息的数量，受 compact.recent_limit 限制并在 [6,30] 范围内
     let keep_count = compact.recent_limit.clamp(6, 30) as usize;
     // recent_messages: 若消息数大于保留数则截取末尾窗口，否则保留全部
-    let recent_messages = if messages.len() > keep_count {
-        messages[messages.len() - keep_count..].to_vec()
+    let recent_messages = if messages_without_restore.len() > keep_count {
+        messages_without_restore[messages_without_restore.len() - keep_count..].to_vec()
     } else {
-        messages.to_vec()
+        messages_without_restore
     };
 
     // 将 compact 的 context_text 放到最前面作为一条 User 消息
@@ -452,17 +491,22 @@ async fn apply_full_compact(
     };
 
     // prepared: 预构建消息向量，预留容量以减少 realloc
-    let mut prepared = Vec::with_capacity(recent_messages.len() + 1);
+    let mut prepared = Vec::with_capacity(
+        recent_messages.len() + 1 + usize::from(session_restore_message.is_some()),
+    );
+    if let Some(restore) = session_restore_message {
+        prepared.push(restore);
+    }
     prepared.push(compact_message);
     prepared.extend(recent_messages);
     prepared
 }
 
-// 入口：按层级执行 compact。
+// 入口：按层级执行 compact（纯压缩，不负责组装额外上下文）。
 // - None: 不压缩
 // - Micro: 仅本地清洗 tool_result（尤其长 JSON/长文本）
 // - Full: 先做 Micro，再拼接 compact 历史上下文 + 最近窗口
-pub async fn prepare_messages_for_turn(
+pub async fn compact_messages_for_turn(
     app: &AppHandle,
     conversation_id: Option<&str>,
     messages: &[Message],

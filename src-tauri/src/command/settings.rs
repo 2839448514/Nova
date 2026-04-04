@@ -13,6 +13,24 @@ fn default_provider_profiles() -> HashMap<String, ProviderProfile> {
     HashMap::new()
 }
 
+fn default_hook_env() -> HashMap<String, String> {
+    // hook_env 默认空映射。
+    HashMap::new()
+}
+
+const HOOK_ENV_KEYS: &[&str] = &[
+    "NOVA_PRE_TOOL_DENY_TOOLS",
+    "NOVA_PRE_TOOL_CONTEXT",
+    "NOVA_POST_TOOL_CONTEXT",
+    "NOVA_POST_TOOL_STOP_ON_ERROR",
+    "NOVA_POST_TOOL_BLOCK_PATTERN",
+    "NOVA_POST_TOOL_FAILURE_CONTEXT",
+    "NOVA_POST_TOOL_FAILURE_STOP",
+    "NOVA_STOP_HOOK_MAX_ASSISTANT_MESSAGES",
+    "NOVA_STOP_HOOK_BLOCK_PATTERN",
+    "NOVA_STOP_HOOK_APPEND_CONTEXT",
+];
+
 fn normalize_provider_key(provider: &str) -> String {
     // provider 名去空白并转小写。
     let key = provider.trim().to_ascii_lowercase();
@@ -59,6 +77,9 @@ pub struct AppSettings {
     #[serde(default)]
     // 被禁用的技能列表。
     pub disabled_skills: Vec<String>,
+    #[serde(default = "default_hook_env", alias = "hook_env")]
+    // 钩子环境变量配置。
+    pub hook_env: HashMap<String, String>,
 }
 
 impl Default for AppSettings {
@@ -72,6 +93,7 @@ impl Default for AppSettings {
             custom_models: HashMap::new(),
             provider_profiles: HashMap::new(),
             disabled_skills: Vec::new(),
+            hook_env: HashMap::new(),
         }
     }
 }
@@ -153,6 +175,22 @@ pub fn get_settings_path(app: &AppHandle) -> PathBuf {
     app.path().app_data_dir().unwrap().join("settings.json")
 }
 
+fn sync_hook_env_vars(settings: &AppSettings) {
+    for key in HOOK_ENV_KEYS {
+        let value = settings
+            .hook_env
+            .get(*key)
+            .map(|v| v.trim().to_string())
+            .unwrap_or_default();
+
+        if value.is_empty() {
+            std::env::remove_var(key);
+        } else {
+            std::env::set_var(key, value);
+        }
+    }
+}
+
 #[tauri::command]
 pub fn get_settings(app: AppHandle) -> AppSettings {
     // 获取 settings.json 路径。
@@ -163,6 +201,7 @@ pub fn get_settings(app: AppHandle) -> AppSettings {
             if let Ok(mut settings) = serde_json::from_str::<AppSettings>(&content) {
                 // 运行时规范化后返回。
                 settings.normalize_for_runtime();
+                sync_hook_env_vars(&settings);
                 return settings;
             }
         }
@@ -170,6 +209,7 @@ pub fn get_settings(app: AppHandle) -> AppSettings {
     // 读取失败时回退默认配置并规范化。
     let mut settings = AppSettings::default();
     settings.normalize_for_runtime();
+    sync_hook_env_vars(&settings);
     settings
 }
 
@@ -186,6 +226,7 @@ pub fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), String
     // 对传入设置做运行时规范化。
     let mut normalized = settings;
     normalized.normalize_for_runtime();
+    sync_hook_env_vars(&normalized);
     // 序列化为美化 JSON。
     let content = serde_json::to_string_pretty(&normalized).map_err(|e| e.to_string())?;
     // 写入文件。

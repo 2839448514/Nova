@@ -13,6 +13,9 @@ pub mod permissions;
 // 负责从历史边界提取摘要并生成恢复消息。
 pub mod session_restore;
 
+// 上下文组装入口：整合会话恢复与可选扩展上下文。
+pub mod context_assembler;
+
 // 统一后端错误事件输出到前端 telemetry 和 toast。
 // 封装 backend-error 事件结构与发射方法。
 pub mod error_event;

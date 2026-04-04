@@ -4,6 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{json, Value};
 use tauri::AppHandle;
+use tokio::sync::oneshot;
 
 use crate::llm::types::{Content, ContentBlock, Message, Role};
 
@@ -62,6 +63,12 @@ const DEFAULT_PERMISSION_SCOPE: &str = "__global__";
 const PENDING_APPROVAL_TTL_MS: u64 = 15 * 60 * 1000;
 const ACTION_TOKEN_TTL_MS: u64 = 60 * 60 * 1000;
 
+#[derive(Debug, Clone, Copy)]
+struct RecordedDecision {
+    action: PermissionAction,
+    decided_at_ms: u64,
+}
+
 fn unsafe_override_enabled() -> bool {
     std::env::var("NOVA_ALLOW_UNSAFE_TOOLS")
         .map(|v| {
@@ -97,6 +104,7 @@ struct ConversationPermissionState {
     allow_session: HashSet<String>,
     deny_session: HashSet<String>,
     processed_action_tokens: HashMap<String, u64>,
+    resolved_by_request: HashMap<String, RecordedDecision>,
 }
 
 #[derive(Debug, Default)]
@@ -115,7 +123,38 @@ pub enum PermissionAction {
 pub enum PermissionEnforcement {
     Allow,
     Deny(String),
-    AskUser(String),
+    AskUser {
+        request_id: String,
+        payload: String,
+    },
+}
+
+fn permission_waiters() -> &'static Mutex<HashMap<String, oneshot::Sender<PermissionAction>>> {
+    static WAITERS: OnceLock<Mutex<HashMap<String, oneshot::Sender<PermissionAction>>>> =
+        OnceLock::new();
+    WAITERS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn register_permission_waiter(request_id: &str) -> oneshot::Receiver<PermissionAction> {
+    let (tx, rx) = oneshot::channel();
+    if let Ok(mut guard) = permission_waiters().lock() {
+        guard.insert(request_id.to_string(), tx);
+    }
+    rx
+}
+
+fn unregister_permission_waiter(request_id: &str) {
+    if let Ok(mut guard) = permission_waiters().lock() {
+        guard.remove(request_id);
+    }
+}
+
+fn notify_permission_waiter(request_id: &str, action: PermissionAction) {
+    if let Ok(mut guard) = permission_waiters().lock() {
+        if let Some(sender) = guard.remove(request_id) {
+            let _ = sender.send(action);
+        }
+    }
 }
 
 fn permission_state() -> &'static Mutex<PermissionState> {
@@ -177,6 +216,7 @@ fn prune_expired_pending(state: &mut ConversationPermissionState) {
         // 两张索引表都要清理，避免 signature 指向已删除请求。
         if let Some(pending) = state.pending.remove(&request_id) {
             state.pending_by_signature.remove(&pending.operation.signature);
+            notify_permission_waiter(&request_id, PermissionAction::DenySession);
         }
     }
 }
@@ -191,6 +231,13 @@ fn prune_processed_action_tokens(state: &mut ConversationPermissionState) {
             // ts: token 最后处理时间。
             now.saturating_sub(*ts) <= ACTION_TOKEN_TTL_MS
         });
+}
+
+fn prune_resolved_decisions(state: &mut ConversationPermissionState) {
+    let now = now_millis();
+    state
+        .resolved_by_request
+        .retain(|_, record| now.saturating_sub(record.decided_at_ms) <= ACTION_TOKEN_TTL_MS);
 }
 
 fn upsert_pending_request_id(
@@ -472,6 +519,15 @@ fn approval_action_tokens() -> [(&'static str, PermissionAction); 3] {
     ]
 }
 
+pub fn parse_permission_action_name(action: &str) -> Option<PermissionAction> {
+    match action.trim().to_ascii_lowercase().as_str() {
+        "allow_once" | "allow-once" => Some(PermissionAction::AllowOnce),
+        "allow_session" | "allow-session" => Some(PermissionAction::AllowSession),
+        "deny_session" | "deny-session" => Some(PermissionAction::DenySession),
+        _ => None,
+    }
+}
+
 fn extract_action_tokens(text: &str) -> Vec<(PermissionAction, String, String)> {
     // Parse approval tokens embedded in free-form user replies, e.g. ALLOW_ONCE::<id>.
     let mut out = Vec::new();
@@ -535,6 +591,15 @@ fn apply_decision(
         }
     }
 
+    state.resolved_by_request.insert(
+        request_id.to_string(),
+        RecordedDecision {
+            action,
+            decided_at_ms: now_millis(),
+        },
+    );
+    notify_permission_waiter(request_id, action);
+
     true
 }
 
@@ -574,6 +639,7 @@ pub fn consume_user_permission_decisions(
     // state: 当前会话的权限状态。
     prune_expired_pending(state);
     prune_processed_action_tokens(state);
+    prune_resolved_decisions(state);
 
     for message in messages {
         // message: 逐条处理输入消息。
@@ -601,6 +667,96 @@ pub fn consume_user_permission_decisions(
     }
 
     applied
+}
+
+pub fn submit_permission_decision(
+    conversation_id: Option<&str>,
+    request_id: &str,
+    action: PermissionAction,
+) -> Result<bool, String> {
+    let mut guard = permission_state()
+        .lock()
+        .map_err(|_| "Permission state unavailable due to lock poisoning".to_string())?;
+    let state = conversation_state_mut(&mut guard, conversation_id);
+    prune_expired_pending(state);
+    prune_processed_action_tokens(state);
+    prune_resolved_decisions(state);
+
+    if apply_decision(state, action, request_id) {
+        return Ok(true);
+    }
+
+    Ok(state.resolved_by_request.contains_key(request_id))
+}
+
+pub async fn await_permission_decision(
+    conversation_id: Option<&str>,
+    request_id: &str,
+    timeout_ms: u64,
+) -> Result<PermissionAction, String> {
+    let conversation_scope = conversation_id.map(|v| v.to_string());
+
+    {
+        let mut guard = permission_state()
+            .lock()
+            .map_err(|_| "Permission state unavailable due to lock poisoning".to_string())?;
+        let state = conversation_state_mut(&mut guard, conversation_scope.as_deref());
+        prune_expired_pending(state);
+        prune_processed_action_tokens(state);
+        prune_resolved_decisions(state);
+
+        if let Some(record) = state.resolved_by_request.get(request_id) {
+            return Ok(record.action);
+        }
+
+        if !state.pending.contains_key(request_id) {
+            return Err(format!(
+                "Permission request '{}' is no longer pending",
+                request_id
+            ));
+        }
+    }
+
+    let mut receiver = register_permission_waiter(request_id);
+    let started_at = now_millis();
+    let timeout_ms = timeout_ms.max(1);
+
+    loop {
+        tokio::select! {
+            recv = &mut receiver => {
+                return recv.map_err(|_| {
+                    "Permission waiter closed before decision was received".to_string()
+                });
+            }
+            _ = tokio::time::sleep(std::time::Duration::from_millis(150)) => {}
+        }
+
+        if crate::llm::cancellation::is_cancelled(conversation_scope.as_deref()) {
+            unregister_permission_waiter(request_id);
+            return Err("Permission approval cancelled".to_string());
+        }
+
+        if now_millis().saturating_sub(started_at) > timeout_ms {
+            unregister_permission_waiter(request_id);
+            return Err("Permission approval timed out".to_string());
+        }
+
+        let resolved = {
+            let mut guard = permission_state()
+                .lock()
+                .map_err(|_| "Permission state unavailable due to lock poisoning".to_string())?;
+            let state = conversation_state_mut(&mut guard, conversation_scope.as_deref());
+            prune_expired_pending(state);
+            prune_processed_action_tokens(state);
+            prune_resolved_decisions(state);
+            state.resolved_by_request.get(request_id).copied().map(|r| r.action)
+        };
+
+        if let Some(action) = resolved {
+            unregister_permission_waiter(request_id);
+            return Ok(action);
+        }
+    }
 }
 
 fn check_command(command: &str) -> Result<(), String> {
@@ -698,6 +854,8 @@ pub fn enforce_tool_permission(
     let state = conversation_state_mut(&mut guard, conversation_id);
     // state: 当前 conversation 的权限状态。
     prune_expired_pending(state);
+    prune_processed_action_tokens(state);
+    prune_resolved_decisions(state);
 
     if state.deny_session.contains(&operation.signature) {
         // 会话级拒绝优先级最高，直接阻断。
@@ -720,10 +878,10 @@ pub fn enforce_tool_permission(
     if operation.needs_approval {
         let request_id = upsert_pending_request_id(state, &operation);
         // request_id: 生成或复用的待审批请求 id。
-        return PermissionEnforcement::AskUser(build_permission_prompt_payload(
-            &request_id,
-            &operation,
-        ));
+        return PermissionEnforcement::AskUser {
+            request_id: request_id.clone(),
+            payload: build_permission_prompt_payload(&request_id, &operation),
+        };
     }
 
     PermissionEnforcement::Allow
