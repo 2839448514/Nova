@@ -42,7 +42,7 @@ pub fn execute(input: Value) -> String {
             "-Command",
             &format!(
                 "(Invoke-WebRequest -UseBasicParsing -Uri '{}' -TimeoutSec 20).Content",
-                url.replace('"', "")
+                url.replace('\'', "''")
             ),
         ])
         .output();

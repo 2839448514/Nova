@@ -343,6 +343,35 @@ fn operation_from_input(tool_name: &str, input: &Value) -> Option<ProtectedOpera
                 needs_approval: risk.is_some(),
             })
         }
+        "read_file" => {
+            let path = input
+                .get("path")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .trim();
+            // path: 目标读取路径。
+
+            if path.is_empty() {
+                return Some(ProtectedOperation {
+                    signature: "read_file:<empty>".to_string(),
+                    preview: "路径为空".to_string(),
+                    warning: Some("目标路径为空，无法执行。".to_string()),
+                    needs_approval: false,
+                });
+            }
+
+            let normalized = normalize_path_for_match(path);
+            // normalized: 规范化后的路径签名。
+            // 仅对敏感路径进行权限拦截（如 .ssh、.aws、系统目录等）。
+            let risk = check_sensitive_read_path(path).err();
+
+            Some(ProtectedOperation {
+                signature: format!("read_file:{}", normalized),
+                preview: format!("read_file: {}", truncate_chars(path, 200)),
+                warning: risk.clone(),
+                needs_approval: risk.is_some(),
+            })
+        }
         "replace_string_in_file" | "write_file" => {
             let path = input
                 .get("path")
@@ -659,6 +688,27 @@ fn check_file_path(path: &str) -> Result<(), String> {
         if normalized.contains(marker) {
             return Err(format!(
                 "Blocked by permission gate: writing sensitive path '{}'. Set NOVA_ALLOW_UNSAFE_TOOLS=1 only for trusted debugging.",
+                path
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn check_sensitive_read_path(path: &str) -> Result<(), String> {
+    let normalized = normalize_path_for_match(path);
+    // normalized: 规范化后用于读取路径风险匹配的路径字符串。
+    if normalized.is_empty() {
+        return Err("Blocked by permission gate: target path is empty".to_string());
+    }
+
+    // 读取操作仅对包含凭据/密钥的敏感目录进行拦截，不阻止系统目录的普通读取。
+    for marker in PROTECTED_PATH_CONTAINS {
+        // marker: 敏感路径标记（如 .ssh、.aws、.gnupg、.git/config 等）。
+        if normalized.contains(marker) {
+            return Err(format!(
+                "Blocked by permission gate: reading sensitive path '{}'. Set NOVA_ALLOW_UNSAFE_TOOLS=1 only for trusted debugging.",
                 path
             ));
         }
