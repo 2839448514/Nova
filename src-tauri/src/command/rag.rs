@@ -92,20 +92,43 @@ pub struct RagUpsertResult {
     pub total_chars: usize,
 }
 
-fn rag_store_path(app: &AppHandle) -> PathBuf {
-    // RAG 数据文件优先使用 app_data_dir，失败时回退到当前目录下的 .nova。
-    match app.path().app_data_dir() {
-        Ok(dir) => dir.join("rag").join("documents.json"),
-        Err(_) => std::env::current_dir()
-            .unwrap_or_else(|_| PathBuf::from("."))
-            .join(".nova")
-            .join("rag")
-            .join("documents.json"),
-    }
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct RagSearchHit {
+    pub id: String,
+    pub source_name: String,
+    pub source_type: String,
+    pub mime_type: Option<String>,
+    pub score: u32,
+    pub snippet: String,
+    pub content_chars: usize,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct RagDocumentContent {
+    pub id: String,
+    pub source_name: String,
+    pub source_type: String,
+    pub mime_type: Option<String>,
+    pub content: String,
+    pub content_chars: usize,
+    pub checksum: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+fn rag_store_path(app: &AppHandle) -> Result<PathBuf, String> {
+    // RAG 数据文件只使用 app_data_dir，不做候选回退路径。
+    app.path()
+        .app_data_dir()
+        .map(|dir| dir.join("rag").join("documents.json"))
+        .map_err(|e| format!("Failed to resolve app_data_dir for RAG store: {}", e))
 }
 
 fn load_store(app: &AppHandle) -> Result<RagStore, String> {
-    let path = rag_store_path(app);
+    let path = rag_store_path(app)?;
     if !path.exists() {
         return Ok(RagStore::default());
     }
@@ -124,7 +147,7 @@ fn load_store(app: &AppHandle) -> Result<RagStore, String> {
 }
 
 fn save_store(app: &AppHandle, store: &RagStore) -> Result<(), String> {
-    let path = rag_store_path(app);
+    let path = rag_store_path(app)?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
@@ -201,6 +224,104 @@ fn calculate_stats(docs: &[RagDocument]) -> RagStats {
         total_chars,
         last_updated_at,
     }
+}
+
+fn split_query_terms(query: &str) -> Vec<String> {
+    query
+        .split_whitespace()
+        .map(|part| part.trim().to_lowercase())
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+}
+
+fn calculate_search_score(source_name: &str, content: &str, terms: &[String]) -> u32 {
+    let mut score = 0u32;
+    let source_lower = source_name.to_lowercase();
+    let content_lower = content.to_lowercase();
+
+    for term in terms {
+        if source_lower.contains(term) {
+            score += 5;
+        }
+        score += content_lower.match_indices(term).count() as u32;
+    }
+
+    score
+}
+
+pub fn rag_search_documents(
+    app: AppHandle,
+    query: String,
+    limit: Option<usize>,
+) -> Result<Vec<RagSearchHit>, String> {
+    let query_text = query.trim();
+    if query_text.is_empty() {
+        return Err("query is required".to_string());
+    }
+
+    let terms = split_query_terms(query_text);
+    if terms.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let max_hits = limit.unwrap_or(5).clamp(1, 50);
+    let store = load_store(&app)?;
+
+    let mut hits = store
+        .documents
+        .into_iter()
+        .filter_map(|doc| {
+            let score = calculate_search_score(&doc.source_name, &doc.content, &terms);
+            if score == 0 {
+                return None;
+            }
+
+            Some(RagSearchHit {
+                id: doc.id,
+                source_name: doc.source_name,
+                source_type: doc.source_type,
+                mime_type: doc.mime_type,
+                score,
+                snippet: preview_text(&doc.content),
+                content_chars: doc.content_chars,
+                updated_at: doc.updated_at,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    hits.sort_by(|a, b| {
+        b.score
+            .cmp(&a.score)
+            .then_with(|| b.updated_at.cmp(&a.updated_at))
+    });
+    hits.truncate(max_hits);
+
+    Ok(hits)
+}
+
+pub fn rag_read_document(
+    app: AppHandle,
+    document_id: String,
+) -> Result<Option<RagDocumentContent>, String> {
+    let id = document_id.trim();
+    if id.is_empty() {
+        return Err("document_id is required".to_string());
+    }
+
+    let store = load_store(&app)?;
+    let found = store.documents.into_iter().find(|doc| doc.id == id);
+
+    Ok(found.map(|doc| RagDocumentContent {
+        id: doc.id,
+        source_name: doc.source_name,
+        source_type: doc.source_type,
+        mime_type: doc.mime_type,
+        content: doc.content,
+        content_chars: doc.content_chars,
+        checksum: doc.checksum,
+        created_at: doc.created_at,
+        updated_at: doc.updated_at,
+    }))
 }
 
 #[tauri::command]

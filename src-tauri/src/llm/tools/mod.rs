@@ -61,17 +61,18 @@ pub mod config_tool;
 pub mod enter_plan_mode_tool;
 #[path = "ExitPlanModeTool/mod.rs"]
 pub mod exit_plan_mode_tool;
+#[path = "RagTool/mod.rs"]
+pub mod rag_tool;
 
 // Placeholder migration modules stay out of `registered_tools()` until their
 // runtime bridge is complete. This avoids exposing Claude-style folders as if
 // they were fully migrated Nova tools.
 
 use crate::llm::types::Tool;
-use crate::llm::query_engine::ChatMessageEvent;
 use std::collections::{BTreeMap, VecDeque};
 use crate::llm::services::mcp_tools::parse_mcp_tool_name;
 use serde_json::{json, Value};
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
 use tokio::task::JoinSet;
 
 struct RegisteredTool {
@@ -257,6 +258,7 @@ pub(crate) fn is_read_only_tool(name: &str) -> bool {
         | "tool_search"
         | "list_mcp_resources"
         | "read_mcp_resource"
+        | "rag_tool"
         | "skill"
         | "lsp_tool" => true,
         _ => {
@@ -723,6 +725,10 @@ fn registered_tools() -> Vec<RegisteredTool> {
             tool: config_tool::tool,
             execute: config_tool::execute,
         },
+        RegisteredTool {
+            tool: rag_tool::tool,
+            execute: rag_tool::execute,
+        },
     ]
 }
 
@@ -744,234 +750,6 @@ pub fn execute_tool(name: &str, input: Value) -> String {
     }
 
     format!("Unknown tool: {}", name)
-}
-
-fn is_needs_user_input_payload(raw: &str) -> bool {
-    serde_json::from_str::<Value>(raw)
-        .ok()
-        .and_then(|v| {
-            v.get("type")
-                .and_then(|t| t.as_str())
-                .map(|s| s == "needs_user_input")
-        })
-        .unwrap_or(false)
-}
-
-fn permission_wait_timeout_ms() -> u64 {
-    std::env::var("NOVA_PERMISSION_WAIT_TIMEOUT_MS")
-        .ok()
-        .and_then(|v| v.trim().parse::<u64>().ok())
-        .filter(|v| *v > 0)
-        .unwrap_or(15 * 60 * 1000)
-}
-
-async fn await_permission_and_recheck(
-    app: &AppHandle,
-    conversation_id: Option<&str>,
-    tool_name: &str,
-    permission_input: &Value,
-    request_id: String,
-    payload: String,
-) -> Result<(), String> {
-    app.emit(
-        "chat-stream",
-        ChatMessageEvent {
-            r#type: "permission-request".into(),
-            text: Some(payload),
-            tool_use_id: Some(request_id.clone()),
-            tool_use_name: Some(tool_name.to_string()),
-            tool_use_input: None,
-            tool_result: None,
-            token_usage: None,
-            stop_reason: None,
-            turn_state: Some("awaiting_permission".into()),
-        },
-    )
-    .map_err(|e| {
-        format!(
-            "Permission request failed for '{}': unable to notify frontend ({})",
-            tool_name, e
-        )
-    })?;
-
-    let decision = crate::llm::utils::permissions::await_permission_decision(
-        conversation_id,
-        &request_id,
-        permission_wait_timeout_ms(),
-    )
-    .await
-    .map_err(|e| format!("Permission request failed for '{}': {}", tool_name, e))?;
-
-    if matches!(decision, crate::llm::utils::permissions::PermissionAction::DenySession) {
-        return Err(format!("Permission denied by user for '{}'", tool_name));
-    }
-
-    match crate::llm::utils::permissions::enforce_tool_permission(
-        app,
-        conversation_id,
-        tool_name,
-        permission_input,
-    ) {
-        crate::llm::utils::permissions::PermissionEnforcement::Allow => Ok(()),
-        crate::llm::utils::permissions::PermissionEnforcement::Deny(e) => Err(e),
-        crate::llm::utils::permissions::PermissionEnforcement::AskUser { .. } => Err(format!(
-            "Permission decision for '{}' is still pending",
-            tool_name
-        )),
-    }
-}
-
-fn lsp_keywords_for_action(action: &str) -> &'static [&'static str] {
-    match action {
-        "find_symbol" => &["symbol", "workspace", "document_symbol", "symbols"],
-        "find_references" => &["reference", "references", "usage", "usages"],
-        "find_definition" => &["definition", "goto_definition", "definitions"],
-        "find_implementation" => &["implementation", "implementations"],
-        "diagnostics" => &["diagnostic", "diagnostics", "problem", "problems", "error", "errors"],
-        _ => &[],
-    }
-}
-
-fn is_lsp_candidate_tool_name(name: &str) -> bool {
-    let lower = name.to_ascii_lowercase();
-    [
-        "lsp",
-        "symbol",
-        "reference",
-        "definition",
-        "implementation",
-        "diagnostic",
-        "workspace",
-        "document",
-        "hover",
-        "rename",
-        "usage",
-    ]
-    .iter()
-    .any(|kw| lower.contains(kw))
-}
-
-fn choose_lsp_tool_name(action: &str, tools: &[crate::command::mcp::McpToolInfo]) -> Option<String> {
-    let keywords = lsp_keywords_for_action(action);
-    if keywords.is_empty() {
-        return None;
-    }
-
-    tools
-        .iter()
-        .find(|tool| {
-            let name = tool.name.to_ascii_lowercase();
-            keywords.iter().any(|kw| name.contains(kw))
-        })
-        .map(|tool| tool.name.clone())
-}
-
-fn merge_lsp_arguments(input: &Value) -> Value {
-    let mut map = input
-        .get("arguments")
-        .and_then(|v| v.as_object().cloned())
-        .unwrap_or_default();
-
-    if !map.contains_key("symbol") {
-        if let Some(symbol) = input
-            .get("symbol")
-            .and_then(|v| v.as_str())
-            .map(str::trim)
-            .filter(|v| !v.is_empty())
-        {
-            map.insert("symbol".to_string(), Value::String(symbol.to_string()));
-        }
-    }
-
-    if !map.contains_key("file") {
-        if let Some(file) = input
-            .get("file")
-            .and_then(|v| v.as_str())
-            .map(str::trim)
-            .filter(|v| !v.is_empty())
-        {
-            map.insert("file".to_string(), Value::String(file.to_string()));
-        }
-    }
-
-    if !map.contains_key("lineContent") {
-        if let Some(line_content) = input
-            .get("lineContent")
-            .and_then(|v| v.as_str())
-            .map(str::trim)
-            .filter(|v| !v.is_empty())
-        {
-            map.insert(
-                "lineContent".to_string(),
-                Value::String(line_content.to_string()),
-            );
-        }
-    }
-
-    Value::Object(map)
-}
-
-async fn call_mcp_tool_with_nested_permission(
-    app: &AppHandle,
-    conversation_id: Option<&str>,
-    server_name: String,
-    tool_name: String,
-    arguments: Value,
-) -> String {
-    let nested_payload = serde_json::json!({
-        "server": server_name,
-        "tool": tool_name,
-        "arguments": arguments,
-    });
-
-    match crate::llm::utils::permissions::enforce_tool_permission(
-        app,
-        conversation_id,
-        "mcp_tool",
-        &nested_payload,
-    ) {
-        crate::llm::utils::permissions::PermissionEnforcement::Allow => {}
-        crate::llm::utils::permissions::PermissionEnforcement::Deny(e) => {
-            return serde_json::json!({ "ok": false, "error": e }).to_string();
-        }
-        crate::llm::utils::permissions::PermissionEnforcement::AskUser {
-            request_id,
-            payload,
-        } => {
-            if let Err(e) = await_permission_and_recheck(
-                app,
-                conversation_id,
-                "mcp_tool",
-                &nested_payload,
-                request_id,
-                payload,
-            )
-            .await
-            {
-                return serde_json::json!({ "ok": false, "error": e }).to_string();
-            }
-        }
-    }
-
-    let server = nested_payload
-        .get("server")
-        .and_then(|v| v.as_str())
-        .unwrap_or_default()
-        .to_string();
-    let tool = nested_payload
-        .get("tool")
-        .and_then(|v| v.as_str())
-        .unwrap_or_default()
-        .to_string();
-    let args = nested_payload
-        .get("arguments")
-        .cloned()
-        .unwrap_or_else(|| serde_json::json!({}));
-
-    match crate::command::mcp::call_mcp_tool(app.clone(), server, tool, args).await {
-        Ok(v) => v.to_string(),
-        Err(e) => serde_json::json!({ "ok": false, "error": e }).to_string(),
-    }
 }
 
 // 在带 AppHandle 的环境中执行工具，附带权限校验和 MCP 代理能力。
@@ -996,7 +774,7 @@ pub async fn execute_tool_with_app(
             request_id,
             payload,
         } => {
-            if let Err(e) = await_permission_and_recheck(
+            if let Err(e) = shared::permission_runtime::await_permission_and_recheck(
                 app,
                 conversation_id,
                 name,
@@ -1012,6 +790,97 @@ pub async fn execute_tool_with_app(
     }
 
     match name {
+        "rag_tool" => {
+            let action = input
+                .get("action")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .trim()
+                .to_ascii_lowercase();
+
+            match action.as_str() {
+                "stats" => match crate::command::rag::rag_get_stats(app.clone()) {
+                    Ok(stats) => serde_json::json!({
+                        "ok": true,
+                        "action": "stats",
+                        "stats": stats
+                    })
+                    .to_string(),
+                    Err(e) => serde_json::json!({ "ok": false, "error": e }).to_string(),
+                },
+                "search" => {
+                    let Some(query) = input
+                        .get("query")
+                        .and_then(|v| v.as_str())
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                    else {
+                        return serde_json::json!({
+                            "ok": false,
+                            "error": "rag_tool search requires non-empty 'query'"
+                        })
+                        .to_string();
+                    };
+
+                    let limit = input
+                        .get("limit")
+                        .and_then(|v| v.as_u64())
+                        .map(|v| v as usize);
+
+                    match crate::command::rag::rag_search_documents(
+                        app.clone(),
+                        query.to_string(),
+                        limit,
+                    ) {
+                        Ok(results) => serde_json::json!({
+                            "ok": true,
+                            "action": "search",
+                            "query": query,
+                            "results": results
+                        })
+                        .to_string(),
+                        Err(e) => serde_json::json!({ "ok": false, "error": e }).to_string(),
+                    }
+                }
+                "read" => {
+                    let Some(document_id) = input
+                        .get("documentId")
+                        .or_else(|| input.get("id"))
+                        .and_then(|v| v.as_str())
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                    else {
+                        return serde_json::json!({
+                            "ok": false,
+                            "error": "rag_tool read requires non-empty 'documentId' or 'id'"
+                        })
+                        .to_string();
+                    };
+
+                    match crate::command::rag::rag_read_document(app.clone(), document_id.to_string()) {
+                        Ok(Some(document)) => serde_json::json!({
+                            "ok": true,
+                            "action": "read",
+                            "document": document
+                        })
+                        .to_string(),
+                        Ok(None) => serde_json::json!({
+                            "ok": true,
+                            "action": "read",
+                            "retrieval_status": "not_found",
+                            "document": Value::Null
+                        })
+                        .to_string(),
+                        Err(e) => serde_json::json!({ "ok": false, "error": e }).to_string(),
+                    }
+                }
+                _ => serde_json::json!({
+                    "ok": false,
+                    "error": "rag_tool action must be one of: stats, search, read"
+                })
+                .to_string(),
+            }
+        }
         "mcp_tool" => {
             let server_name = input
                 .get("server")
@@ -1099,324 +968,8 @@ pub async fn execute_tool_with_app(
                 Err(e) => serde_json::json!({ "ok": false, "error": e }).to_string(),
             }
         }
-        "mcp_auth" => {
-            let action = input
-                .get("action")
-                .and_then(|v| v.as_str())
-                .unwrap_or_default()
-                .trim()
-                .to_ascii_lowercase();
-
-            match action.as_str() {
-                "status" => match crate::command::mcp::get_mcp_server_statuses(app.clone()).await {
-                    Ok(statuses) => serde_json::json!({
-                        "ok": true,
-                        "action": "status",
-                        "servers": statuses
-                    })
-                    .to_string(),
-                    Err(e) => serde_json::json!({ "ok": false, "error": e }).to_string(),
-                },
-                "reload_all" => {
-                    if let Err(e) = crate::command::mcp::reload_all_mcp_servers(app.clone()).await {
-                        return serde_json::json!({ "ok": false, "error": e }).to_string();
-                    }
-                    match crate::command::mcp::get_mcp_server_statuses(app.clone()).await {
-                        Ok(statuses) => serde_json::json!({
-                            "ok": true,
-                            "action": "reload_all",
-                            "servers": statuses
-                        })
-                        .to_string(),
-                        Err(e) => serde_json::json!({ "ok": false, "error": e }).to_string(),
-                    }
-                }
-                "enable" | "disable" => {
-                    let Some(server_name) = input
-                        .get("server")
-                        .and_then(|v| v.as_str())
-                        .map(str::trim)
-                        .filter(|s| !s.is_empty())
-                    else {
-                        return serde_json::json!({
-                            "ok": false,
-                            "error": "mcp_auth action requires non-empty 'server'"
-                        })
-                        .to_string();
-                    };
-
-                    let enabled = action == "enable";
-                    match crate::command::mcp::set_mcp_server_enabled(
-                        app.clone(),
-                        server_name.to_string(),
-                        enabled,
-                    )
-                    .await
-                    {
-                        Ok(()) => serde_json::json!({
-                            "ok": true,
-                            "action": action,
-                            "server": server_name,
-                            "enabled": enabled
-                        })
-                        .to_string(),
-                        Err(e) => serde_json::json!({ "ok": false, "error": e }).to_string(),
-                    }
-                }
-                "list_tools" => {
-                    let Some(server_name) = input
-                        .get("server")
-                        .and_then(|v| v.as_str())
-                        .map(str::trim)
-                        .filter(|s| !s.is_empty())
-                    else {
-                        return serde_json::json!({
-                            "ok": false,
-                            "error": "mcp_auth list_tools requires non-empty 'server'"
-                        })
-                        .to_string();
-                    };
-
-                    match crate::command::mcp::list_mcp_tools(app.clone(), server_name.to_string()).await {
-                        Ok(tools) => serde_json::json!({
-                            "ok": true,
-                            "action": "list_tools",
-                            "server": server_name,
-                            "tools": tools
-                        })
-                        .to_string(),
-                        Err(e) => serde_json::json!({ "ok": false, "error": e }).to_string(),
-                    }
-                }
-                "probe_tool" => {
-                    let server_name = input
-                        .get("server")
-                        .and_then(|v| v.as_str())
-                        .map(str::trim)
-                        .unwrap_or_default()
-                        .to_string();
-                    let tool_name = input
-                        .get("tool")
-                        .and_then(|v| v.as_str())
-                        .map(str::trim)
-                        .unwrap_or_default()
-                        .to_string();
-                    let arguments = input
-                        .get("arguments")
-                        .cloned()
-                        .unwrap_or_else(|| serde_json::json!({}));
-
-                    if server_name.is_empty() || tool_name.is_empty() {
-                        return serde_json::json!({
-                            "ok": false,
-                            "error": "mcp_auth probe_tool requires non-empty 'server' and 'tool'"
-                        })
-                        .to_string();
-                    }
-
-                    call_mcp_tool_with_nested_permission(
-                        app,
-                        conversation_id,
-                        server_name,
-                        tool_name,
-                        arguments,
-                    )
-                    .await
-                }
-                _ => serde_json::json!({
-                    "ok": false,
-                    "error": "mcp_auth action must be one of: status, reload_all, enable, disable, list_tools, probe_tool"
-                })
-                .to_string(),
-            }
-        }
-        "lsp_tool" => {
-            let action = input
-                .get("action")
-                .and_then(|v| v.as_str())
-                .unwrap_or_default()
-                .trim()
-                .to_ascii_lowercase();
-
-            match action.as_str() {
-                "list_servers" => {
-                    let statuses = match crate::command::mcp::get_mcp_server_statuses(app.clone()).await {
-                        Ok(v) => v,
-                        Err(e) => {
-                            return serde_json::json!({ "ok": false, "error": e }).to_string();
-                        }
-                    };
-
-                    let mut rows = Vec::new();
-                    for status in statuses {
-                        let lsp_tools = if status.status == "connected" {
-                            match crate::command::mcp::list_mcp_tools(app.clone(), status.name.clone()).await {
-                                Ok(tools) => tools
-                                    .into_iter()
-                                    .map(|t| t.name)
-                                    .filter(|name| is_lsp_candidate_tool_name(name))
-                                    .collect::<Vec<_>>(),
-                                Err(_) => Vec::new(),
-                            }
-                        } else {
-                            Vec::new()
-                        };
-
-                        rows.push(serde_json::json!({
-                            "name": status.name,
-                            "status": status.status,
-                            "enabled": status.enabled,
-                            "type": status.r#type,
-                            "toolCount": status.tool_count,
-                            "error": status.error,
-                            "lspToolCount": lsp_tools.len(),
-                            "lspTools": lsp_tools,
-                        }));
-                    }
-
-                    serde_json::json!({
-                        "ok": true,
-                        "action": "list_servers",
-                        "servers": rows
-                    })
-                    .to_string()
-                }
-                "list_server_tools" => {
-                    let Some(server_name) = input
-                        .get("server")
-                        .and_then(|v| v.as_str())
-                        .map(str::trim)
-                        .filter(|s| !s.is_empty())
-                    else {
-                        return serde_json::json!({
-                            "ok": false,
-                            "error": "lsp_tool list_server_tools requires non-empty 'server'"
-                        })
-                        .to_string();
-                    };
-
-                    match crate::command::mcp::list_mcp_tools(app.clone(), server_name.to_string()).await {
-                        Ok(tools) => {
-                            let lsp_tools = tools
-                                .iter()
-                                .map(|t| t.name.clone())
-                                .filter(|name| is_lsp_candidate_tool_name(name))
-                                .collect::<Vec<_>>();
-
-                            serde_json::json!({
-                                "ok": true,
-                                "action": "list_server_tools",
-                                "server": server_name,
-                                "tools": tools,
-                                "lspTools": lsp_tools,
-                            })
-                            .to_string()
-                        }
-                        Err(e) => serde_json::json!({ "ok": false, "error": e }).to_string(),
-                    }
-                }
-                "call" | "find_symbol" | "find_references" | "find_definition" | "find_implementation" | "diagnostics" => {
-                    let explicit_server = input
-                        .get("server")
-                        .and_then(|v| v.as_str())
-                        .map(str::trim)
-                        .filter(|s| !s.is_empty())
-                        .map(|s| s.to_string());
-
-                    let target_server = if let Some(server) = explicit_server {
-                        server
-                    } else {
-                        let statuses = match crate::command::mcp::get_mcp_server_statuses(app.clone()).await {
-                            Ok(v) => v,
-                            Err(e) => {
-                                return serde_json::json!({ "ok": false, "error": e }).to_string();
-                            }
-                        };
-
-                        let mut chosen = None;
-                        for status in statuses.into_iter().filter(|s| s.enabled && s.status == "connected") {
-                            if let Ok(tools) = crate::command::mcp::list_mcp_tools(app.clone(), status.name.clone()).await {
-                                if tools.iter().any(|t| is_lsp_candidate_tool_name(&t.name)) {
-                                    chosen = Some(status.name);
-                                    break;
-                                }
-                            }
-                        }
-
-                        let Some(server) = chosen else {
-                            return serde_json::json!({
-                                "ok": false,
-                                "error": "No connected MCP server exposing LSP-like tools; set 'server' explicitly or connect an LSP MCP server"
-                            })
-                            .to_string();
-                        };
-                        server
-                    };
-
-                    let available_tools = match crate::command::mcp::list_mcp_tools(app.clone(), target_server.clone()).await {
-                        Ok(v) => v,
-                        Err(e) => {
-                            return serde_json::json!({ "ok": false, "error": e }).to_string();
-                        }
-                    };
-
-                    let explicit_tool = input
-                        .get("tool")
-                        .and_then(|v| v.as_str())
-                        .map(str::trim)
-                        .filter(|s| !s.is_empty())
-                        .map(|s| s.to_string());
-
-                    let target_tool = if let Some(tool_name) = explicit_tool {
-                        tool_name
-                    } else if action == "call" {
-                        return serde_json::json!({
-                            "ok": false,
-                            "error": "lsp_tool call requires non-empty 'tool'"
-                        })
-                        .to_string();
-                    } else {
-                        let Some(tool_name) = choose_lsp_tool_name(&action, &available_tools) else {
-                            let names = available_tools.into_iter().map(|t| t.name).collect::<Vec<_>>();
-                            return serde_json::json!({
-                                "ok": false,
-                                "error": format!("No suitable LSP tool found for action '{}' on server '{}'", action, target_server),
-                                "availableTools": names
-                            })
-                            .to_string();
-                        };
-                        tool_name
-                    };
-
-                    let call_output = call_mcp_tool_with_nested_permission(
-                        app,
-                        conversation_id,
-                        target_server,
-                        target_tool,
-                        merge_lsp_arguments(&input),
-                    )
-                    .await;
-
-                    if is_needs_user_input_payload(&call_output) {
-                        call_output
-                    } else {
-                        let parsed = serde_json::from_str::<Value>(&call_output)
-                            .unwrap_or_else(|_| Value::String(call_output.clone()));
-                        serde_json::json!({
-                            "ok": true,
-                            "action": action,
-                            "result": parsed
-                        })
-                        .to_string()
-                    }
-                }
-                _ => serde_json::json!({
-                    "ok": false,
-                    "error": "lsp_tool action must be one of: list_servers, list_server_tools, call, find_symbol, find_references, find_definition, find_implementation, diagnostics"
-                })
-                .to_string(),
-            }
-        }
+        "mcp_auth" => mcp_auth_tool::execute_with_app(app, conversation_id, input).await,
+        "lsp_tool" => lsp_tool::execute_with_app(app, conversation_id, input).await,
         _ => execute_tool(name, input),
     }
 }
