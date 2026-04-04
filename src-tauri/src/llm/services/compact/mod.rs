@@ -153,6 +153,10 @@ fn estimate_message_tokens(messages: &[Message]) -> i64 {
         .sum::<i64>()
 }
 
+pub fn estimate_tokens_for_messages(messages: &[Message]) -> i64 {
+    estimate_message_tokens(messages)
+}
+
 fn max_tool_result_text_chars(messages: &[Message]) -> usize {
     // 计算 messages 中所有 ToolResult 内文本块的最大字符数
     messages

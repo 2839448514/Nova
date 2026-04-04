@@ -21,6 +21,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet, 
             llm::client::send_chat_message,
+            llm::client::cancel_chat_message,
             command::settings::get_settings,
             command::settings::save_settings,
             command::history::create_conversation,

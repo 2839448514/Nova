@@ -141,12 +141,24 @@ const chatScreenRef = ref<InstanceType<typeof ChatScreen> | null>(null);
 
 function finalizeAssistantTurn(tokenUsage?: number) {
   const finalText = assistantResponse.value.trim();
+  const fallbackTokenUsage = finalText ? estimateTokens(finalText) : 0;
+  const resolvedTokenUsage =
+    (typeof tokenUsage === "number" && tokenUsage > 0)
+      ? tokenUsage
+      : (typeof assistantTokenUsage.value === "number" && assistantTokenUsage.value > 0)
+        ? assistantTokenUsage.value
+        : fallbackTokenUsage;
+
+  if (currentOutputTokens.value <= 0 && resolvedTokenUsage > 0) {
+    currentOutputTokens.value = resolvedTokenUsage;
+  }
+
   const cost = buildAssistantCost();
   assistantTurnCost.value = cost;
   const assistantMsg: ChatMessage = {
     role: "assistant",
     content: finalText || "（本轮没有返回可显示的文本内容）",
-    tokenUsage: tokenUsage ?? assistantTokenUsage.value,
+    tokenUsage: resolvedTokenUsage > 0 ? resolvedTokenUsage : undefined,
     cost,
   };
   messages.value.push(assistantMsg);
@@ -368,6 +380,23 @@ onMounted(async () => {
       } else if (payload.type === "stop") {
         const stopReason = payload.stop_reason ?? "";
         const turnState = payload.turn_state ?? "";
+
+        if (turnState === "cancelled" || stopReason === "cancelled") {
+          const hasPartial = assistantResponse.value.trim().length > 0;
+          if (hasPartial) {
+            finalizeAssistantTurn(payload.token_usage);
+          } else {
+            assistantResponse.value = "";
+            assistantTokenUsage.value = undefined;
+            assistantTurnCost.value = undefined;
+            isGenerating.value = false;
+          }
+          currentToolStartedAt.value = null;
+          toolInputById.clear();
+          toolNameById.clear();
+          return;
+        }
+
         if (turnState === "error") {
           isGenerating.value = false;
           const detail = (payload.text ?? "").trim();
@@ -462,6 +491,22 @@ async function handleSendMessage(userText: string) {
     assistantResponse.value = "";
     assistantTokenUsage.value = undefined;
     isGenerating.value = false;
+  }
+}
+
+async function handleCancelGeneration() {
+  if (!isGenerating.value) return;
+  try {
+    await invoke<boolean>("cancel_chat_message", {
+      conversationId: activeConversationId.value || null,
+    });
+  } catch (err) {
+    console.error("Failed to cancel generation:", err);
+    emitToast({
+      variant: "error",
+      source: "cancel",
+      message: `取消失败: ${String(err)}`,
+    });
   }
 }
 
@@ -562,6 +607,7 @@ async function handleDeleteConversation(id: string) {
         :pendingQuestion="pendingQuestion"
         :planMode="planMode"
         @send="handleSendMessage"
+        @cancel="handleCancelGeneration"
         @ask-submit="handlePendingQuestionSubmit"
         @ask-skip="handlePendingQuestionSkip"
       />

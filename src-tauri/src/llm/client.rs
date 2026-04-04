@@ -11,11 +11,24 @@ pub async fn send_chat_message(
     messages: Vec<Message>,
     plan_mode: Option<bool>,
 ) -> Result<(), String> {
-    crate::llm::query_engine::send_chat_message(
+    let conversation_scope = conversation_id.clone();
+    crate::llm::cancellation::begin_turn(conversation_scope.as_deref());
+
+    let result = crate::llm::query_engine::send_chat_message(
         app,
         conversation_id,
         messages,
         plan_mode.unwrap_or(false),
     )
-    .await
+    .await;
+
+    crate::llm::cancellation::finish_turn(conversation_scope.as_deref());
+    result
+}
+
+#[tauri::command]
+pub async fn cancel_chat_message(conversation_id: Option<String>) -> Result<bool, String> {
+    Ok(crate::llm::cancellation::request_cancel(
+        conversation_id.as_deref(),
+    ))
 }

@@ -31,34 +31,53 @@ const openSettings = () => {
       <!-- Top Actions -->
       <button @click="emit('new-chat')" class="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[#ebebeb] dark:hover:bg-[#2d2d2d] transition-colors w-full text-left font-medium">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" class="text-muted-foreground"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        <span class="text-[0.9rem]">New chat</span>
+        <span class="text-[0.9rem]">新对话</span>
       </button>
       <button class="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[#ebebeb] dark:hover:bg-[#2d2d2d] transition-colors w-full text-left font-medium">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" class="text-muted-foreground"><circle cx="11" cy="11" r="8" stroke="currentColor" stroke-width="2"/><path d="M21 21l-4.35-4.35" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-        <span class="text-[0.9rem]">Search</span>
+        <span class="text-[0.9rem]">搜索</span>
       </button>
       <button @click="openSettings" class="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[#ebebeb] dark:hover:bg-[#2d2d2d] transition-colors w-full text-left font-medium mb-4">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" class="text-muted-foreground"><path d="M12 20.5V20m0-16v-.5m0 0a2.5 2.5 0 100 5 2.5 2.5 0 000-5zm0 16a2.5 2.5 0 100-5 2.5 2.5 0 000 5zm-8.5-8H4m16 0h-.5m0 0a2.5 2.5 0 10-5 0 2.5 2.5 0 005 0zm-16 0a2.5 2.5 0 105 0 2.5 2.5 0 00-5 0z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        <span class="text-[0.9rem]">Customize</span>
+        <span class="text-[0.9rem]">自定义</span>
       </button>
 
-      <!-- Categories -->
-      <h3 class="text-xs font-semibold text-[#8b8b8b] px-3 mt-2 mb-1">Categories</h3>
+      <!-- 导航（已根据图片调整为中文标签与顺序） -->
+      <h3 class="text-xs font-semibold text-[#8b8b8b] px-3 mt-2 mb-1">导航</h3>
       <button class="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[#ebebeb] dark:hover:bg-[#2d2d2d] transition-colors w-full text-left text-muted-foreground">
+        <!-- 智能体（复用聊天气泡图标，样式与项目一致） -->
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        <span class="text-[0.9rem]">Chats</span>
+        <span class="text-[0.9rem]">智能体</span>
       </button>
       <button class="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[#ebebeb] dark:hover:bg-[#2d2d2d] transition-colors w-full text-left text-muted-foreground">
+        <!-- 技能（复用文件/项目图标） -->
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        <span class="text-[0.9rem]">Projects</span>
+        <span class="text-[0.9rem]">技能</span>
       </button>
       <button class="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[#ebebeb] dark:hover:bg-[#2d2d2d] transition-colors w-full text-left text-muted-foreground">
+        <!-- 指令（使用方形资源图标，视觉上与项目一致） -->
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><rect x="3" y="3" width="18" height="18" rx="2" stroke="currentColor" stroke-width="2"/><path d="M3 9h18M9 21V9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-        <span class="text-[0.9rem]">Artifacts</span>
+        <span class="text-[0.9rem]">指令</span>
+      </button>
+      <button class="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[#ebebeb] dark:hover:bg-[#2d2d2d] transition-colors w-full text-left text-muted-foreground">
+        <!-- 提示（复用 Code 风格箭头图标，简单明了） -->
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M16 18l6-6-6-6M8 6l-6 6 6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span class="text-[0.9rem]">提示</span>
+      </button>
+      <button class="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[#ebebeb] dark:hover:bg-[#2d2d2d] transition-colors w-full text-left text-muted-foreground">
+        <!-- 挂钩（复用搜索图标样式） -->
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="8" stroke="currentColor" stroke-width="2"/><path d="M21 21l-4.35-4.35" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        <span class="text-[0.9rem]">挂钩</span>
+      </button>
+      <button class="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[#ebebeb] dark:hover:bg-[#2d2d2d] transition-colors w-full text-left text-muted-foreground">
+        <!-- MCP 服务器（使用齿轮/自定义图标） -->
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 20.5V20m0-16v-.5m0 0a2.5 2.5 0 100 5 2.5 2.5 0 000-5zm0 16a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span class="text-[0.9rem]">MCP 服务器</span>
       </button>
       <button class="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[#ebebeb] dark:hover:bg-[#2d2d2d] transition-colors w-full text-left text-muted-foreground mb-4">
+        <!-- 插件（复用箭头/展开图标，与项目图标风格匹配） -->
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M16 18l6-6-6-6M8 6l-6 6 6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        <span class="text-[0.9rem]">Code</span>
+        <span class="text-[0.9rem]">插件</span>
       </button>
 
       <!-- Recents -->

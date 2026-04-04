@@ -26,7 +26,10 @@ const emit = defineEmits<{
     <div class="text-[0.95rem] leading-relaxed break-words text-[#1a1a1a] dark:text-[#ececec]">
       <div class="flex items-center gap-2 mb-1">
         <p class="text-[11px] text-[#9b958a]">Nova</p>
-        <span v-if="typeof message.tokenUsage === 'number'" class="token-badge">
+        <span
+          v-if="(message.tokenUsage && message.tokenUsage > 0) || (conversationTokenUsage && conversationTokenUsage > 0)"
+          class="token-badge"
+        >
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
             <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path>
@@ -37,12 +40,6 @@ const emit = defineEmits<{
       </div>
       <MarkdownRenderer :content="message.content" />
       <ToolLogPanel :items="toolLogs" />
-      <div v-if="message.cost" class="cost-panel">
-        <span>in {{ message.cost.inputTokens }}</span>
-        <span>out {{ message.cost.outputTokens }}</span>
-        <span>tools {{ message.cost.toolCalls }}</span>
-        <span>tool ms {{ message.cost.toolDurationMs }}</span>
-      </div>
       <div class="msg-toolbar">
         <button class="msg-icon-btn" :class="{ 'is-copied': copied }" aria-label="Copy assistant message" @click="emit('copy', index)">
           <svg v-if="!copied" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
@@ -99,13 +96,13 @@ const emit = defineEmits<{
   align-items: center;
   gap: 4px;
   font-size: 9px;
-  color: #a39e93;
+  color: #A39E93;
   border: 1px solid rgba(229, 225, 213, 0.6);
   background: rgba(229, 225, 213, 0.2);
   padding: 3px 6px;
   border-radius: 6px;
-  font-family: 'SF Mono', 'Fira Code', 'Cascadia Mono', monospace;
-  letter-spacing: 0.03em;
+  font-family: monospace;
+  letter-spacing: 0.04em;
   font-variant-numeric: tabular-nums;
 }
 
@@ -115,22 +112,4 @@ const emit = defineEmits<{
   background: rgba(60, 56, 48, 0.45);
 }
 
-.cost-panel {
-  display: inline-flex;
-  gap: 8px;
-  margin-top: 6px;
-  padding: 4px 8px;
-  border-radius: 999px;
-  background: #f6f3ec;
-  border: 1px solid #e3ddd2;
-  font-size: 10px;
-  color: #8e877a;
-  font-variant-numeric: tabular-nums;
-}
-
-.dark .cost-panel {
-  color: #a09e99;
-  border-color: #464646;
-  background: #2f2f2f;
-}
 </style>

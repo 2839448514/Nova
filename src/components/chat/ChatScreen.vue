@@ -27,6 +27,7 @@ const emit = defineEmits<{
   (e: 'send', msg: string): void;
   (e: 'ask-submit', value: AskUserAnswerSubmission): void;
   (e: 'ask-skip'): void;
+  (e: 'cancel'): void;
 }>();
 
 const chatAreaRef = ref<HTMLElement | null>(null);
@@ -146,9 +147,25 @@ const conversationTokenUsage = (index: number): number => {
   return props.messages.slice(0, index + 1).reduce((sum, m) => sum + (m.tokenUsage ?? 0), 0);
 };
 
+const estimateTokensFromContent = (content: string): number => {
+  const normalized = content.replace(/\s+/g, ' ').trim();
+  if (!normalized) return 0;
+  return Math.max(1, Math.ceil(normalized.length / 4));
+};
+
+const streamingTokenUsage = (): number => {
+  if (typeof props.assistantTokenUsage === 'number' && props.assistantTokenUsage > 0) {
+    return props.assistantTokenUsage;
+  }
+  if (!props.isGenerating) {
+    return 0;
+  }
+  return estimateTokensFromContent(stripToolLog(props.assistantResponse));
+};
+
 const streamingConversationTokenUsage = (): number => {
   const base = props.messages.reduce((sum, m) => sum + (m.tokenUsage ?? 0), 0);
-  return base + (props.assistantTokenUsage ?? 0);
+  return base + streamingTokenUsage();
 };
 
 defineExpose({
@@ -196,23 +213,20 @@ defineExpose({
             <div class="text-[0.95rem] leading-relaxed break-words text-[#1a1a1a] dark:text-[#ececec]">
               <div class="flex items-center gap-2 mb-1">
                 <p class="text-[11px] text-[#9b958a]">Nova</p>
-                <span v-if="typeof assistantTokenUsage === 'number'" class="token-badge">
+                <span
+                  v-if="streamingTokenUsage() > 0 || streamingConversationTokenUsage() > 0"
+                  class="token-badge"
+                >
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                     <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
                     <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path>
                     <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>
                   </svg>
-                  本次 {{ assistantTokenUsage ?? 0 }} · 会话 {{ streamingConversationTokenUsage() }}
+                  本次 {{ streamingTokenUsage() }} · 会话 {{ streamingConversationTokenUsage() }}
                 </span>
               </div>
               <MarkdownRenderer :content="stripToolLog(assistantResponse)" />
               <ToolLogPanel :items="extractToolLog(assistantResponse)" />
-              <div v-if="assistantTurnCost" class="cost-panel">
-                <span>in {{ assistantTurnCost.inputTokens }}</span>
-                <span>out {{ assistantTurnCost.outputTokens }}</span>
-                <span>tools {{ assistantTurnCost.toolCalls }}</span>
-                <span>tool ms {{ assistantTurnCost.toolDurationMs }}</span>
-              </div>
               <span class="inline-block w-1.5 h-[1em] bg-current ml-1 align-middle animate-pulse opacity-70"></span>
             </div>
           </div>
@@ -234,7 +248,7 @@ defineExpose({
           @submit="emit('ask-submit', $event)"
           @skip="emit('ask-skip')"
         />
-        <InputArea v-else :isGenerating="isGenerating" @send="handleSend" />
+        <InputArea v-else :isGenerating="isGenerating" @send="handleSend" @cancel="emit('cancel')" />
       </div>
       <div class="text-center text-[0.7rem] text-muted-foreground mt-2">
         Nova can make mistakes. Please verify important information.
@@ -267,13 +281,13 @@ defineExpose({
   align-items: center;
   gap: 4px;
   font-size: 9px;
-  color: #a39e93;
+  color: #A39E93;
   border: 1px solid rgba(229, 225, 213, 0.6);
   background: rgba(229, 225, 213, 0.2);
   padding: 3px 6px;
   border-radius: 6px;
-  font-family: 'SF Mono', 'Fira Code', 'Cascadia Mono', monospace;
-  letter-spacing: 0.03em;
+  font-family: monospace;
+  letter-spacing: 0.04em;
   font-variant-numeric: tabular-nums;
 }
 
@@ -283,22 +297,4 @@ defineExpose({
   background: rgba(60, 56, 48, 0.45);
 }
 
-.cost-panel {
-  display: inline-flex;
-  gap: 8px;
-  margin-top: 6px;
-  padding: 4px 8px;
-  border-radius: 999px;
-  background: #f6f3ec;
-  border: 1px solid #e3ddd2;
-  font-size: 10px;
-  color: #8e877a;
-  font-variant-numeric: tabular-nums;
-}
-
-.dark .cost-panel {
-  color: #a09e99;
-  border-color: #464646;
-  background: #2f2f2f;
-}
 </style>

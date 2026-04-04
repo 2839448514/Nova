@@ -8,6 +8,8 @@ use crate::llm::types::Message;
 pub struct ProviderTurnResult {
     pub messages: Vec<Message>,
     pub stop_reason: Option<String>,
+    pub output_tokens: Option<u32>,
+    pub prevent_continuation: bool,
 }
 
 pub enum LlmProvider {

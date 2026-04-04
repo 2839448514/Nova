@@ -8,6 +8,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'send', msg: string): void;
+  (e: 'cancel'): void;
 }>();
 
 const currentInput = ref("");
@@ -155,9 +156,14 @@ defineExpose({
           </select>
         </div>
         <button class="w-8 h-8 rounded-full flex items-center justify-center transition-colors shadow-sm"
-          :class="currentInput.trim() && !isGenerating ? 'bg-[#da7756] text-white hover:bg-[#c96c4d]' : 'bg-[#f4f4f4] dark:bg-[#333] text-muted-foreground'"
-          :disabled="!currentInput.trim() || isGenerating" @click="sendMessage()">
-          <svg v-if="!currentInput.trim()" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          :class="isGenerating
+            ? 'bg-[#f4d9d2] text-[#9b4b39] hover:bg-[#eacdc5]'
+            : (currentInput.trim() ? 'bg-[#da7756] text-white hover:bg-[#c96c4d]' : 'bg-[#f4f4f4] dark:bg-[#333] text-muted-foreground')"
+          :disabled="!isGenerating && !currentInput.trim()" @click="isGenerating ? emit('cancel') : sendMessage()">
+          <svg v-if="isGenerating" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+            <rect x="6" y="6" width="12" height="12" rx="2" ry="2" />
+          </svg>
+          <svg v-else-if="!currentInput.trim()" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
             stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
             <path d="M19 10v2a7 7 0 0 1-14 0v-2" />

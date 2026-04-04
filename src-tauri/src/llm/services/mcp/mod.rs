@@ -10,47 +10,9 @@ use tokio::sync::Mutex;
 use tokio::time::timeout;
 use tauri::{AppHandle, Manager};
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(tag = "type", rename_all = "lowercase")]
-pub enum McpServerConfig {
-    Stdio {
-        command: String,
-        args: Vec<String>,
-        #[serde(default)]
-        env: HashMap<String, String>,
-    },
-    Sse {
-        url: String,
-    },
-}
+mod types;
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct McpServerStatus {
-    pub name: String,
-    pub status: String,
-    pub enabled: bool,
-    pub r#type: String,
-    pub tool_count: usize,
-    pub error: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct McpToolInfo {
-    pub name: String,
-    pub description: Option<String>,
-    pub input_schema: Option<Value>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct McpResourceInfo {
-    pub uri: String,
-    pub name: String,
-    pub description: Option<String>,
-    pub mime_type: Option<String>,
-}
+pub use types::{McpResourceInfo, McpRuntimeStatus, McpServerConfig, McpServerStatus, McpToolInfo};
 
 struct StdioMcpConnection {
     child: Child,
@@ -244,7 +206,7 @@ enum ServerConnection {
 struct RegisteredServer {
     config: McpServerConfig,
     enabled: bool,
-    status: String,
+    status: McpRuntimeStatus,
     tool_count: usize,
     error: Option<String>,
     connection: Option<ServerConnection>,
@@ -442,7 +404,14 @@ async fn persist_runtime(app: &AppHandle) -> Result<(), String> {
     save_persisted_servers(app, &servers)
 }
 
-async fn connect_server(config: &McpServerConfig) -> (String, usize, Option<String>, Option<ServerConnection>) {
+async fn connect_server(
+    config: &McpServerConfig,
+) -> (
+    McpRuntimeStatus,
+    usize,
+    Option<String>,
+    Option<ServerConnection>,
+) {
     match config {
         McpServerConfig::Stdio { command, args, env } => match connect_stdio(command, args, env).await {
             Ok(mut conn) => {
@@ -450,7 +419,7 @@ async fn connect_server(config: &McpServerConfig) -> (String, usize, Option<Stri
                     Err(_) => {
                         let _ = conn.shutdown().await;
                         return (
-                            "error".to_string(),
+                            McpRuntimeStatus::Error,
                             0,
                             Some("MCP tools/list timeout (30s). Server may still be downloading dependencies or stuck during startup.".to_string()),
                             None,
@@ -460,7 +429,7 @@ async fn connect_server(config: &McpServerConfig) -> (String, usize, Option<Stri
                     Ok(tools) => tools.len(),
                     Err(e) => {
                         return (
-                            "connected".to_string(),
+                            McpRuntimeStatus::Connected,
                             0,
                             Some(e),
                             Some(ServerConnection::Stdio(conn)),
@@ -469,16 +438,16 @@ async fn connect_server(config: &McpServerConfig) -> (String, usize, Option<Stri
                     },
                 };
                 (
-                    "connected".to_string(),
+                    McpRuntimeStatus::Connected,
                     tool_count,
                     None,
                     Some(ServerConnection::Stdio(conn)),
                 )
             }
-            Err(e) => ("error".to_string(), 0, Some(e), None),
+            Err(e) => (McpRuntimeStatus::Error, 0, Some(e), None),
         },
         McpServerConfig::Sse { .. } => (
-            "error".to_string(),
+            McpRuntimeStatus::Error,
             0,
             Some("SSE MCP runtime not implemented yet. Use stdio for now.".to_string()),
             None,
@@ -515,7 +484,7 @@ async fn reconnect_server(app: &AppHandle, name: &str) -> Result<(), String> {
     server.error = error.clone();
     server.connection = connection;
 
-    if status == "connected" {
+    if status == McpRuntimeStatus::Connected {
         Ok(())
     } else {
         Err(error.unwrap_or_else(|| format!("MCP server '{}' failed to reconnect", name)))
@@ -525,7 +494,7 @@ async fn reconnect_server(app: &AppHandle, name: &str) -> Result<(), String> {
 async fn mark_server_runtime_error(server_name: &str, error: String) {
     let mut map = runtime().lock().await;
     if let Some(server) = map.get_mut(server_name) {
-        server.status = "error".to_string();
+        server.status = McpRuntimeStatus::Error;
         server.error = Some(error);
         server.tool_count = 0;
         server.connection = None;
@@ -547,7 +516,7 @@ async fn ensure_runtime_loaded(app: &AppHandle) {
                 RegisteredServer {
                     config: item.config,
                     enabled: item.enabled,
-                    status: "disconnected".to_string(),
+                    status: McpRuntimeStatus::Disconnected,
                     tool_count: 0,
                     error: None,
                     connection: None,
@@ -642,7 +611,7 @@ pub async fn get_mcp_server_statuses(app: AppHandle) -> Result<Vec<McpServerStat
     for (name, item) in map.iter() {
         result.push(McpServerStatus {
             name: name.clone(),
-            status: item.status.clone(),
+            status: item.status.as_str().to_string(),
             enabled: item.enabled,
             r#type: server_type(&item.config),
             tool_count: item.tool_count,
@@ -666,7 +635,7 @@ pub async fn reload_all_mcp_servers(app: AppHandle) -> Result<(), String> {
         if !enabled {
             let mut map = runtime().lock().await;
             if let Some(server) = map.get_mut(&name) {
-                server.status = "disconnected".to_string();
+                server.status = McpRuntimeStatus::Disconnected;
                 server.tool_count = 0;
                 server.error = None;
                 if let Some(ServerConnection::Stdio(conn)) = server.connection.as_mut() {
@@ -726,7 +695,7 @@ pub async fn set_mcp_server_enabled(app: AppHandle, name: String, enabled: bool)
                 conn.shutdown().await;
             }
             server.enabled = false;
-            server.status = "disconnected".to_string();
+            server.status = McpRuntimeStatus::Disconnected;
             server.tool_count = 0;
             server.error = None;
             server.connection = None;
@@ -787,7 +756,7 @@ pub async fn list_mcp_tools(app: AppHandle, server_name: String) -> Result<Vec<M
         .get_mut(&server_name)
         .ok_or_else(|| format!("MCP server '{}' not found", server_name))?;
     server.tool_count = tools.len();
-    server.status = "connected".into();
+    server.status = McpRuntimeStatus::Connected;
     server.error = None;
     Ok(tools)
 }
@@ -841,7 +810,7 @@ pub async fn list_mcp_resources(app: AppHandle, server_name: String) -> Result<V
     let server = map
         .get_mut(&server_name)
         .ok_or_else(|| format!("MCP server '{}' not found", server_name))?;
-    server.status = "connected".into();
+    server.status = McpRuntimeStatus::Connected;
     server.error = None;
     Ok(resources)
 }
@@ -899,7 +868,7 @@ pub async fn read_mcp_resource(
     let server = map
         .get_mut(&server_name)
         .ok_or_else(|| format!("MCP server '{}' not found", server_name))?;
-    server.status = "connected".into();
+    server.status = McpRuntimeStatus::Connected;
     server.error = None;
     Ok(value)
 }
@@ -958,7 +927,7 @@ pub async fn call_mcp_tool(
     let server = map
         .get_mut(&server_name)
         .ok_or_else(|| format!("MCP server '{}' not found", server_name))?;
-    server.status = "connected".into();
+    server.status = McpRuntimeStatus::Connected;
     server.error = None;
     Ok(result)
 }

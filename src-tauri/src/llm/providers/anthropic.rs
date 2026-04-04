@@ -1,11 +1,12 @@
 use futures_util::StreamExt;
 use reqwest::Client;
+use std::time::Duration;
 use tauri::{AppHandle, Emitter};
+use tokio::time::timeout;
 
 use crate::llm::query_engine::ChatMessageEvent;
 use crate::llm::providers::ProviderTurnResult;
 use crate::llm::services::mcp_tools;
-use crate::llm::services::mcp_tools::parse_mcp_tool_name;
 use crate::llm::tools;
 use crate::llm::types::{
     AnthropicRequest, ContentBlock, Message, Role, StreamContentBlock, StreamDelta, StreamEvent,
@@ -26,6 +27,72 @@ fn is_needs_user_input_payload(raw: &str) -> bool {
                 .map(|s| s == "needs_user_input")
         })
         .unwrap_or(false)
+}
+
+fn apply_tool_call_result(
+    app: &AppHandle,
+    executed: tools::ToolCallResult,
+    current_output_tokens: Option<u32>,
+    stop_emitted_for_user_input: &mut bool,
+    tool_result_blocks: &mut Vec<ContentBlock>,
+    additional_context_messages: &mut Vec<Message>,
+    prevent_continuation: &mut bool,
+    hook_stop_reason: &mut Option<String>,
+) {
+    app.emit(
+        "chat-stream",
+        ChatMessageEvent {
+            r#type: "tool-result".into(),
+            text: None,
+            tool_use_id: Some(executed.id.clone()),
+            tool_use_name: Some(executed.name.clone()),
+            tool_use_input: None,
+            tool_result: Some(executed.output.clone()),
+            token_usage: current_output_tokens,
+            stop_reason: None,
+            turn_state: Some("tool_completed".into()),
+        },
+    )
+    .ok();
+
+    let needs_user_input = is_needs_user_input_payload(&executed.output);
+    if needs_user_input && !*stop_emitted_for_user_input {
+        *stop_emitted_for_user_input = true;
+        app.emit(
+            "chat-stream",
+            ChatMessageEvent {
+                r#type: "stop".into(),
+                text: None,
+                tool_use_id: None,
+                tool_use_name: None,
+                tool_use_input: None,
+                tool_result: None,
+                token_usage: current_output_tokens,
+                stop_reason: Some("needs_user_input".into()),
+                turn_state: Some("awaiting_user_input".into()),
+            },
+        )
+        .ok();
+    }
+
+    tool_result_blocks.push(ContentBlock::ToolResult {
+        tool_use_id: executed.id,
+        is_error: executed.is_error,
+        content: vec![ContentBlock::Text {
+            text: executed.output,
+        }],
+    });
+
+    if !executed.additional_messages.is_empty() {
+        additional_context_messages.extend(executed.additional_messages);
+    }
+
+    if executed.prevent_continuation {
+        *prevent_continuation = true;
+        if hook_stop_reason.is_none() {
+            *hook_stop_reason = executed.stop_reason;
+        }
+    }
 }
 
 impl AnthropicProvider {
@@ -113,12 +180,39 @@ impl AnthropicProvider {
     let mut generated_text = String::new();
     let mut output_blocks: Vec<ContentBlock> = Vec::new();
     let mut tool_result_blocks: Vec<ContentBlock> = Vec::new();
+    let mut pending_tool_calls: Vec<tools::ToolCallRequest> = Vec::new();
     let mut emitted_stop = false;
     let mut current_output_tokens: Option<u32> = None;
     let mut stop_emitted_for_user_input = false;
     let mut last_stop_reason: Option<String> = None;
+    let mut additional_context_messages: Vec<Message> = Vec::new();
+    let mut prevent_continuation = false;
+    let mut hook_stop_reason: Option<String> = None;
+    let streaming_batch_size = std::env::var("NOVA_STREAMING_TOOL_BATCH_SIZE")
+        .ok()
+        .and_then(|v| v.trim().parse::<usize>().ok())
+        .filter(|v| *v > 0)
+        .unwrap_or(2);
 
-    while let Some(chunk) = stream.next().await {
+    loop {
+        if crate::llm::cancellation::is_cancelled(conversation_id) {
+            return Ok(ProviderTurnResult {
+                messages: Vec::new(),
+                stop_reason: Some("cancelled".into()),
+                output_tokens: current_output_tokens,
+                prevent_continuation: false,
+            });
+        }
+
+        let next_chunk = match timeout(Duration::from_millis(200), stream.next()).await {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+
+        let Some(chunk) = next_chunk else {
+            break;
+        };
+
         let bytes = match chunk {
             Ok(v) => v,
             Err(e) => {
@@ -225,85 +319,49 @@ impl AnthropicProvider {
                                         input: input_value.clone(),
                                     });
 
-                                    let tool_result_str =
-                                        if let Some((server_name, tool_name)) =
-                                            parse_mcp_tool_name(&name)
-                                        {
-                                            match crate::command::mcp::call_mcp_tool(
-                                                app.clone(),
-                                                server_name,
-                                                tool_name,
-                                                input_value,
-                                            )
-                                            .await
-                                            {
-                                                Ok(v) => v.to_string(),
-                                                Err(e) => {
-                                                    emit_backend_error(
-                                                        app,
-                                                        "llm.providers.anthropic",
-                                                        e.clone(),
-                                                        Some("tool.mcp_call"),
-                                                    );
-                                                    serde_json::json!({ "ok": false, "error": e })
-                                                        .to_string()
-                                                }
-                                            }
-                                        } else {
-                                            tools::execute_tool_with_app(
-                                                app,
-                                                conversation_id,
-                                                &name,
-                                                input_value,
-                                            )
-                                            .await
-                                        };
+                                    pending_tool_calls.push(tools::ToolCallRequest {
+                                        id: id.clone(),
+                                        name: name.clone(),
+                                        input: input_value,
+                                    });
 
                                     app.emit(
                                         "chat-stream",
                                         ChatMessageEvent {
-                                            r#type: "tool-result".into(),
+                                            r#type: "tool-executing".into(),
                                             text: None,
-                                            tool_use_id: Some(id.clone()),
+                                            tool_use_id: Some(id),
                                             tool_use_name: Some(name),
                                             tool_use_input: None,
-                                            tool_result: Some(tool_result_str.clone()),
+                                            tool_result: None,
                                             token_usage: current_output_tokens,
                                             stop_reason: None,
-                                            turn_state: Some("tool_completed".into()),
+                                            turn_state: Some("tool_executing".into()),
                                         },
                                     )
                                     .ok();
 
-                                    let needs_user_input =
-                                        is_needs_user_input_payload(&tool_result_str);
-
-                                    if needs_user_input && !stop_emitted_for_user_input {
-                                        stop_emitted_for_user_input = true;
-                                        app.emit(
-                                            "chat-stream",
-                                            ChatMessageEvent {
-                                                r#type: "stop".into(),
-                                                text: None,
-                                                tool_use_id: None,
-                                                tool_use_name: None,
-                                                tool_use_input: None,
-                                                tool_result: None,
-                                                token_usage: current_output_tokens,
-                                                stop_reason: Some("needs_user_input".into()),
-                                                turn_state: Some("awaiting_user_input".into()),
-                                            },
+                                    if pending_tool_calls.len() >= streaming_batch_size {
+                                        let executed_calls = tools::execute_tool_calls_with_app(
+                                            app,
+                                            conversation_id,
+                                            std::mem::take(&mut pending_tool_calls),
                                         )
-                                        .ok();
-                                    }
+                                        .await;
 
-                                    tool_result_blocks.push(ContentBlock::ToolResult {
-                                        tool_use_id: id,
-                                        is_error: false,
-                                        content: vec![ContentBlock::Text {
-                                            text: tool_result_str,
-                                        }],
-                                    });
+                                        for executed in executed_calls {
+                                            apply_tool_call_result(
+                                                app,
+                                                executed,
+                                                current_output_tokens,
+                                                &mut stop_emitted_for_user_input,
+                                                &mut tool_result_blocks,
+                                                &mut additional_context_messages,
+                                                &mut prevent_continuation,
+                                                &mut hook_stop_reason,
+                                            );
+                                        }
+                                    }
                                 } else if !generated_text.is_empty() {
                                     output_blocks.push(ContentBlock::Text {
                                         text: generated_text.clone(),
@@ -333,6 +391,27 @@ impl AnthropicProvider {
                                 .ok();
                             }
                             StreamEvent::MessageStop => {
+                                if !pending_tool_calls.is_empty() {
+                                    let executed_calls = tools::execute_tool_calls_with_app(
+                                        app,
+                                        conversation_id,
+                                        std::mem::take(&mut pending_tool_calls),
+                                    )
+                                    .await;
+                                    for executed in executed_calls {
+                                        apply_tool_call_result(
+                                            app,
+                                            executed,
+                                            current_output_tokens,
+                                            &mut stop_emitted_for_user_input,
+                                            &mut tool_result_blocks,
+                                            &mut additional_context_messages,
+                                            &mut prevent_continuation,
+                                            &mut hook_stop_reason,
+                                        );
+                                    }
+                                }
+
                                 emitted_stop = true;
                                 app.emit(
                                     "chat-stream",
@@ -387,9 +466,23 @@ impl AnthropicProvider {
         });
     }
 
+    if !additional_context_messages.is_empty() {
+        result_messages.extend(additional_context_messages);
+    }
+
+    let final_stop_reason = if prevent_continuation {
+        hook_stop_reason
+            .or(last_stop_reason)
+            .or_else(|| Some("hook_stopped_continuation".to_string()))
+    } else {
+        last_stop_reason
+    };
+
     Ok(ProviderTurnResult {
         messages: result_messages,
-        stop_reason: last_stop_reason,
+        stop_reason: final_stop_reason,
+        output_tokens: current_output_tokens,
+        prevent_continuation,
     })
 }
 }

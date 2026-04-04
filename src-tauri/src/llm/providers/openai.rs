@@ -3,12 +3,13 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
+use std::time::Duration;
 use tauri::{AppHandle, Emitter};
+use tokio::time::timeout;
 
 use crate::llm::query_engine::ChatMessageEvent;
 use crate::llm::providers::ProviderTurnResult;
 use crate::llm::services::mcp_tools;
-use crate::llm::services::mcp_tools::parse_mcp_tool_name;
 use crate::llm::tools;
 use crate::llm::types::{ContentBlock, Message, Role};
 use crate::llm::utils::error_event::emit_backend_error;
@@ -312,11 +313,32 @@ impl OpenAiProvider {
         
         let mut output_blocks: Vec<ContentBlock> = Vec::new();
         let mut tool_result_blocks: Vec<ContentBlock> = Vec::new();
+        let mut additional_context_messages: Vec<Message> = Vec::new();
+        let mut prevent_continuation = false;
+        let mut hook_stop_reason: Option<String> = None;
         
         let mut emitted_stop = false;
         let mut last_finish_reason: Option<String> = None;
 
-        while let Some(chunk) = stream.next().await {
+        loop {
+            if crate::llm::cancellation::is_cancelled(conversation_id) {
+                return Ok(ProviderTurnResult {
+                    messages: Vec::new(),
+                    stop_reason: Some("cancelled".into()),
+                    output_tokens: None,
+                    prevent_continuation: false,
+                });
+            }
+
+            let next_chunk = match timeout(Duration::from_millis(200), stream.next()).await {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+
+            let Some(chunk) = next_chunk else {
+                break;
+            };
+
             let bytes = match chunk {
                 Ok(v) => v,
                 Err(e) => {
@@ -441,6 +463,7 @@ impl OpenAiProvider {
 
                                         pending_tool_calls.clear();
 
+                                        let mut call_requests: Vec<tools::ToolCallRequest> = Vec::new();
                                         for (_, tc) in drained_calls {
                                             let (Some(id), Some(name)) = (tc.id, tc.name) else {
                                                 continue;
@@ -455,43 +478,46 @@ impl OpenAiProvider {
                                                 input: input_value.clone(),
                                             });
 
-                                            let tool_result_str = if let Some((server_name, tool_name)) = parse_mcp_tool_name(&name) {
-                                                match crate::command::mcp::call_mcp_tool(
-                                                    app.clone(),
-                                                    server_name,
-                                                    tool_name,
-                                                    input_value,
-                                                ).await {
-                                                    Ok(v) => v.to_string(),
-                                                    Err(e) => {
-                                                        emit_backend_error(
-                                                            app,
-                                                            "llm.providers.openai",
-                                                            e.clone(),
-                                                            Some("tool.mcp_call"),
-                                                        );
-                                                        serde_json::json!({ "ok": false, "error": e }).to_string()
-                                                    }
-                                                }
-                                            } else {
-                                                tools::execute_tool_with_app(
-                                                    app,
-                                                    conversation_id,
-                                                    &name,
-                                                    input_value,
-                                                )
-                                                .await
-                                            };
+                                            app.emit(
+                                                "chat-stream",
+                                                ChatMessageEvent {
+                                                    r#type: "tool-executing".into(),
+                                                    text: None,
+                                                    tool_use_id: Some(id.clone()),
+                                                    tool_use_name: Some(name.clone()),
+                                                    tool_use_input: None,
+                                                    tool_result: None,
+                                                    token_usage: None,
+                                                    stop_reason: None,
+                                                    turn_state: Some("tool_executing".into()),
+                                                },
+                                            )
+                                            .ok();
 
+                                            call_requests.push(tools::ToolCallRequest {
+                                                id,
+                                                name,
+                                                input: input_value,
+                                            });
+                                        }
+
+                                        let executed_calls = tools::execute_tool_calls_with_app(
+                                            app,
+                                            conversation_id,
+                                            call_requests,
+                                        )
+                                        .await;
+
+                                        for executed in executed_calls {
                                             app.emit(
                                                 "chat-stream",
                                                 ChatMessageEvent {
                                                     r#type: "tool-result".into(),
                                                     text: None,
-                                                    tool_use_id: Some(id.clone()),
-                                                    tool_use_name: Some(name),
+                                                    tool_use_id: Some(executed.id.clone()),
+                                                    tool_use_name: Some(executed.name.clone()),
                                                     tool_use_input: None,
-                                                    tool_result: Some(tool_result_str.clone()),
+                                                    tool_result: Some(executed.output.clone()),
                                                     token_usage: None,
                                                     stop_reason: None,
                                                     turn_state: Some("tool_completed".into()),
@@ -500,12 +526,23 @@ impl OpenAiProvider {
                                             .ok();
 
                                             tool_result_blocks.push(ContentBlock::ToolResult {
-                                                tool_use_id: id,
-                                                is_error: false,
+                                                tool_use_id: executed.id,
+                                                is_error: executed.is_error,
                                                 content: vec![ContentBlock::Text {
-                                                    text: tool_result_str,
+                                                    text: executed.output,
                                                 }],
                                             });
+
+                                            if !executed.additional_messages.is_empty() {
+                                                additional_context_messages
+                                                    .extend(executed.additional_messages);
+                                            }
+                                            if executed.prevent_continuation {
+                                                prevent_continuation = true;
+                                                if hook_stop_reason.is_none() {
+                                                    hook_stop_reason = executed.stop_reason;
+                                                }
+                                            }
                                         }
                                     } else if finish_reason == "stop" {
                                         emitted_stop = true;
@@ -568,9 +605,23 @@ impl OpenAiProvider {
             });
         }
 
+        if !additional_context_messages.is_empty() {
+            result_messages.extend(additional_context_messages);
+        }
+
+        let final_stop_reason = if prevent_continuation {
+            hook_stop_reason
+                .or(last_finish_reason)
+                .or_else(|| Some("hook_stopped_continuation".to_string()))
+        } else {
+            last_finish_reason
+        };
+
         Ok(ProviderTurnResult {
             messages: result_messages,
-            stop_reason: last_finish_reason,
+            stop_reason: final_stop_reason,
+            output_tokens: None,
+            prevent_continuation,
         })
     }
 }
