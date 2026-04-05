@@ -9,7 +9,7 @@ interface ConversationItem {
   title: string;
 }
 
-type MainView = "chat" | "hooks" | "agent";
+type MainView = "chat" | "hooks" | "agent" | "schedule";
 
 const props = defineProps<{
   recents: ConversationItem[];
@@ -203,10 +203,16 @@ onBeforeUnmount(() => {
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 2v6h6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         <span class="text-[0.9rem]">智能体</span>
       </Button>
-      <Button variant="ghost" class="w-full justify-start gap-3 px-3 py-2 text-left text-muted-foreground hover:bg-[#ebebeb] dark:hover:bg-[#2d2d2d]">
-        <!-- 指令（使用方形资源图标，视觉上与项目一致） -->
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><rect x="3" y="3" width="18" height="18" rx="2" stroke="currentColor" stroke-width="2"/><path d="M3 9h18M9 21V9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-        <span class="text-[0.9rem]">指令</span>
+      <Button
+        variant="ghost"
+        class="w-full justify-start gap-3 px-3 py-2 text-left"
+        :class="props.activeMainView === 'schedule'
+          ? 'bg-[#ebebeb] dark:bg-[#2d2d2d] text-[#222] dark:text-[#f2f2f2]'
+          : 'hover:bg-[#ebebeb] dark:hover:bg-[#2d2d2d] text-muted-foreground'"
+        @click="emit('change-main-view', 'schedule')"
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><path d="M12 7v6l4 2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span class="text-[0.9rem]">定时任务</span>
       </Button>
       <Button
         variant="ghost"

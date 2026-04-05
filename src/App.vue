@@ -7,6 +7,7 @@ import SessionFilesPopover from "./components/chat/files/SessionFilesPopover.vue
 import ExecutionTracePopover from "./components/chat/files/ExecutionTracePopover.vue";
 import HooksConfigScreen from "./components/hooks/HooksConfigScreen.vue";
 import AgentConfigScreen from "./components/agent/AgentConfigScreen.vue";
+import ScheduleTaskScreen from "./components/schedule/ScheduleTaskScreen.vue";
 import GlobalToastHost from "./components/layout/GlobalToastHost.vue";
 import { useChatController } from "./features/chat/controllers/useChatController";
 
@@ -97,6 +98,11 @@ void chatScreenRef;
 
       <AgentConfigScreen
         v-else-if="mainView === 'agent'"
+        @change-main-view="handleChangeMainView"
+      />
+
+      <ScheduleTaskScreen
+        v-else-if="mainView === 'schedule'"
         @change-main-view="handleChangeMainView"
       />
 

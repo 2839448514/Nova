@@ -16,6 +16,11 @@ pub fn run() {
             tauri::async_runtime::spawn(async move {
                 let _ = crate::command::mcp::warmup_runtime(app_handle).await;
             });
+
+            let scheduler_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                crate::command::cron::run_scheduler_loop(scheduler_handle).await;
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -63,7 +68,10 @@ pub fn run() {
             command::rag::rag_upsert_conversation_documents,
             command::rag::rag_remove_document,
             command::rag::rag_clear_documents,
-            command::skill::list_skills
+            command::skill::list_skills,
+            command::cron::list_scheduled_tasks,
+            command::cron::create_scheduled_task,
+            command::cron::delete_scheduled_task
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

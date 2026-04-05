@@ -46,6 +46,15 @@ export interface ConversationMeta {
   updatedAt: number;
 }
 
+export interface ScheduledTask {
+  id: string;
+  cron: string;
+  prompt: string;
+  recurring: boolean;
+  durable: boolean;
+  createdAt: string;
+}
+
 export interface ChatMessageEvent {
   type: string;
   text?: string;

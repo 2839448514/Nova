@@ -5,6 +5,7 @@ import type {
   ConversationMemory,
   ConversationMeta,
   PersistedMessage,
+  ScheduledTask,
   ToolExecutionEntry,
 } from "../../../lib/chat-types";
 import type { PermissionActionName } from "../../../lib/chat-payloads";
@@ -156,4 +157,22 @@ export async function submitPermissionDecision(
     requestId,
     action,
   });
+}
+
+export async function listScheduledTasks(): Promise<ScheduledTask[]> {
+  const tasks = await invoke<ScheduledTask[]>("list_scheduled_tasks");
+  return tasks || [];
+}
+
+export async function createScheduledTask(payload: {
+  cron: string;
+  prompt: string;
+  recurring?: boolean;
+  durable?: boolean;
+}): Promise<ScheduledTask> {
+  return invoke<ScheduledTask>("create_scheduled_task", payload);
+}
+
+export async function deleteScheduledTask(id: string): Promise<boolean> {
+  return invoke<boolean>("delete_scheduled_task", { id });
 }

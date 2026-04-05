@@ -63,6 +63,16 @@ pub mod enter_plan_mode_tool;
 pub mod exit_plan_mode_tool;
 #[path = "RagTool/mod.rs"]
 pub mod rag_tool;
+#[path = "SyntheticOutputTool/mod.rs"]
+pub mod synthetic_output_tool;
+#[path = "SleepTool/mod.rs"]
+pub mod sleep_tool;
+#[path = "CronCreateTool/mod.rs"]
+pub mod cron_create_tool;
+#[path = "CronListTool/mod.rs"]
+pub mod cron_list_tool;
+#[path = "CronDeleteTool/mod.rs"]
+pub mod cron_delete_tool;
 
 // Placeholder migration modules stay out of `registered_tools()` until their
 // runtime bridge is complete. This avoids exposing Claude-style folders as if
@@ -259,6 +269,11 @@ pub(crate) fn is_read_only_tool(name: &str) -> bool {
         | "list_mcp_resources"
         | "read_mcp_resource"
         | "rag_tool"
+        | "structuredoutput"
+        | "structured_output"
+        | "sleep"
+        | "cronlist"
+        | "cron_list"
         | "skill"
         | "lsp_tool" => true,
         _ => {
@@ -729,6 +744,26 @@ fn registered_tools() -> Vec<RegisteredTool> {
             tool: rag_tool::tool,
             execute: rag_tool::execute,
         },
+        RegisteredTool {
+            tool: synthetic_output_tool::tool,
+            execute: synthetic_output_tool::execute,
+        },
+        RegisteredTool {
+            tool: sleep_tool::tool,
+            execute: sleep_tool::execute,
+        },
+        RegisteredTool {
+            tool: cron_create_tool::tool,
+            execute: cron_create_tool::execute,
+        },
+        RegisteredTool {
+            tool: cron_list_tool::tool,
+            execute: cron_list_tool::execute,
+        },
+        RegisteredTool {
+            tool: cron_delete_tool::tool,
+            execute: cron_delete_tool::execute,
+        },
     ]
 }
 
@@ -793,6 +828,9 @@ pub async fn execute_tool_with_app(
         "Skill" | "skill" => skill_tool::execute_with_app(app, input).await,
         "config_tool" => config_tool::execute_with_app(app, input).await,
         "rag_tool" => rag_tool::execute_with_app(app, input).await,
+        "CronCreate" | "cron_create" => cron_create_tool::execute_with_app(app, input).await,
+        "CronList" | "cron_list" => cron_list_tool::execute_with_app(app, input).await,
+        "CronDelete" | "cron_delete" => cron_delete_tool::execute_with_app(app, input).await,
         "mcp_tool" => mcp_tool::execute_with_app(app, input).await,
         "list_mcp_resources" => list_mcp_resources_tool::execute_with_app(app, input).await,
         "read_mcp_resource" => read_mcp_resource_tool::execute_with_app(app, input).await,

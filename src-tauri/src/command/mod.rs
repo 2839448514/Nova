@@ -10,3 +10,5 @@ pub mod skill;
 pub mod rag;
 // AGENTS.md 配置读写命令入口。
 pub mod agent_config;
+// 定时任务（Cron）相关命令入口。
+pub mod cron;

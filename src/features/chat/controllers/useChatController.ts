@@ -44,12 +44,22 @@ import type {
   UploadedRagFile,
 } from "../../../lib/chat-types";
 
-export type MainView = "chat" | "hooks" | "agent";
+export type MainView = "chat" | "hooks" | "agent" | "schedule";
 
 type BackendErrorEvent = {
   source?: string;
   message?: string;
   stage?: string | null;
+};
+
+type ScheduledTaskTriggerEvent = {
+  id: string;
+  cron: string;
+  prompt: string;
+  recurring: boolean;
+  durable: boolean;
+  createdAt?: string;
+  triggeredAt?: string;
 };
 
 type ChatScreenHandle = {
@@ -86,6 +96,7 @@ export function useChatController() {
 
   let unlistenChatStream: UnlistenFn | null = null;
   let unlistenBackendError: UnlistenFn | null = null;
+  let unlistenScheduledTaskTrigger: UnlistenFn | null = null;
 
   function resetToolTrackingState() {
     currentToolStartedAt.value = null;
@@ -929,12 +940,35 @@ export function useChatController() {
       console.error("Failed to setup backend-error listener:", err);
     }
 
+    try {
+      unlistenScheduledTaskTrigger = await listen<ScheduledTaskTriggerEvent>(
+        "scheduled-task-trigger",
+        (event) => {
+          const payload = event.payload;
+          const promptPreview = (payload.prompt ?? "").trim();
+          const previewText =
+            promptPreview.length > 70
+              ? `${promptPreview.slice(0, 70)}...`
+              : promptPreview;
+
+          emitToast({
+            variant: "info",
+            source: "schedule",
+            message: `定时任务触发: ${payload.id} (${payload.cron})${previewText ? ` - ${previewText}` : ""}`,
+          });
+        },
+      );
+    } catch (err) {
+      console.error("Failed to setup scheduled-task-trigger listener:", err);
+    }
+
     window.addEventListener("history-cleared", handleHistoryCleared as EventListener);
   });
 
   onUnmounted(() => {
     if (unlistenChatStream) unlistenChatStream();
     if (unlistenBackendError) unlistenBackendError();
+    if (unlistenScheduledTaskTrigger) unlistenScheduledTaskTrigger();
     window.removeEventListener("history-cleared", handleHistoryCleared as EventListener);
   });
 
