@@ -13,7 +13,29 @@ Nova is a local coding assistant focused on real project execution, controllable
 - Approval controls: supports allow once, allow for session, and deny decisions for sensitive operations.
 - Conversation continuity: includes conversation history, resume context, compact context, and memory updates.
 - Streaming responses: sends intermediate progress and final completion states clearly.
+- Multi-conversation stream routing: stream events are scoped by conversation so concurrent turns do not mix outputs.
 - Skill integration: discover and run reusable skills from local skill definitions.
+- Scheduled task automation: create/list/delete cron-based tasks with session or durable persistence.
+
+## Scheduled Tasks
+
+Nova includes a built-in scheduled task system for recurring or one-shot prompt execution.
+
+- Cron format: 5 fields (minute hour day-of-month month day-of-week).
+- Storage modes:
+	- session: in-memory, cleared on app restart.
+	- durable: persisted under app_data_dir in scheduled_tasks.json.
+- Task conversation binding:
+	- Every newly created task automatically creates and binds a dedicated conversation.
+	- Triggered task content is written into the bound conversation.
+	- The scheduler also launches an automatic model turn for the bound conversation.
+- UI behavior:
+	- Schedule screen shows task metadata including bound conversation id.
+	- Each task has a "View Task Details" action that opens its bound conversation directly.
+	- Task-bound scheduled conversations are hidden from the normal Recents list to reduce noise.
+- One-shot reliability:
+	- One-shot tasks attempt deletion after trigger.
+	- If deletion fails, the per-minute trigger guard is retained so the same task does not retrigger repeatedly in that minute.
 
 ## Interaction Flow
 
@@ -28,3 +50,10 @@ Nova is a local coding assistant focused on real project execution, controllable
 - Local project changes that need traceable tool logs.
 - Mixed workflows with built-in tools plus MCP-provided capabilities.
 - Safe automation where user approval and control are required.
+
+## Development Commands
+
+- Start web UI only: npm run dev
+- Start Tauri desktop app: npm run tauri
+- Build frontend bundle: npm run build
+- Build desktop app: npm run tauri:build
