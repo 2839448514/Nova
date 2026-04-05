@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import SettingsModal from "./settings/SettingsModal.vue";
 
 interface ConversationItem {
@@ -7,7 +7,7 @@ interface ConversationItem {
   title: string;
 }
 
-type MainView = "chat" | "hooks";
+type MainView = "chat" | "hooks" | "agent";
 
 const props = defineProps<{
   recents: ConversationItem[];
@@ -27,6 +27,105 @@ const isSettingsOpen = ref(false);
 const openSettings = () => {
   isSettingsOpen.value = true;
 };
+
+const isSearchOpen = ref(false);
+const searchKeyword = ref("");
+const searchInputRef = ref<HTMLInputElement | null>(null);
+
+const normalizedSearchKeyword = computed(() => searchKeyword.value.trim().toLocaleLowerCase());
+const hasActiveSearch = computed(() => normalizedSearchKeyword.value.length > 0);
+
+const filteredRecents = computed(() => {
+  const keyword = normalizedSearchKeyword.value;
+  if (!keyword) {
+    return props.recents;
+  }
+
+  return props.recents.filter((item) => item.title.toLocaleLowerCase().includes(keyword));
+});
+
+const focusSearchInput = async () => {
+  await nextTick();
+  searchInputRef.value?.focus();
+  searchInputRef.value?.select();
+};
+
+const openSearch = async () => {
+  isSearchOpen.value = true;
+  await focusSearchInput();
+};
+
+const closeSearch = () => {
+  searchKeyword.value = "";
+  isSearchOpen.value = false;
+};
+
+const toggleSearch = async () => {
+  if (isSearchOpen.value) {
+    closeSearch();
+    return;
+  }
+  await openSearch();
+};
+
+const clearSearch = async () => {
+  searchKeyword.value = "";
+  await focusSearchInput();
+};
+
+const selectFirstSearchResult = () => {
+  if (filteredRecents.value.length === 0) {
+    return;
+  }
+  emit("select-conversation", filteredRecents.value[0].id);
+};
+
+const onSearchKeyDown = (event: KeyboardEvent) => {
+  if (event.key === "Escape") {
+    event.preventDefault();
+    if (searchKeyword.value) {
+      searchKeyword.value = "";
+      return;
+    }
+    closeSearch();
+    return;
+  }
+
+  if (event.key === "Enter") {
+    event.preventDefault();
+    selectFirstSearchResult();
+  }
+};
+
+const onGlobalKeyDown = (event: KeyboardEvent) => {
+  const key = event.key.toLocaleLowerCase();
+  const target = event.target as HTMLElement | null;
+  const tagName = target?.tagName.toLocaleLowerCase() ?? "";
+  const isEditable =
+    target?.isContentEditable ||
+    tagName === "input" ||
+    tagName === "textarea" ||
+    tagName === "select";
+
+  if ((event.ctrlKey || event.metaKey) && key === "k") {
+    event.preventDefault();
+    void openSearch();
+    return;
+  }
+
+  if (!isEditable && !event.ctrlKey && !event.metaKey && !event.altKey && key === "/") {
+    event.preventDefault();
+    void openSearch();
+  }
+};
+
+onMounted(() => {
+  window.addEventListener("keydown", onGlobalKeyDown);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener("keydown", onGlobalKeyDown);
+});
 </script>
 
 <template>
@@ -37,7 +136,11 @@ const openSettings = () => {
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" class="text-muted-foreground"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         <span class="text-[0.9rem]">新对话</span>
       </button>
-      <button class="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[#ebebeb] dark:hover:bg-[#2d2d2d] transition-colors w-full text-left font-medium">
+      <button
+        class="flex items-center gap-3 px-3 py-2 rounded-lg transition-colors w-full text-left font-medium"
+        :class="isSearchOpen ? 'bg-[#ebebeb] dark:bg-[#2d2d2d]' : 'hover:bg-[#ebebeb] dark:hover:bg-[#2d2d2d]'"
+        @click="toggleSearch"
+      >
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" class="text-muted-foreground"><circle cx="11" cy="11" r="8" stroke="currentColor" stroke-width="2"/><path d="M21 21l-4.35-4.35" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
         <span class="text-[0.9rem]">搜索</span>
       </button>
@@ -45,6 +148,31 @@ const openSettings = () => {
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" class="text-muted-foreground"><path d="M12 20.5V20m0-16v-.5m0 0a2.5 2.5 0 100 5 2.5 2.5 0 000-5zm0 16a2.5 2.5 0 100-5 2.5 2.5 0 000 5zm-8.5-8H4m16 0h-.5m0 0a2.5 2.5 0 10-5 0 2.5 2.5 0 005 0zm-16 0a2.5 2.5 0 105 0 2.5 2.5 0 00-5 0z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         <span class="text-[0.9rem]">自定义</span>
       </button>
+
+      <div v-if="isSearchOpen" class="px-2 pb-2">
+        <div class="relative">
+          <input
+            ref="searchInputRef"
+            v-model="searchKeyword"
+            class="w-full h-9 rounded-lg border border-[#dfdbd2] dark:border-[#3a3a3a] bg-white dark:bg-[#272727] px-9 pr-8 text-[0.85rem] text-[#2b2b2b] dark:text-[#ececec] outline-none focus:border-[#c4b49f] dark:focus:border-[#666]"
+            placeholder="搜索会话标题（Enter 打开首条）"
+            @keydown="onSearchKeyDown"
+          />
+          <svg class="absolute left-3 top-1/2 -translate-y-1/2 text-[#a59f93]" width="14" height="14" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="8" stroke="currentColor" stroke-width="2"/><path d="M21 21l-4.35-4.35" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          <button
+            v-if="searchKeyword"
+            class="absolute right-2 top-1/2 -translate-y-1/2 w-5 h-5 rounded-md text-[#9d968a] hover:text-[#6e675b] hover:bg-[#efebe3] dark:hover:bg-[#3a3a3a]"
+            @click="clearSearch"
+            title="清除搜索"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+        <div class="mt-1 px-1 text-[11px] text-[#9a9386] dark:text-[#8f8a80]">
+          <span v-if="hasActiveSearch">匹配 {{ filteredRecents.length }} 条</span>
+          <span v-else>快捷键：Ctrl/Cmd + K</span>
+        </div>
+      </div>
 
       <!-- 导航（已根据图片调整为中文标签与顺序） -->
       <h3 class="text-xs font-semibold text-[#8b8b8b] px-3 mt-2 mb-1">导航</h3>
@@ -55,14 +183,18 @@ const openSettings = () => {
           : 'hover:bg-[#ebebeb] dark:hover:bg-[#2d2d2d] text-muted-foreground'"
         @click="emit('change-main-view', 'chat')"
       >
-        <!-- 智能体（复用聊天气泡图标，样式与项目一致） -->
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        <span class="text-[0.9rem]">智能体</span>
+        <span class="text-[0.9rem]">聊天</span>
       </button>
-      <button class="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[#ebebeb] dark:hover:bg-[#2d2d2d] transition-colors w-full text-left text-muted-foreground">
-        <!-- 技能（复用文件/项目图标） -->
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        <span class="text-[0.9rem]">技能</span>
+      <button
+        class="flex items-center gap-3 px-3 py-2 rounded-lg transition-colors w-full text-left"
+        :class="props.activeMainView === 'agent'
+          ? 'bg-[#ebebeb] dark:bg-[#2d2d2d] text-[#222] dark:text-[#f2f2f2]'
+          : 'hover:bg-[#ebebeb] dark:hover:bg-[#2d2d2d] text-muted-foreground'"
+        @click="emit('change-main-view', 'agent')"
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 2v6h6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span class="text-[0.9rem]">智能体</span>
       </button>
       <button class="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[#ebebeb] dark:hover:bg-[#2d2d2d] transition-colors w-full text-left text-muted-foreground">
         <!-- 指令（使用方形资源图标，视觉上与项目一致） -->
@@ -80,16 +212,12 @@ const openSettings = () => {
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="8" stroke="currentColor" stroke-width="2"/><path d="M21 21l-4.35-4.35" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
         <span class="text-[0.9rem]">挂钩</span>
       </button>
-      <button class="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[#ebebeb] dark:hover:bg-[#2d2d2d] transition-colors w-full text-left text-muted-foreground mb-4">
-        <!-- MCP 服务器（使用齿轮/自定义图标） -->
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 20.5V20m0-16v-.5m0 0a2.5 2.5 0 100 5 2.5 2.5 0 000-5zm0 16a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        <span class="text-[0.9rem]">MCP 服务器</span>
-      </button>
+      <div class="mb-4" />
 
       <!-- Recents -->
       <h3 class="text-xs font-semibold text-[#8b8b8b] px-3 mt-2 mb-1">Recents</h3>
       <button 
-        v-for="recent in props.recents" 
+        v-for="recent in filteredRecents" 
         :key="recent.id"
         class="group flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors w-full text-left text-[0.85rem]"
         :class="recent.id === props.activeConversationId
@@ -111,7 +239,9 @@ const openSettings = () => {
           </svg>
         </span>
       </button>
-      <div v-if="props.recents.length === 0" class="px-3 py-1.5 text-[0.85rem] text-[#8b8b8b]">暂无历史会话</div>
+      <div v-if="filteredRecents.length === 0" class="px-3 py-1.5 text-[0.85rem] text-[#8b8b8b]">
+        {{ hasActiveSearch ? '未找到匹配会话' : '暂无历史会话' }}
+      </div>
 
     </div>
 

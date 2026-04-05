@@ -8,3 +8,5 @@ pub mod mcp;
 pub mod skill;
 // RAG 知识库相关命令入口。
 pub mod rag;
+// AGENTS.md 配置读写命令入口。
+pub mod agent_config;

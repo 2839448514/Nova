@@ -5,6 +5,7 @@ import ChatScreen from "./components/chat/ChatScreen.vue";
 import SessionFilesPopover from "./components/chat/files/SessionFilesPopover.vue";
 import ExecutionTracePopover from "./components/chat/files/ExecutionTracePopover.vue";
 import HooksConfigScreen from "./components/hooks/HooksConfigScreen.vue";
+import AgentConfigScreen from "./components/agent/AgentConfigScreen.vue";
 import GlobalToastHost from "./components/layout/GlobalToastHost.vue";
 import { useChatController } from "./features/chat/controllers/useChatController";
 
@@ -72,7 +73,7 @@ void chatScreenRef;
           </div>
         </div>
 
-        <div class="flex items-center gap-2 pointer-events-auto">
+        <div v-if="mainView === 'chat'" class="flex items-center gap-2 pointer-events-auto">
           <SessionFilesPopover
             :files="conversationFiles"
             :pendingUploads="pendingUploads"
@@ -85,6 +86,11 @@ void chatScreenRef;
 
       <HooksConfigScreen
         v-if="mainView === 'hooks'"
+        @change-main-view="handleChangeMainView"
+      />
+
+      <AgentConfigScreen
+        v-else-if="mainView === 'agent'"
         @change-main-view="handleChangeMainView"
       />
 

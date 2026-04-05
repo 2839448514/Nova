@@ -44,7 +44,7 @@ import type {
   UploadedRagFile,
 } from "../../../lib/chat-types";
 
-export type MainView = "chat" | "hooks";
+export type MainView = "chat" | "hooks" | "agent";
 
 type BackendErrorEvent = {
   source?: string;
