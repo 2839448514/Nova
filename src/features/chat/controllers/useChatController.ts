@@ -570,13 +570,18 @@ export function useChatController() {
 
   function formatMessageContentForModel(msg: ChatMessage): string {
     const content = msg.content.trim();
+    const names = msg.attachments?.map((item) => item.sourceName).filter(Boolean) ?? [];
+    const ragNotice =
+      names.length > 0
+        ? `\n\n已上传文件（可在会话RAG中检索）：${names.join("，")}\n若你不确定答案，请先在RAG中检索相关片段，再视情况使用 web_search / web_fetch。`
+        : "";
+
     if (content) {
-      return content;
+      return `${content}${ragNotice}`;
     }
 
-    const names = msg.attachments?.map((item) => item.sourceName).filter(Boolean) ?? [];
     if (names.length > 0) {
-      return `Attached files: ${names.join(", ")}`;
+      return `请优先结合我上传的文件回答。${ragNotice}`;
     }
 
     return "";
@@ -731,7 +736,20 @@ export function useChatController() {
     };
   }
 
-  async function finalizeBackgroundTurn(conversationId: string, state: ConversationTurnRuntimeState, tokenUsage?: number) {
+  function shouldPreservePendingPromptOnStop(turnState: string, stopReason: string): boolean {
+    return (
+      turnState === "awaiting_user_input" ||
+      turnState === "needs_user_input" ||
+      stopReason === "needs_user_input"
+    );
+  }
+
+  async function finalizeBackgroundTurn(
+    conversationId: string,
+    state: ConversationTurnRuntimeState,
+    tokenUsage?: number,
+    preservePendingPrompt = false,
+  ) {
     const finalText = state.assistantResponse.trim();
     const fallbackTokenUsage = finalText ? estimateTokens(finalText) : 0;
     const resolvedTokenUsage =
@@ -764,11 +782,16 @@ export function useChatController() {
     state.currentToolDurationMs = 0;
     state.currentInputTokens = 0;
     state.currentOutputTokens = 0;
-    state.pendingQuestion = null;
-    state.pendingPermissionRequestId = null;
+    if (!preservePendingPrompt) {
+      state.pendingQuestion = null;
+      state.pendingPermissionRequestId = null;
+    }
     state.toolInputById.clear();
     state.toolNameById.clear();
-    cleanupRuntimeStateIfIdle(conversationId);
+
+    if (!preservePendingPrompt) {
+      cleanupRuntimeStateIfIdle(conversationId);
+    }
   }
 
   function finalizeAssistantTurn(tokenUsage?: number) {
@@ -880,10 +903,11 @@ export function useChatController() {
       return;
     }
 
+    const uploadedAttachmentNames = uploadedAttachments.map((item) => item.sourceName);
     const modelUserText =
       text ||
-      (uploadedAttachments.length > 0
-        ? `请结合我上传的文件回答：${uploadedAttachments.map((item) => item.sourceName).join("，")}`
+      (uploadedAttachmentNames.length > 0
+        ? `请结合我上传的文件回答：${uploadedAttachmentNames.join("，")}`
         : text);
 
     const userMsg: ChatMessage = {
@@ -903,7 +927,7 @@ export function useChatController() {
     currentOutputTokens.value = 0;
     currentInputTokens.value = estimateInputTokensForTurn(
       modelUserText,
-      uploadedAttachments.map((item) => item.sourceName),
+      uploadedAttachmentNames,
     );
     resetToolTrackingState();
 
@@ -1347,8 +1371,17 @@ export function useChatController() {
       stopReason === "needs_user_input";
 
     if (shouldFinalize) {
+      const preservePendingPrompt =
+        shouldPreservePendingPromptOnStop(turnState, stopReason) ||
+        !!state.pendingPermissionRequestId ||
+        !!state.pendingQuestion;
       markRunningToolExecutionsInState(conversationId, state, "completed");
-      await finalizeBackgroundTurn(conversationId, state, payload.token_usage);
+      await finalizeBackgroundTurn(
+        conversationId,
+        state,
+        payload.token_usage,
+        preservePendingPrompt,
+      );
     }
   }
 
@@ -1539,10 +1572,20 @@ export function useChatController() {
             stopReason === "needs_user_input";
 
           if (shouldFinalize) {
+            const preservePendingPrompt =
+              shouldPreservePendingPromptOnStop(turnState, stopReason) ||
+              !!pendingPermissionRequestId.value ||
+              !!pendingQuestion.value;
             markRunningToolExecutions("completed");
             finalizeOrStopTurn(payload.token_usage);
-            resetTurnRuntimeState();
-            if (activeConversationId.value) {
+
+            if (!preservePendingPrompt) {
+              resetTurnRuntimeState();
+            } else {
+              resetToolTrackingState();
+            }
+
+            if (activeConversationId.value && !preservePendingPrompt) {
               runtimeStateByConversation.delete(normalizeConversationId(activeConversationId.value));
             }
           }

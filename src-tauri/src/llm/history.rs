@@ -153,6 +153,21 @@ pub async fn get_pool_with_schema(app: &AppHandle) -> Result<SqlitePool, String>
     Ok(pool)
 }
 
+async fn conversation_exists(pool: &SqlitePool, conversation_id: &str) -> Result<bool, String> {
+    let normalized = conversation_id.trim();
+    if normalized.is_empty() {
+        return Ok(false);
+    }
+
+    let exists: i64 = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM conversations WHERE id = ?)")
+        .bind(normalized)
+        .fetch_one(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(exists != 0)
+}
+
 // Create a new conversation row with generated UUID and optional title.
 // If title is empty, fallback to default "New chat".
 pub async fn create_conversation(
@@ -250,6 +265,12 @@ pub async fn append_history(
     message: HistoryMessage,
 ) -> Result<(), String> {
     let pool = get_pool_with_schema(app).await?;
+    let normalized_conversation_id = conversation_id.trim();
+
+    // Stream callbacks may outlive a conversation (reload/delete/clear); skip stale writes.
+    if !conversation_exists(&pool, normalized_conversation_id).await? {
+        return Ok(());
+    }
 
     let now = chrono::Utc::now().timestamp();
     let role = message.role.clone();
@@ -263,7 +284,7 @@ pub async fn append_history(
     sqlx::query(
         "INSERT INTO conversation_messages (conversation_id, role, content, attachments_json, token_usage, cost_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
     )
-    .bind(conversation_id)
+    .bind(normalized_conversation_id)
     .bind(&role)
     .bind(&content)
     .bind(attachments_json)
@@ -279,7 +300,7 @@ pub async fn append_history(
         let user_count: i64 = sqlx::query_scalar(
             "SELECT COUNT(1) FROM conversation_messages WHERE conversation_id = ? AND role = 'user'",
         )
-        .bind(conversation_id)
+        .bind(normalized_conversation_id)
         .fetch_one(&pool)
         .await
         .map_err(|e| e.to_string())?;
@@ -287,7 +308,7 @@ pub async fn append_history(
         if user_count == 1 {
             let current_title: Option<String> =
                 sqlx::query_scalar("SELECT title FROM conversations WHERE id = ?")
-                    .bind(conversation_id)
+                    .bind(normalized_conversation_id)
                     .fetch_optional(&pool)
                     .await
                     .map_err(|e| e.to_string())?;
@@ -301,7 +322,7 @@ pub async fn append_history(
                 let new_title = memory::derive_title_from_message(&content);
                 sqlx::query("UPDATE conversations SET title = ? WHERE id = ?")
                     .bind(new_title)
-                    .bind(conversation_id)
+                    .bind(normalized_conversation_id)
                     .execute(&pool)
                     .await
                     .map_err(|e| e.to_string())?;
@@ -312,13 +333,13 @@ pub async fn append_history(
     // Touch conversation timestamp so list order reflects latest activity.
     sqlx::query("UPDATE conversations SET updated_at = ? WHERE id = ?")
         .bind(now)
-        .bind(conversation_id)
+        .bind(normalized_conversation_id)
         .execute(&pool)
         .await
         .map_err(|e| e.to_string())?;
 
     // Keep summary memory in sync after each append.
-    memory::refresh_conversation_memory(&pool, conversation_id, now).await?;
+    memory::refresh_conversation_memory(&pool, normalized_conversation_id, now).await?;
 
     Ok(())
 }
@@ -359,6 +380,12 @@ pub async fn upsert_conversation_tool_log(
     log: HistoryToolExecution,
 ) -> Result<(), String> {
     let pool = get_pool_with_schema(app).await?;
+    let normalized_conversation_id = conversation_id.trim();
+
+    // Tool traces can arrive after conversation deletion; ignore stale persistence.
+    if !conversation_exists(&pool, normalized_conversation_id).await? {
+        return Ok(());
+    }
 
     let log_id = log.id.trim();
     if log_id.is_empty() {
@@ -402,7 +429,7 @@ pub async fn upsert_conversation_tool_log(
             updated_at = excluded.updated_at
         "#,
     )
-    .bind(conversation_id)
+    .bind(normalized_conversation_id)
     .bind(log_id)
     .bind(tool_name)
     .bind(log.input)
