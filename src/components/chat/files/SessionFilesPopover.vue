@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from "vue";
+import { Button } from "@/components/ui/button";
 import type { UploadedRagFile } from "../../../lib/chat-types";
 import SessionFileItem from "./SessionFileItem.vue";
 
@@ -75,7 +76,9 @@ onBeforeUnmount(() => {
 
 <template>
   <div ref="rootRef" class="relative pointer-events-auto">
-    <button
+    <Button
+      variant="outline"
+      size="sm"
       class="h-8 px-3 rounded-md border border-[#e5e0d6] dark:border-[#444] bg-white/95 dark:bg-[#262626] text-[12px] text-[#5f584a] dark:text-[#d5cdc0] inline-flex items-center gap-2 hover:bg-[#f7f4ed] dark:hover:bg-[#2f2f2f] transition-colors"
       @click="togglePanel"
     >
@@ -87,7 +90,7 @@ onBeforeUnmount(() => {
       <span class="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-[#efe9dc] dark:bg-[#3a342d] text-[11px] leading-none">
         {{ props.files.length }}
       </span>
-    </button>
+    </Button>
 
     <div
       v-if="isOpen"
@@ -108,9 +111,9 @@ onBeforeUnmount(() => {
           >
             <span class="max-w-[150px] truncate" :title="file.sourceName">{{ file.sourceName }}</span>
             <span v-if="formatFileSize(file.size)" class="opacity-70">{{ formatFileSize(file.size) }}</span>
-            <button class="opacity-75 hover:opacity-100" @click="emit('remove-pending-upload', index)">
+            <Button variant="ghost" size="icon-sm" class="h-4 w-4 p-0 opacity-75 hover:opacity-100" @click="emit('remove-pending-upload', index)">
               ×
-            </button>
+            </Button>
           </span>
         </div>
       </div>

@@ -1,20 +1,24 @@
 <script setup lang="ts">
+import { Card, CardContent } from '@/components/ui/card';
+
 defineProps<{
   items: string[];
 }>();
 </script>
 
 <template>
-  <div v-if="items.length > 0" class="tool-log-panel">
-    <div class="tool-log-title">工具调用</div>
-    <div
-      v-for="(item, toolIndex) in items"
-      :key="`tool-${toolIndex}`"
-      class="tool-log-item"
-    >
-      {{ item }}
-    </div>
-  </div>
+  <Card v-if="items.length > 0" class="tool-log-panel py-0">
+    <CardContent class="px-3 py-2.5">
+      <div class="tool-log-title">工具调用</div>
+      <div
+        v-for="(item, toolIndex) in items"
+        :key="`tool-${toolIndex}`"
+        class="tool-log-item"
+      >
+        {{ item }}
+      </div>
+    </CardContent>
+  </Card>
 </template>
 
 <style scoped>

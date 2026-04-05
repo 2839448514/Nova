@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { Card, CardContent } from '@/components/ui/card';
+
 type SessionFileMeta = {
   id: string;
   sourceName: string;
@@ -30,30 +32,32 @@ const formatDocTime = (ts: number) => {
 </script>
 
 <template>
-  <div class="rounded-xl border border-[#ece6da] dark:border-[#3a3a3a] bg-[#faf8f3] dark:bg-[#2b2b2b] px-3 py-2.5 transition-colors hover:bg-[#f6f1e7] dark:hover:bg-[#333]">
-    <div class="flex items-start justify-between gap-2">
-      <div class="flex items-center gap-2 min-w-0">
-        <span class="w-7 h-7 rounded-md flex items-center justify-center border border-[#ddd6c8] dark:border-[#4a4a4a] bg-white dark:bg-[#222] text-[#7f7668] dark:text-[#c6bfb2]">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-            <polyline points="14 2 14 8 20 8" />
-          </svg>
-        </span>
-        <div class="min-w-0">
-          <div class="text-[12px] font-medium text-[#4f473c] dark:text-[#e2dbcf] truncate" :title="props.file.sourceName">
-            {{ props.file.sourceName }}
-          </div>
-          <div class="text-[10px] text-[#9a9284] dark:text-[#a79f92]">
-            {{ props.file.contentChars.toLocaleString() }} 字符
+  <Card class="border-[#ece6da] bg-[#faf8f3] py-0 transition-colors hover:bg-[#f6f1e7] dark:border-[#3a3a3a] dark:bg-[#2b2b2b] dark:hover:bg-[#333]">
+    <CardContent class="px-3 py-2.5">
+      <div class="flex items-start justify-between gap-2">
+        <div class="flex min-w-0 items-center gap-2">
+          <span class="flex h-7 w-7 items-center justify-center rounded-md border border-[#ddd6c8] bg-white text-[#7f7668] dark:border-[#4a4a4a] dark:bg-[#222] dark:text-[#c6bfb2]">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+            </svg>
+          </span>
+          <div class="min-w-0">
+            <div class="truncate text-[12px] font-medium text-[#4f473c] dark:text-[#e2dbcf]" :title="props.file.sourceName">
+              {{ props.file.sourceName }}
+            </div>
+            <div class="text-[10px] text-[#9a9284] dark:text-[#a79f92]">
+              {{ props.file.contentChars.toLocaleString() }} 字符
+            </div>
           </div>
         </div>
+        <div class="shrink-0 text-[10px] text-[#9d9589] dark:text-[#9d9589]">
+          {{ formatDocTime(props.file.updatedAt) }}
+        </div>
       </div>
-      <div class="text-[10px] text-[#9d9589] dark:text-[#9d9589] shrink-0">
-        {{ formatDocTime(props.file.updatedAt) }}
+      <div class="mt-2 line-clamp-2 text-[11px] leading-relaxed text-[#7f7668] dark:text-[#ada496]">
+        {{ props.file.preview }}
       </div>
-    </div>
-    <div class="mt-2 text-[11px] leading-relaxed text-[#7f7668] dark:text-[#ada496] line-clamp-2">
-      {{ props.file.preview }}
-    </div>
-  </div>
+    </CardContent>
+  </Card>
 </template>

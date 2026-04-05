@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { Button } from '@/components/ui/button'
 
 import GeneralTab from './tabs/GeneralTab.vue'
 import ModelTab   from './tabs/ModelTab.vue'
@@ -98,16 +99,23 @@ onUnmounted(() => {
 
             <!-- Sidebar -->
             <aside class="w-[200px] shrink-0 bg-[#f9f9f8] dark:bg-[#1a1a1a] p-4 flex flex-col gap-1 border-r border-[#e5e5e5] dark:border-[#333]">
-              <button class="flex items-center justify-center w-7 h-7 rounded-md text-muted-foreground hover:bg-[#e5e5e5] dark:hover:bg-[#333] transition-colors mb-3" @click="close" :title="closeTitle">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                class="mb-3 text-muted-foreground hover:bg-[#e5e5e5] dark:hover:bg-[#333]"
+                @click="close"
+                :title="closeTitle"
+              >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-4 h-4">
                   <path d="M6 18L18 6M6 6l12 12"/>
                 </svg>
-              </button>
+              </Button>
               
               <nav class="flex flex-col gap-0.5">
-                <button
+                <Button
                   v-for="tab in tabs" :key="tab.id"
-                  class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-[0.92rem] font-medium transition-colors text-left"
+                  variant="ghost"
+                  class="justify-start gap-2.5 px-3 py-2 text-left text-[0.92rem] font-medium"
                   :class="[
                     activeTab === tab.id 
                       ? 'bg-[#ebebeb] dark:bg-[#333] text-[#1a1a1a] dark:text-[#ececec]' 
@@ -119,7 +127,7 @@ onUnmounted(() => {
                     <path :d="tab.icon" stroke-linecap="round" stroke-linejoin="round"/>
                   </svg>
                   {{ tabLabel(tab.id) }}
-                </button>
+                </Button>
               </nav>
             </aside>
 

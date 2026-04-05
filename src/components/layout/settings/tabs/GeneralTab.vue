@@ -2,6 +2,9 @@
 import { computed, onMounted, ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { emitToast } from '../../../../lib/toast'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
   applyUiTheme,
   getStoredUiLanguage,
@@ -143,6 +146,11 @@ const onLanguageChange = () => {
   void persistPreferences()
 }
 
+const onLanguageSelect = (value: string) => {
+  language.value = normalizeUiLanguage(value)
+  onLanguageChange()
+}
+
 const clearHistory = async () => {
   if (isClearingHistory.value) {
     return
@@ -179,59 +187,61 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="flex flex-col">
-    <!-- Theme -->
-    <div class="flex items-center justify-between py-4 border-b border-[#f0ede7] dark:border-[#333] gap-4">
-      <div class="flex flex-col gap-0.5">
-        <span class="text-[0.9rem] font-medium text-[#2a2820] dark:text-[#ececec]">{{ t.appearanceTitle }}</span>
-        <span class="text-xs text-muted-foreground">{{ t.appearanceDesc }}</span>
-      </div>
-      <div class="flex bg-[#f4f4f4] dark:bg-[#1f1f1f] rounded-lg p-1 gap-1 border border-[#e5e5e5] dark:border-[#444]">
-        <button 
-          v-for="opt in themeOptions" 
-          :key="opt.value"
-          class="px-3 py-1.5 border-none rounded-md text-[0.85rem] font-medium cursor-pointer transition-colors"
-          :class="[
-            theme === opt.value 
-              ? 'bg-white dark:bg-[#333] text-[#2a2820] dark:text-[#ececec] shadow-sm' 
-              : 'bg-transparent text-muted-foreground hover:bg-[#ebebeb] dark:hover:bg-[#2d2d2d]'
-          ]"
-          @click="setTheme(opt.value)"
-        >
-          {{ opt.label }}
-        </button>
-      </div>
-    </div>
-    
-    <!-- Language -->
-    <div class="flex items-center justify-between py-4 border-b border-[#f0ede7] dark:border-[#333] gap-4">
-      <div class="flex flex-col gap-0.5">
-        <span class="text-[0.9rem] font-medium text-[#2a2820] dark:text-[#ececec]">{{ t.languageTitle }}</span>
-        <span class="text-xs text-muted-foreground">{{ t.languageDesc }}</span>
-      </div>
-      <select 
-        v-model="language"
-        @change="onLanguageChange"
-        class="px-3 py-1.5 border border-[#ddd9d0] dark:border-[#444] rounded-lg text-[0.85rem] text-[#2a2820] dark:text-[#ececec] bg-white dark:bg-[#2a2a2a] cursor-pointer outline-none min-w-[120px] focus:border-black/30 dark:focus:border-white/30"
-      >
-        <option value="zh-CN">{{ t.languageChinese }}</option>
-        <option value="en-US">{{ t.languageEnglish }}</option>
-      </select>
-    </div>
+  <div class="flex flex-col gap-3">
+    <Card class="border-[#ebe9e3] dark:border-[#3b3a37]">
+      <CardHeader class="pb-2">
+        <CardTitle class="text-[0.9rem]">{{ t.appearanceTitle }}</CardTitle>
+        <CardDescription>{{ t.appearanceDesc }}</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div class="flex flex-wrap gap-2">
+          <Button
+            v-for="opt in themeOptions"
+            :key="opt.value"
+            size="sm"
+            :variant="theme === opt.value ? 'default' : 'outline'"
+            class="min-w-[88px]"
+            @click="setTheme(opt.value)"
+          >
+            {{ opt.label }}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
 
-    <!-- Sidebar Default State -->
-    <div class="flex items-center justify-between py-4 gap-4">
-      <div class="flex flex-col gap-0.5">
-        <span class="text-[0.9rem] font-medium text-[#2a2820] dark:text-[#ececec]">{{ t.clearHistoryTitle }}</span>
-        <span class="text-xs text-muted-foreground">{{ t.clearHistoryDesc }}</span>
-      </div>
-      <button
-        class="px-3 py-1.5 border border-[#e8c5c5] dark:border-[#522] text-[#c0392b] dark:text-[#f87171] rounded-md text-[0.85rem] font-medium hover:bg-[#fdf0f0] dark:hover:bg-[#311] transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-        :disabled="isClearingHistory"
-        @click="clearHistory"
-      >
-        {{ isClearingHistory ? t.clearHistoryWorking : t.clearHistoryButton }}
-      </button>
-    </div>
+    <Card class="border-[#ebe9e3] dark:border-[#3b3a37]">
+      <CardHeader class="pb-2">
+        <CardTitle class="text-[0.9rem]">{{ t.languageTitle }}</CardTitle>
+        <CardDescription>{{ t.languageDesc }}</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Select :model-value="language" @update:model-value="(value) => onLanguageSelect(String(value))">
+          <SelectTrigger class="w-[180px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="zh-CN">{{ t.languageChinese }}</SelectItem>
+            <SelectItem value="en-US">{{ t.languageEnglish }}</SelectItem>
+          </SelectContent>
+        </Select>
+      </CardContent>
+    </Card>
+
+    <Card class="border-[#ebe9e3] dark:border-[#3b3a37]">
+      <CardHeader class="pb-2">
+        <CardTitle class="text-[0.9rem]">{{ t.clearHistoryTitle }}</CardTitle>
+        <CardDescription>{{ t.clearHistoryDesc }}</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Button
+          variant="destructive"
+          size="sm"
+          :disabled="isClearingHistory"
+          @click="clearHistory"
+        >
+          {{ isClearingHistory ? t.clearHistoryWorking : t.clearHistoryButton }}
+        </Button>
+      </CardContent>
+    </Card>
   </div>
 </template>

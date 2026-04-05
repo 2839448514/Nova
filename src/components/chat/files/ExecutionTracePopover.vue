@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from "vue";
+import { Button } from "@/components/ui/button";
 import type { ToolExecutionEntry } from "../../../lib/chat-types";
 
 const props = defineProps<{
@@ -81,7 +82,9 @@ onBeforeUnmount(() => {
 
 <template>
   <div ref="rootRef" class="relative pointer-events-auto">
-    <button
+    <Button
+      variant="outline"
+      size="sm"
       class="h-8 px-3 rounded-md border border-[#e5e0d6] dark:border-[#444] bg-white/95 dark:bg-[#262626] text-[12px] text-[#5f584a] dark:text-[#d5cdc0] inline-flex items-center gap-2 hover:bg-[#f7f4ed] dark:hover:bg-[#2f2f2f] transition-colors"
       @click="togglePanel"
     >
@@ -94,7 +97,7 @@ onBeforeUnmount(() => {
       <span class="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-[#efe9dc] dark:bg-[#3a342d] text-[11px] leading-none">
         {{ props.entries.length }}
       </span>
-    </button>
+    </Button>
 
     <div
       v-if="isOpen"
@@ -116,9 +119,11 @@ onBeforeUnmount(() => {
           class="rounded-xl border border-[#ece6da] dark:border-[#3a3a3a] bg-[#faf8f3] dark:bg-[#2b2b2b] px-3 py-2.5"
         >
           <div class="flex items-center justify-between gap-2">
-            <button
+            <Button
+              variant="ghost"
+              size="sm"
               type="button"
-              class="flex-1 min-w-0 inline-flex items-center gap-1.5 text-left"
+              class="h-auto flex-1 min-w-0 justify-start gap-1.5 px-0 text-left"
               :aria-expanded="!isEntryCollapsed(entry.id)"
               @click="toggleEntryCollapse(entry.id)"
             >
@@ -139,7 +144,7 @@ onBeforeUnmount(() => {
               <span class="text-[12px] font-medium text-[#4f473c] dark:text-[#e2dbcf] truncate">
                 {{ entry.toolName }}
               </span>
-            </button>
+            </Button>
             <div class="inline-flex items-center gap-1">
               <span class="trace-status" :class="statusClassMap[entry.status]">{{ statusLabelMap[entry.status] }}</span>
               <span class="text-[10px] text-[#9d9589] dark:text-[#9d9589] shrink-0">{{ formatTime(entry.startedAt) }}</span>

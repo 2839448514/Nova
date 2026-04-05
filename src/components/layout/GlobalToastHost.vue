@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue';
+import { Card, CardContent } from '@/components/ui/card';
 import { NOVA_TOAST_EVENT, type ToastPayload } from '../../lib/toast';
 
 type ToastItem = {
@@ -55,18 +56,18 @@ onUnmounted(() => {
     tag="div"
     class="fixed top-5 right-5 z-[120] flex flex-col gap-2 pointer-events-none"
   >
-    <div
+    <Card
       v-for="toast in toasts"
       :key="toast.id"
-      class="min-w-[280px] max-w-[420px] px-4 py-3 rounded-lg border shadow-[0_8px_20px_rgba(0,0,0,0.12)] text-[13px] leading-relaxed pointer-events-auto"
+      class="min-w-[280px] max-w-[420px] border py-0 shadow-[0_8px_20px_rgba(0,0,0,0.12)] pointer-events-auto"
       :class="{
         'bg-[#fff4f4] dark:bg-[#3a2222] border-[#f2c9c9] dark:border-[#6a3535] text-[#9f2f2f] dark:text-[#ffb3b3]': toast.variant === 'error',
         'bg-[#f2fbf4] dark:bg-[#1f3325] border-[#cde8d3] dark:border-[#3a6b48] text-[#1f6a34] dark:text-[#9ae2ad]': toast.variant === 'success',
         'bg-[#f3f7ff] dark:bg-[#202a3a] border-[#d2def8] dark:border-[#3a4d74] text-[#2f4e91] dark:text-[#a4c0ff]': toast.variant === 'info'
       }"
     >
-      {{ toast.message }}
-    </div>
+      <CardContent class="px-4 py-3 text-[13px] leading-relaxed">{{ toast.message }}</CardContent>
+    </Card>
   </TransitionGroup>
 </template>
 

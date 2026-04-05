@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Button } from "@/components/ui/button";
 import Sidebar from "./components/layout/Sidebar.vue";
 import WelcomeScreen from "./components/chat/WelcomeScreen.vue";
 import ChatScreen from "./components/chat/ChatScreen.vue";
@@ -64,9 +65,14 @@ void chatScreenRef;
       <!-- Top Title Bar -->
       <header class="h-14 flex items-center justify-between px-4 absolute top-0 w-full z-10 pointer-events-none">
         <div class="flex items-center gap-2 pointer-events-auto">
-          <button @click="isSidebarOpen = !isSidebarOpen" class="w-8 h-8 flex items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/5 text-muted-foreground">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            class="h-8 w-8 text-muted-foreground hover:bg-black/5 dark:hover:bg-white/5"
+            @click="isSidebarOpen = !isSidebarOpen"
+          >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
-          </button>
+          </Button>
           <div class="flex gap-1 ml-2 text-muted-foreground/40 hidden md:flex">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Button } from '@/components/ui/button';
 import MarkdownRenderer from '../MarkdownRenderer.vue';
 import ToolLogPanel from './ToolLogPanel.vue';
 import type { ChatMessage } from '../../../lib/chat-types';
@@ -41,19 +42,19 @@ const emit = defineEmits<{
       <MarkdownRenderer :content="message.content" />
       <ToolLogPanel :items="toolLogs" />
       <div class="msg-toolbar">
-        <button class="msg-icon-btn" :class="{ 'is-copied': copied }" aria-label="Copy assistant message" @click="emit('copy', index)">
+        <Button variant="ghost" size="icon-sm" class="msg-icon-btn" :class="{ 'is-copied': copied }" aria-label="Copy assistant message" @click="emit('copy', index)">
           <svg v-if="!copied" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
           <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-        </button>
-        <button class="msg-icon-btn" aria-label="Thumbs up" @click="emit('react', { index, value: 'up' })">
+        </Button>
+        <Button variant="ghost" size="icon-sm" class="msg-icon-btn" aria-label="Thumbs up" @click="emit('react', { index, value: 'up' })">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z"/><path d="M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg>
-        </button>
-        <button class="msg-icon-btn" aria-label="Thumbs down" @click="emit('react', { index, value: 'down' })">
+        </Button>
+        <Button variant="ghost" size="icon-sm" class="msg-icon-btn" aria-label="Thumbs down" @click="emit('react', { index, value: 'down' })">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3H10z"/><path d="M17 2h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/></svg>
-        </button>
-        <button class="msg-icon-btn" aria-label="Retry" @click="emit('retry', index)">
+        </Button>
+        <Button variant="ghost" size="icon-sm" class="msg-icon-btn" aria-label="Retry" @click="emit('retry', index)">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
-        </button>
+        </Button>
       </div>
     </div>
   </div>

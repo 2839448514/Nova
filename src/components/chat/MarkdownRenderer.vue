@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { Card, CardContent } from '@/components/ui/card'
 import MarkdownIt from 'markdown-it'
 import hljs from 'highlight.js'
 import markdownItKatex from '@traptitech/markdown-it-katex'
@@ -59,7 +60,11 @@ const rendered = computed(() => {
 </script>
 
 <template>
-  <div class="md-body" v-html="rendered" />
+  <Card class="border-0 bg-transparent py-0 shadow-none">
+    <CardContent class="px-0">
+      <div class="md-body" v-html="rendered" />
+    </CardContent>
+  </Card>
 </template>
 
 <style>

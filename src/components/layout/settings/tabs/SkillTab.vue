@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 
 type SkillItem = {
   name: string
@@ -81,65 +83,89 @@ onMounted(refresh)
 
 <template>
   <div class="px-6 py-4 flex flex-col h-full overflow-y-auto">
-    <div class="flex items-center justify-between mb-4">
+    <div class="mb-4 flex items-center justify-between">
       <span class="text-[12.5px] text-[#aaa49a] dark:text-[#88857f]">{{ skills.length }} 个技能</span>
       <div class="flex items-center gap-2">
-        <button
-          class="h-[34px] px-3 bg-transparent border border-[#ddd9d0] dark:border-[#44423f] rounded-lg text-[12.5px] text-[#6b6456] dark:text-[#a09e99] cursor-pointer transition-colors duration-150 hover:bg-[#f5f4f0] dark:hover:bg-[#32312e]"
+        <Button
+          variant="outline"
+          size="sm"
+          class="border-[#ddd9d0] text-[#6b6456] hover:bg-[#f5f4f0] dark:border-[#44423f] dark:text-[#a09e99] dark:hover:bg-[#32312e]"
           :disabled="loading"
           @click="refresh"
-        >刷新</button>
-        <button
-          class="h-[34px] px-3 bg-transparent border border-[#ddd9d0] dark:border-[#44423f] rounded-lg text-[12.5px] text-[#6b6456] dark:text-[#a09e99] cursor-pointer transition-colors duration-150 hover:bg-[#f5f4f0] dark:hover:bg-[#32312e]"
+        >刷新</Button>
+        <Button
+          variant="outline"
+          size="sm"
+          class="border-[#ddd9d0] text-[#6b6456] hover:bg-[#f5f4f0] dark:border-[#44423f] dark:text-[#a09e99] dark:hover:bg-[#32312e]"
           :disabled="loading || skills.length === 0"
           @click="setAllEnabled(true)"
-        >全部启用</button>
-        <button
-          class="h-[34px] px-3 bg-transparent border border-[#ddd9d0] dark:border-[#44423f] rounded-lg text-[12.5px] text-[#6b6456] dark:text-[#a09e99] cursor-pointer transition-colors duration-150 hover:bg-[#f5f4f0] dark:hover:bg-[#32312e]"
+        >全部启用</Button>
+        <Button
+          variant="outline"
+          size="sm"
+          class="border-[#ddd9d0] text-[#6b6456] hover:bg-[#f5f4f0] dark:border-[#44423f] dark:text-[#a09e99] dark:hover:bg-[#32312e]"
           :disabled="loading || skills.length === 0"
           @click="setAllEnabled(false)"
-        >全部停用</button>
+        >全部停用</Button>
       </div>
     </div>
 
-    <div v-if="loading" class="text-center py-8 text-[13.5px] text-[#aaa49a] dark:text-[#88857f]">技能扫描中...</div>
-    <div v-else-if="skills.length === 0" class="text-center py-8 text-[13.5px] text-[#aaa49a] dark:text-[#88857f]">
-      未发现技能。请将技能放在 `.github/skills/*/SKILL.md` 或 `skills/*/SKILL.md`。
-    </div>
+    <Card
+      v-if="loading"
+      class="border-[#ebe9e3] bg-[#faf9f7] dark:border-[#3b3a37] dark:bg-[#252422]"
+    >
+      <CardContent class="py-8 text-center text-[13.5px] text-[#aaa49a] dark:text-[#88857f]">技能扫描中...</CardContent>
+    </Card>
+
+    <Card
+      v-else-if="skills.length === 0"
+      class="border-[#ebe9e3] bg-[#faf9f7] dark:border-[#3b3a37] dark:bg-[#252422]"
+    >
+      <CardContent class="py-8 text-center text-[13.5px] text-[#aaa49a] dark:text-[#88857f]">
+        未发现技能。请将技能放在 .github/skills/*/SKILL.md 或 skills/*/SKILL.md。
+      </CardContent>
+    </Card>
+
     <div v-else class="flex flex-col gap-2">
-      <div
+      <Card
         v-for="skill in skills"
         :key="skill.path"
-        class="flex items-center justify-between p-3 border border-[#ebe9e3] dark:border-[#3b3a37] rounded-xl gap-3"
+        class="gap-0 border-[#ebe9e3] py-3 dark:border-[#3b3a37]"
       >
-        <div class="min-w-0 flex-1">
-          <div class="flex items-center gap-2">
-            <div class="text-[13.5px] font-semibold text-[#2a2820] dark:text-[#e8e3db] truncate">{{ skill.name }}</div>
-            <span
-              class="text-[11px] px-1.5 py-[1px] rounded shrink-0"
-              :class="skill.enabled ? 'bg-[#edf7ed] dark:bg-[#233323] text-[#3a7c3a] dark:text-[#87c787]' : 'bg-[#f3f3f3] dark:bg-[#2f2f2f] text-[#7b7b7b] dark:text-[#9f9f9f]'"
-            >{{ skill.enabled ? '已启用' : '已停用' }}</span>
+        <CardHeader class="px-3 pb-1">
+          <div class="flex min-w-0 items-center justify-between gap-3">
+            <div class="min-w-0">
+              <CardTitle class="truncate text-[13.5px] text-[#2a2820] dark:text-[#e8e3db]">{{ skill.name }}</CardTitle>
+              <CardDescription class="mt-1 line-clamp-2 text-[12px] text-[#8a8478] dark:text-[#a09e99]">{{ skill.description }}</CardDescription>
+              <div class="mt-1 truncate text-[11px] text-[#b0a99f] dark:text-[#66645e]" :title="skill.path">{{ skill.path }}</div>
+            </div>
+            <div class="flex shrink-0 items-center gap-2">
+              <span
+                class="rounded px-1.5 py-[1px] text-[11px]"
+                :class="skill.enabled ? 'bg-[#edf7ed] text-[#3a7c3a] dark:bg-[#233323] dark:text-[#87c787]' : 'bg-[#f3f3f3] text-[#7b7b7b] dark:bg-[#2f2f2f] dark:text-[#9f9f9f]'"
+              >{{ skill.enabled ? '已启用' : '已停用' }}</span>
+              <Button
+                variant="outline"
+                size="sm"
+                class="h-7 px-3 text-[12px]"
+                @click="skill.enabled = !skill.enabled"
+              >{{ skill.enabled ? '停用' : '启用' }}</Button>
+            </div>
           </div>
-          <div class="text-[12px] text-[#8a8478] dark:text-[#a09e99] mt-1 line-clamp-2">{{ skill.description }}</div>
-          <div class="text-[11px] text-[#b0a99f] dark:text-[#66645e] mt-1 truncate" :title="skill.path">{{ skill.path }}</div>
-        </div>
-        <button
-          class="px-3 py-1.5 text-[12px] shrink-0 bg-transparent border rounded cursor-pointer transition-colors duration-150"
-          :class="skill.enabled ? 'text-[#8a6d3b] dark:text-[#d6b77a] border-[#ead8b5] dark:border-[#5a4b2f] hover:bg-[#fff8ec] dark:hover:bg-[#3a3226]' : 'text-[#2e7d32] dark:text-[#7bc67f] border-[#cfe8d1] dark:border-[#355c37] hover:bg-[#effaf0] dark:hover:bg-[#233323]'"
-          @click="skill.enabled = !skill.enabled"
-        >{{ skill.enabled ? '停用' : '启用' }}</button>
-      </div>
+        </CardHeader>
+      </Card>
     </div>
 
-    <div class="mt-auto pt-4 border-t border-[#f0ece4] dark:border-[#32312e]">
-      <div v-if="error" class="text-[12.5px] text-[#c0392b] dark:text-[#e57373] mb-2">{{ error }}</div>
+    <div class="mt-auto border-t border-[#f0ece4] pt-4 dark:border-[#32312e]">
+      <div v-if="error" class="mb-2 text-[12.5px] text-[#c0392b] dark:text-[#e57373]">{{ error }}</div>
       <div class="flex items-center justify-end gap-3">
         <span v-if="savedTip" class="text-[13px] text-[#4f9c64] dark:text-[#62c07a]">✓ 已保存</span>
-        <button
-          class="h-9 px-5 bg-[#da7756] text-white border-none rounded-lg font-medium text-[13px] cursor-pointer shadow-[0_1px_2px_rgba(0,0,0,0.05)] transition-colors duration-150 hover:bg-[#c06548] disabled:opacity-50 disabled:cursor-not-allowed"
+        <Button
+          size="sm"
+          class="bg-[#da7756] text-white hover:bg-[#c06548]"
           :disabled="saving"
           @click="save"
-        >{{ saving ? '保存中...' : '保存设置' }}</button>
+        >{{ saving ? '保存中...' : '保存设置' }}</Button>
       </div>
     </div>
   </div>

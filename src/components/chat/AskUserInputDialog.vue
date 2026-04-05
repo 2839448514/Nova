@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue';
+import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
 
 interface AskUserOption {
   label: string;
@@ -128,11 +130,11 @@ function submitAnswers() {
           <div class="ask-title">我需要你确认几个关键选项</div>
           <div v-if="request.context" class="ask-context">{{ request.context }}</div>
         </div>
-        <button class="ask-close" title="关闭" @click="emit('skip')">
+        <Button variant="ghost" size="icon-sm" class="ask-close" title="关闭" @click="emit('skip')">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
             <path d="M6 6l12 12M18 6L6 18" stroke-linecap="round" />
           </svg>
-        </button>
+        </Button>
       </div>
 
       <div v-if="currentQuestion" class="ask-question-list">
@@ -147,7 +149,9 @@ function submitAnswers() {
           <div class="ask-question-title">{{ currentQuestion.question }}</div>
 
           <div class="ask-options">
-            <button
+            <Button
+              variant="ghost"
+              size="sm"
               v-for="(option, index) in currentQuestion.options"
               :key="`${currentQuestion.question}-${option.label}`"
               class="ask-option"
@@ -159,7 +163,7 @@ function submitAnswers() {
                 <span class="ask-label">{{ option.label }}</span>
                 <span class="ask-description">{{ option.description }}</span>
               </span>
-            </button>
+            </Button>
           </div>
 
           <div
@@ -175,7 +179,7 @@ function submitAnswers() {
 
       <div v-if="request.allow_freeform !== false" class="ask-freeform">
         <div class="ask-freeform-title">其他补充</div>
-        <textarea
+        <Textarea
           v-model="freeform"
           class="ask-freeform-input"
           rows="3"
@@ -184,18 +188,20 @@ function submitAnswers() {
       </div>
 
       <div class="ask-actions">
-        <button
+        <Button
+          variant="outline"
+          size="sm"
           v-if="questions.length > 1"
           class="ask-back"
           :disabled="currentIndex === 0"
           @click="goPrevious"
         >
           Back
-        </button>
-        <button class="ask-skip" @click="emit('skip')">Skip</button>
-        <button class="ask-submit" :disabled="!canSubmit" @click="submitAnswers">
+        </Button>
+        <Button variant="outline" size="sm" class="ask-skip" @click="emit('skip')">Skip</Button>
+        <Button size="sm" class="ask-submit" :disabled="!canSubmit" @click="submitAnswers">
           {{ isLastQuestion ? 'Confirm' : 'Next' }}
-        </button>
+        </Button>
       </div>
     </div>
   </div>
