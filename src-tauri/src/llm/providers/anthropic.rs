@@ -36,6 +36,7 @@ fn is_needs_user_input_payload(raw: &str) -> bool {
 
 fn apply_tool_call_result(
     app: &AppHandle,
+    conversation_id: Option<&str>,
     executed: tools::ToolCallResult,
     current_output_tokens: Option<u32>,
     stop_emitted_for_user_input: &mut bool,
@@ -60,6 +61,7 @@ fn apply_tool_call_result(
             token_usage: current_output_tokens,
             stop_reason: None,
             turn_state: Some("tool_completed".into()),
+            conversation_id: conversation_id.map(str::to_string),
         },
     )
     .ok();
@@ -80,6 +82,7 @@ fn apply_tool_call_result(
                 token_usage: current_output_tokens,
                 stop_reason: Some("needs_user_input".into()),
                 turn_state: Some("awaiting_user_input".into()),
+                conversation_id: conversation_id.map(str::to_string),
             },
         )
         .ok();
@@ -286,6 +289,7 @@ impl AnthropicProvider {
                             token_usage: None,
                             stop_reason: None,
                             turn_state: Some("raw_stream".into()),
+                            conversation_id: conversation_id.map(str::to_string),
                         },
                     )
                     .ok();
@@ -310,6 +314,7 @@ impl AnthropicProvider {
                                             token_usage: None,
                                             stop_reason: None,
                                             turn_state: Some("tool_running".into()),
+                                            conversation_id: conversation_id.map(str::to_string),
                                         },
                                     )
                                     .ok();
@@ -331,6 +336,7 @@ impl AnthropicProvider {
                                             token_usage: None,
                                             stop_reason: None,
                                             turn_state: Some("streaming_text".into()),
+                                            conversation_id: conversation_id.map(str::to_string),
                                         },
                                     )
                                     .ok();
@@ -350,6 +356,7 @@ impl AnthropicProvider {
                                             token_usage: None,
                                             stop_reason: None,
                                             turn_state: Some("tool_input_streaming".into()),
+                                            conversation_id: conversation_id.map(str::to_string),
                                         },
                                     )
                                     .ok();
@@ -391,6 +398,7 @@ impl AnthropicProvider {
                                             token_usage: current_output_tokens,
                                             stop_reason: None,
                                             turn_state: Some("tool_executing".into()),
+                                            conversation_id: conversation_id.map(str::to_string),
                                         },
                                     )
                                     .ok();
@@ -408,6 +416,7 @@ impl AnthropicProvider {
                                         for executed in executed_calls {
                                             apply_tool_call_result(
                                                 app,
+                                                conversation_id,
                                                 executed,
                                                 current_output_tokens,
                                                 &mut stop_emitted_for_user_input,
@@ -444,6 +453,7 @@ impl AnthropicProvider {
                                         token_usage: current_output_tokens,
                                         stop_reason: last_stop_reason.clone(),
                                         turn_state: Some("streaming".into()),
+                                        conversation_id: conversation_id.map(str::to_string),
                                     },
                                 )
                                 .ok();
@@ -461,6 +471,7 @@ impl AnthropicProvider {
                                     for executed in executed_calls {
                                         apply_tool_call_result(
                                             app,
+                                            conversation_id,
                                             executed,
                                             current_output_tokens,
                                             &mut stop_emitted_for_user_input,
@@ -486,6 +497,7 @@ impl AnthropicProvider {
                                         token_usage: current_output_tokens,
                                         stop_reason: last_stop_reason.clone(),
                                         turn_state: Some("intermediate".into()),
+                                        conversation_id: conversation_id.map(str::to_string),
                                     },
                                 )
                                 .ok();
@@ -511,6 +523,7 @@ impl AnthropicProvider {
                 token_usage: current_output_tokens,
                 stop_reason: last_stop_reason.clone(),
                 turn_state: Some("intermediate".into()),
+                conversation_id: conversation_id.map(str::to_string),
             },
         )
         .ok();

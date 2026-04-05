@@ -279,6 +279,8 @@ pub async fn send_chat_message(
 						stop_reason: Some("provider_error".into()),
 						// 回合状态标记为 error。
 						turn_state: Some("error".into()),
+						// 透传会话 ID，便于前端路由到正确会话。
+						conversation_id: conversation_id.clone(),
 					},
 				)
 				// 忽略 emit 错误，保证主错误路径返回。
@@ -399,6 +401,8 @@ pub async fn send_chat_message(
 			stop_reason: Some(final_outcome.stop_reason),
 			// 透传最终回合状态字符串。
 			turn_state: Some(final_outcome.turn_state.as_event_state().to_string()),
+			// 透传会话 ID，便于前端路由到正确会话。
+			conversation_id: conversation_id.clone(),
 		},
 	)
 	// stop 事件投递失败不影响函数返回。

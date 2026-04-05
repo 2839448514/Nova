@@ -86,24 +86,22 @@ pub fn list_jobs(app: &AppHandle) -> Result<Vec<CronJob>, String> {
 }
 
 pub fn remove_job(app: &AppHandle, id: &str) -> Result<bool, String> {
-    let mut removed = false;
-
-    {
+    let removed_session = {
         let mut jobs = session_store()
             .lock()
             .map_err(|_| "SESSION_CRON_JOBS mutex poisoned".to_string())?;
         let before = jobs.len();
         jobs.retain(|job| job.id != id);
-        removed = jobs.len() != before;
-    }
+        jobs.len() != before
+    };
 
     let mut durable_jobs = read_durable_jobs(app)?;
     let before = durable_jobs.len();
     durable_jobs.retain(|job| job.id != id);
-    if durable_jobs.len() != before {
+    let removed_durable = durable_jobs.len() != before;
+    if removed_durable {
         write_durable_jobs(app, &durable_jobs)?;
-        removed = true;
     }
 
-    Ok(removed)
+    Ok(removed_session || removed_durable)
 }

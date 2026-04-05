@@ -57,6 +57,7 @@ export interface ScheduledTask {
 
 export interface ChatMessageEvent {
   type: string;
+  conversation_id?: string;
   text?: string;
   tool_use_id?: string;
   tool_use_name?: string;

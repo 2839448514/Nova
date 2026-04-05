@@ -441,6 +441,7 @@ impl OpenAiProvider {
                                 token_usage: None,
                                 stop_reason: None,
                                 turn_state: Some("raw_stream".into()),
+                                conversation_id: conversation_id.map(str::to_string),
                             },
                         )
                         .ok();
@@ -462,6 +463,7 @@ impl OpenAiProvider {
                                             token_usage: None,
                                             stop_reason: None,
                                             turn_state: Some("streaming_text".into()),
+                                            conversation_id: conversation_id.map(str::to_string),
                                         },
                                     )
                                     .ok();
@@ -493,6 +495,7 @@ impl OpenAiProvider {
                                                             token_usage: None,
                                                             stop_reason: None,
                                                             turn_state: Some("tool_running".into()),
+                                                            conversation_id: conversation_id.map(str::to_string),
                                                         },
                                                     )
                                                     .ok();
@@ -516,6 +519,7 @@ impl OpenAiProvider {
                                                         token_usage: None,
                                                         stop_reason: None,
                                                         turn_state: Some("tool_input_streaming".into()),
+                                                        conversation_id: conversation_id.map(str::to_string),
                                                     },
                                                 )
                                                 .ok();
@@ -577,6 +581,7 @@ impl OpenAiProvider {
                                                     token_usage: None,
                                                     stop_reason: None,
                                                     turn_state: Some("tool_executing".into()),
+                                                    conversation_id: conversation_id.map(str::to_string),
                                                 },
                                             )
                                             .ok();
@@ -613,6 +618,7 @@ impl OpenAiProvider {
                                                     token_usage: None,
                                                     stop_reason: None,
                                                     turn_state: Some("tool_completed".into()),
+                                                    conversation_id: conversation_id.map(str::to_string),
                                                 },
                                             )
                                             .ok();
@@ -654,6 +660,7 @@ impl OpenAiProvider {
                                                 token_usage: None,
                                                 stop_reason: Some(finish_reason),
                                                 turn_state: Some("intermediate".into()),
+                                                conversation_id: conversation_id.map(str::to_string),
                                             },
                                         )
                                         .ok();
@@ -686,6 +693,7 @@ impl OpenAiProvider {
                     token_usage: None,
                     stop_reason: None,
                     turn_state: Some("intermediate".into()),
+                    conversation_id: conversation_id.map(str::to_string),
                 },
             )
             .ok();

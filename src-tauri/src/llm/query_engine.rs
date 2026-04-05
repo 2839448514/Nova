@@ -23,6 +23,8 @@ pub struct ChatMessageEvent {
     pub stop_reason: Option<String>,
     // 回合状态（completed/error/cancelled 等）。
     pub turn_state: Option<String>,
+    // 会话 ID（用于前端按会话分流流式事件）。
+    pub conversation_id: Option<String>,
 }
 
 // 兼容入口：保留原函数名，内部委托给 query 模块实现。

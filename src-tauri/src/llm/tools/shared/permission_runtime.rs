@@ -41,6 +41,7 @@ pub async fn await_permission_and_recheck(
             token_usage: None,
             stop_reason: None,
             turn_state: Some("awaiting_permission".into()),
+            conversation_id: conversation_id.map(str::to_string),
         },
     )
     .map_err(|e| {
