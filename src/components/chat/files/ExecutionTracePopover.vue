@@ -106,7 +106,7 @@ onBeforeUnmount(() => {
       </div>
 
       <div v-if="props.entries.length === 0" class="px-3 py-5 text-[12px] text-[#9a9283] dark:text-[#9b9489]">
-        当前回合还没有工具执行记录。
+        当前会话还没有工具执行记录。
       </div>
 
       <div v-else class="max-h-[60vh] overflow-y-auto px-2.5 py-2 space-y-2">

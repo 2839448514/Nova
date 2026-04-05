@@ -5,7 +5,7 @@ use crate::llm::history;
 // 对外复用 llm/commands 公共类型。
 pub use crate::llm::commands::types::{
     CompactBoundary, CompactContext, ConversationHandover, ConversationMemory, ConversationMeta,
-    HistoryMessage, ResumeContext,
+    HistoryMessage, HistoryToolExecution, ResumeContext,
 };
 
 #[tauri::command]
@@ -40,6 +40,23 @@ pub async fn append_history(
 ) -> Result<(), String> {
     // 向指定会话追加一条历史消息。
     history::append_history(&app, &conversation_id, message).await
+}
+
+#[tauri::command]
+pub async fn load_conversation_tool_logs(
+    app: AppHandle,
+    conversation_id: String,
+) -> Result<Vec<HistoryToolExecution>, String> {
+    history::load_conversation_tool_logs(&app, &conversation_id).await
+}
+
+#[tauri::command]
+pub async fn upsert_conversation_tool_log(
+    app: AppHandle,
+    conversation_id: String,
+    log: HistoryToolExecution,
+) -> Result<(), String> {
+    history::upsert_conversation_tool_log(&app, &conversation_id, log).await
 }
 
 #[tauri::command]

@@ -19,6 +19,7 @@ import {
   createConversation,
   deleteConversation,
   getConversationMemory,
+  loadConversationToolLogs,
   listConversationRagDocuments,
   listConversations,
   loadConversationHistory,
@@ -26,6 +27,7 @@ import {
   submitPermissionDecision,
   type RagDocumentMeta,
   upsertConversationRagDocuments,
+  upsertConversationToolLog,
   upsertConversationMemory,
 } from "../services/chat-api";
 import type {
@@ -172,7 +174,7 @@ export function useChatController() {
     const entry = toolExecutionLogs.value[idx];
     const normalizedFallback = (inputFallback ?? "").trim();
     const resolvedInput = entry.input.trim().length > 0 ? entry.input : normalizedFallback;
-    toolExecutionLogs.value[idx] = {
+    const updatedEntry: ToolExecutionEntry = {
       ...entry,
       toolName,
       input: resolvedInput,
@@ -180,20 +182,40 @@ export function useChatController() {
       status,
       finishedAt: Date.now(),
     };
+    toolExecutionLogs.value[idx] = updatedEntry;
+    persistToolExecutionLog(updatedEntry);
   }
 
   function markRunningToolExecutions(status: "completed" | "error" | "cancelled") {
     const now = Date.now();
+    const finalizedEntries: ToolExecutionEntry[] = [];
     toolExecutionLogs.value = toolExecutionLogs.value.map((entry) => {
       if (entry.status !== "running") {
         return entry;
       }
 
-      return {
+      const updatedEntry: ToolExecutionEntry = {
         ...entry,
         status,
         finishedAt: now,
       };
+      finalizedEntries.push(updatedEntry);
+      return updatedEntry;
+    });
+
+    for (const entry of finalizedEntries) {
+      persistToolExecutionLog(entry);
+    }
+  }
+
+  function persistToolExecutionLog(entry: ToolExecutionEntry) {
+    const conversationId = activeConversationId.value;
+    if (!conversationId || entry.status === "running") {
+      return;
+    }
+
+    void upsertConversationToolLog(conversationId, entry).catch((err) => {
+      console.error("Failed to persist tool execution log:", err);
     });
   }
 
@@ -334,6 +356,7 @@ export function useChatController() {
     toolExecutionLogs.value = [];
     try {
       const saved = await loadConversationHistory(id);
+      const savedToolLogs = await loadConversationToolLogs(id);
       messages.value = (saved || [])
         .filter(
           (m) =>
@@ -347,11 +370,13 @@ export function useChatController() {
           tokenUsage: m.tokenUsage,
           cost: m.cost,
         }));
+      toolExecutionLogs.value = savedToolLogs;
       await loadConversationMemory(id);
       await refreshConversationFiles(id);
     } catch (err) {
       console.error("Failed to load conversation messages:", err);
       messages.value = [];
+      toolExecutionLogs.value = [];
       conversationFiles.value = [];
     }
   }
@@ -680,6 +705,35 @@ export function useChatController() {
     mainView.value = view;
   }
 
+  const handleHistoryCleared = async () => {
+    if (isGenerating.value) {
+      return;
+    }
+
+    resetTurnRuntimeState();
+    assistantResponse.value = "";
+    assistantTokenUsage.value = undefined;
+    assistantTurnCost.value = undefined;
+    pendingUploads.value = [];
+    toolExecutionLogs.value = [];
+    conversationFiles.value = [];
+    conversationMemory.value = null;
+    messages.value = [];
+
+    await refreshConversations();
+    if (conversations.value.length === 0) {
+      const newId = await createNewConversation("New chat");
+      if (newId) {
+        await loadConversation(newId);
+      } else {
+        activeConversationId.value = "";
+      }
+      return;
+    }
+
+    await loadConversation(conversations.value[0].id);
+  };
+
   onMounted(async () => {
     await refreshConversations();
     if (conversations.value.length === 0) {
@@ -874,11 +928,14 @@ export function useChatController() {
     } catch (err) {
       console.error("Failed to setup backend-error listener:", err);
     }
+
+    window.addEventListener("history-cleared", handleHistoryCleared as EventListener);
   });
 
   onUnmounted(() => {
     if (unlistenChatStream) unlistenChatStream();
     if (unlistenBackendError) unlistenBackendError();
+    window.removeEventListener("history-cleared", handleHistoryCleared as EventListener);
   });
 
   return {

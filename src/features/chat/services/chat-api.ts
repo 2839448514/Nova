@@ -5,6 +5,7 @@ import type {
   ConversationMemory,
   ConversationMeta,
   PersistedMessage,
+  ToolExecutionEntry,
 } from "../../../lib/chat-types";
 import type { PermissionActionName } from "../../../lib/chat-payloads";
 import { buildConversationTitle } from "../utils/session-memory";
@@ -64,6 +65,25 @@ export async function appendConversationMessage(
   message: ChatMessage,
 ): Promise<void> {
   await invoke("append_history", { conversationId, message });
+}
+
+export async function loadConversationToolLogs(
+  conversationId: string,
+): Promise<ToolExecutionEntry[]> {
+  const logs = await invoke<ToolExecutionEntry[]>("load_conversation_tool_logs", {
+    conversationId,
+  });
+  return logs || [];
+}
+
+export async function upsertConversationToolLog(
+  conversationId: string,
+  log: ToolExecutionEntry,
+): Promise<void> {
+  await invoke("upsert_conversation_tool_log", {
+    conversationId,
+    log,
+  });
 }
 
 export async function getConversationMemory(

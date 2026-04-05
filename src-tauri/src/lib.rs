@@ -29,6 +29,8 @@ pub fn run() {
             command::history::list_conversations,
             command::history::load_history,
             command::history::append_history,
+            command::history::load_conversation_tool_logs,
+            command::history::upsert_conversation_tool_log,
             command::history::clear_history,
             command::history::delete_conversation,
             command::history::get_conversation_memory,

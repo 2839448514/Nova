@@ -34,6 +34,14 @@ fn default_rag_settings() -> RagSettings {
     RagSettings::default()
 }
 
+fn default_ui_language() -> String {
+    "zh-CN".to_string()
+}
+
+fn default_ui_theme() -> String {
+    "system".to_string()
+}
+
 const STOP_HOOK_MAX_ASSISTANT_MESSAGES_KEY: &str = "NOVA_STOP_HOOK_MAX_ASSISTANT_MESSAGES";
 
 fn normalize_provider_key(provider: &str) -> String {
@@ -45,6 +53,21 @@ fn normalize_provider_key(provider: &str) -> String {
     } else {
         // 返回规范化 provider key。
         key
+    }
+}
+
+fn normalize_ui_language(raw: &str) -> String {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "en" | "en-us" | "english" => "en-US".to_string(),
+        _ => "zh-CN".to_string(),
+    }
+}
+
+fn normalize_ui_theme(raw: &str) -> String {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "light" => "light".to_string(),
+        "dark" => "dark".to_string(),
+        _ => "system".to_string(),
     }
 }
 
@@ -116,6 +139,12 @@ pub struct AppSettings {
     #[serde(default = "default_rag_settings")]
     // RAG 相关配置。
     pub rag: RagSettings,
+    #[serde(default = "default_ui_language")]
+    // UI 语言（zh-CN/en-US）。
+    pub ui_language: String,
+    #[serde(default = "default_ui_theme")]
+    // UI 主题（system/light/dark）。
+    pub ui_theme: String,
 }
 
 impl Default for AppSettings {
@@ -131,6 +160,8 @@ impl Default for AppSettings {
             disabled_skills: Vec::new(),
             hook_env: HashMap::new(),
             rag: RagSettings::default(),
+            ui_language: default_ui_language(),
+            ui_theme: default_ui_theme(),
         }
     }
 }
@@ -216,6 +247,10 @@ impl AppSettings {
         if self.rag.max_file_size_kb == 0 {
             self.rag.max_file_size_kb = default_rag_max_file_size_kb();
         }
+
+        // 规范化 UI 偏好配置。
+        self.ui_language = normalize_ui_language(&self.ui_language);
+        self.ui_theme = normalize_ui_theme(&self.ui_theme);
     }
 }
 

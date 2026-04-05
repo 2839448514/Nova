@@ -40,6 +40,25 @@ pub struct HistoryMessage {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+pub struct HistoryToolExecution {
+    // 工具调用唯一 ID（会话内唯一）。
+    pub id: String,
+    // 工具名称。
+    pub tool_name: String,
+    // 工具输入参数（JSON 文本或纯文本）。
+    pub input: String,
+    // 工具执行结果。
+    pub result: String,
+    // 执行状态（running/completed/error/cancelled）。
+    pub status: String,
+    // 开始时间（unix 毫秒）。
+    pub started_at: i64,
+    // 结束时间（unix 毫秒，可选）。
+    pub finished_at: Option<i64>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct ConversationMemory {
     // 会话摘要。
     pub summary: String,

@@ -563,6 +563,19 @@ pub fn rag_remove_conversation_documents(
     Ok(removed)
 }
 
+pub fn rag_remove_all_conversation_documents(app: &AppHandle) -> Result<usize, String> {
+    let mut store = load_store(app)?;
+    let before = store.documents.len();
+    store.documents.retain(|doc| doc.conversation_id.is_none());
+    let removed = before.saturating_sub(store.documents.len());
+
+    if removed > 0 {
+        save_store(app, &store)?;
+    }
+
+    Ok(removed)
+}
+
 #[tauri::command]
 pub fn rag_remove_document(app: AppHandle, document_id: String) -> Result<bool, String> {
     let id = document_id.trim();

@@ -4,7 +4,7 @@ use tauri::{AppHandle, Manager};
 use uuid::Uuid;
 
 use crate::llm::commands::memory;
-use crate::llm::commands::types::{ConversationMeta, HistoryMessage};
+use crate::llm::commands::types::{ConversationMeta, HistoryMessage, HistoryToolExecution};
 
 // Build sqlite database URL under app data directory.
 // Format: sqlite:<path>?mode=rwc (read/write/create).
@@ -58,6 +58,20 @@ async fn ensure_schema(pool: &SqlitePool) -> Result<(), String> {
             token_usage INTEGER,
             cost_json TEXT,
             created_at INTEGER NOT NULL,
+            FOREIGN KEY (conversation_id) REFERENCES conversations(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS conversation_tool_logs (
+            conversation_id TEXT NOT NULL,
+            log_id TEXT NOT NULL,
+            tool_name TEXT NOT NULL,
+            input_text TEXT NOT NULL,
+            result_text TEXT NOT NULL,
+            status TEXT NOT NULL,
+            started_at INTEGER NOT NULL,
+            finished_at INTEGER,
+            updated_at INTEGER NOT NULL,
+            PRIMARY KEY (conversation_id, log_id),
             FOREIGN KEY (conversation_id) REFERENCES conversations(id)
         );
 
@@ -309,6 +323,101 @@ pub async fn append_history(
     Ok(())
 }
 
+pub async fn load_conversation_tool_logs(
+    app: &AppHandle,
+    conversation_id: &str,
+) -> Result<Vec<HistoryToolExecution>, String> {
+    let pool = get_pool_with_schema(app).await?;
+
+    let rows = sqlx::query(
+        "SELECT log_id, tool_name, input_text, result_text, status, started_at, finished_at FROM conversation_tool_logs WHERE conversation_id = ? ORDER BY started_at ASC, log_id ASC",
+    )
+    .bind(conversation_id)
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let items = rows
+        .into_iter()
+        .map(|row| HistoryToolExecution {
+            id: row.get::<String, _>("log_id"),
+            tool_name: row.get::<String, _>("tool_name"),
+            input: row.get::<String, _>("input_text"),
+            result: row.get::<String, _>("result_text"),
+            status: row.get::<String, _>("status"),
+            started_at: row.get::<i64, _>("started_at"),
+            finished_at: row.get::<Option<i64>, _>("finished_at"),
+        })
+        .collect::<Vec<_>>();
+
+    Ok(items)
+}
+
+pub async fn upsert_conversation_tool_log(
+    app: &AppHandle,
+    conversation_id: &str,
+    log: HistoryToolExecution,
+) -> Result<(), String> {
+    let pool = get_pool_with_schema(app).await?;
+
+    let log_id = log.id.trim();
+    if log_id.is_empty() {
+        return Err("tool log id is required".to_string());
+    }
+
+    let tool_name = log.tool_name.trim();
+    if tool_name.is_empty() {
+        return Err("tool_name is required".to_string());
+    }
+
+    let status = log.status.trim().to_ascii_lowercase();
+    if !matches!(status.as_str(), "running" | "completed" | "error" | "cancelled") {
+        return Err(format!("invalid tool status: {}", log.status));
+    }
+
+    let now = chrono::Utc::now().timestamp_millis();
+    let started_at = if log.started_at > 0 { log.started_at } else { now };
+    let finished_at = log.finished_at.and_then(|ts| if ts > 0 { Some(ts) } else { None });
+
+    sqlx::query(
+        r#"
+        INSERT INTO conversation_tool_logs (
+            conversation_id,
+            log_id,
+            tool_name,
+            input_text,
+            result_text,
+            status,
+            started_at,
+            finished_at,
+            updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(conversation_id, log_id) DO UPDATE SET
+            tool_name = excluded.tool_name,
+            input_text = excluded.input_text,
+            result_text = excluded.result_text,
+            status = excluded.status,
+            started_at = excluded.started_at,
+            finished_at = excluded.finished_at,
+            updated_at = excluded.updated_at
+        "#,
+    )
+    .bind(conversation_id)
+    .bind(log_id)
+    .bind(tool_name)
+    .bind(log.input)
+    .bind(log.result)
+    .bind(status)
+    .bind(started_at)
+    .bind(finished_at)
+    .bind(now)
+    .execute(&pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
 // Clear history data.
 // - with conversation_id: clear only that conversation's messages
 // - without conversation_id: clear all messages and all conversation rows
@@ -317,12 +426,23 @@ pub async fn clear_history(app: &AppHandle, conversation_id: Option<String>) -> 
 
     if let Some(id) = conversation_id {
         sqlx::query("DELETE FROM conversation_messages WHERE conversation_id = ?")
-            .bind(id)
+            .bind(&id)
             .execute(&pool)
             .await
             .map_err(|e| e.to_string())?;
+        sqlx::query("DELETE FROM conversation_tool_logs WHERE conversation_id = ?")
+            .bind(&id)
+            .execute(&pool)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        crate::command::rag::rag_remove_conversation_documents(app, &id)?;
     } else {
         sqlx::query("DELETE FROM conversation_messages")
+            .execute(&pool)
+            .await
+            .map_err(|e| e.to_string())?;
+        sqlx::query("DELETE FROM conversation_tool_logs")
             .execute(&pool)
             .await
             .map_err(|e| e.to_string())?;
@@ -330,6 +450,8 @@ pub async fn clear_history(app: &AppHandle, conversation_id: Option<String>) -> 
             .execute(&pool)
             .await
             .map_err(|e| e.to_string())?;
+
+        crate::command::rag::rag_remove_all_conversation_documents(app)?;
     }
 
     Ok(())
@@ -341,6 +463,12 @@ pub async fn delete_conversation(app: &AppHandle, conversation_id: &str) -> Resu
     let pool = get_pool_with_schema(app).await?;
 
     sqlx::query("DELETE FROM conversation_messages WHERE conversation_id = ?")
+        .bind(conversation_id)
+        .execute(&pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    sqlx::query("DELETE FROM conversation_tool_logs WHERE conversation_id = ?")
         .bind(conversation_id)
         .execute(&pool)
         .await
