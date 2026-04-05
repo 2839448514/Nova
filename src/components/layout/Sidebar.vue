@@ -32,7 +32,7 @@ const openSettings = () => {
 
 const isSearchOpen = ref(false);
 const searchKeyword = ref("");
-const searchInputRef = ref<HTMLInputElement | null>(null);
+const searchInputRef = ref<unknown>(null);
 
 const normalizedSearchKeyword = computed(() => searchKeyword.value.trim().toLocaleLowerCase());
 const hasActiveSearch = computed(() => normalizedSearchKeyword.value.length > 0);
@@ -46,10 +46,33 @@ const filteredRecents = computed(() => {
   return props.recents.filter((item) => item.title.toLocaleLowerCase().includes(keyword));
 });
 
+const resolveSearchInputElement = (): HTMLInputElement | null => {
+  const refValue = searchInputRef.value as {
+    $el?: unknown;
+    focus?: () => void;
+    select?: () => void;
+  } | null;
+
+  if (!refValue) {
+    return null;
+  }
+
+  if (refValue instanceof HTMLInputElement) {
+    return refValue;
+  }
+
+  if (refValue.$el instanceof HTMLInputElement) {
+    return refValue.$el;
+  }
+
+  return null;
+};
+
 const focusSearchInput = async () => {
   await nextTick();
-  searchInputRef.value?.focus();
-  searchInputRef.value?.select();
+  const input = resolveSearchInputElement();
+  input?.focus();
+  input?.select();
 };
 
 const openSearch = async () => {

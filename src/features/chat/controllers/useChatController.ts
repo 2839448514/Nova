@@ -643,7 +643,16 @@ export function useChatController() {
   }
 
   async function handleNewChat() {
-    if (isGenerating.value || isCreatingNewChat.value) return;
+    if (isGenerating.value) {
+      emitToast({
+        variant: "info",
+        source: "new-chat",
+        message: "当前正在回复，请先停止生成后再新建对话。",
+      });
+      return;
+    }
+
+    if (isCreatingNewChat.value) return;
 
     mainView.value = "chat";
     resetPendingPromptState();
