@@ -6,6 +6,7 @@ import { Textarea } from '@/components/ui/textarea';
 interface AskUserOption {
   label: string;
   description: string;
+  value?: string;
   preview?: string;
 }
 
@@ -49,6 +50,15 @@ const progressText = computed(() => {
   return `${currentIndex.value + 1} / ${questions.value.length}`;
 });
 
+const dialogTitle = computed(() => {
+  const firstHeader = currentQuestion.value?.header ?? questions.value[0]?.header ?? '';
+  return firstHeader.includes('权限') ? '请确认权限操作' : '我需要你确认几个关键选项';
+});
+
+function optionAnswerValue(option: AskUserOption): string {
+  return (option.value?.trim() || option.label).trim();
+}
+
 watch(
   () => props.request,
   () => {
@@ -63,20 +73,21 @@ watch(
 function toggleOption(question: PendingQuestionItem, option: AskUserOption) {
   const key = question.question;
   const current = selectedAnswers[key] ?? [];
+  const target = optionAnswerValue(option);
 
   if (question.multi_select) {
-    selectedAnswers[key] = current.includes(option.label)
-      ? current.filter((item) => item !== option.label)
-      : [...current, option.label];
+    selectedAnswers[key] = current.includes(target)
+      ? current.filter((item) => item !== target)
+      : [...current, target];
   } else {
-    selectedAnswers[key] = [option.label];
+    selectedAnswers[key] = [target];
   }
 
   activePreview[key] = option.preview ?? '';
 }
 
 function isSelected(question: PendingQuestionItem, option: AskUserOption) {
-  return (selectedAnswers[question.question] ?? []).includes(option.label);
+  return (selectedAnswers[question.question] ?? []).includes(optionAnswerValue(option));
 }
 
 const canSubmit = computed(() => {
@@ -127,7 +138,7 @@ function submitAnswers() {
     <div class="ask-card">
       <div class="ask-header">
         <div>
-          <div class="ask-title">我需要你确认几个关键选项</div>
+          <div class="ask-title">{{ dialogTitle }}</div>
           <div v-if="request.context" class="ask-context">{{ request.context }}</div>
         </div>
         <Button variant="ghost" size="icon-sm" class="ask-close" title="关闭" @click="emit('skip')">
@@ -151,7 +162,6 @@ function submitAnswers() {
           <div class="ask-options">
             <Button
               variant="ghost"
-              size="sm"
               v-for="(option, index) in currentQuestion.options"
               :key="`${currentQuestion.question}-${option.label}`"
               class="ask-option"
@@ -196,11 +206,11 @@ function submitAnswers() {
           :disabled="currentIndex === 0"
           @click="goPrevious"
         >
-          Back
+          上一步
         </Button>
-        <Button variant="outline" size="sm" class="ask-skip" @click="emit('skip')">Skip</Button>
+        <Button variant="outline" size="sm" class="ask-skip" @click="emit('skip')">跳过</Button>
         <Button size="sm" class="ask-submit" :disabled="!canSubmit" @click="submitAnswers">
-          {{ isLastQuestion ? 'Confirm' : 'Next' }}
+          {{ isLastQuestion ? '确认' : '下一步' }}
         </Button>
       </div>
     </div>
@@ -323,19 +333,22 @@ function submitAnswers() {
 .ask-options {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
 }
 
 .ask-option {
   width: 100%;
+  min-height: 74px;
+  height: auto !important;
   display: flex;
   align-items: flex-start;
   gap: 12px;
-  padding: 10px;
+  padding: 12px 14px;
   border: 1px solid #ece6da;
   border-radius: 14px;
   background: transparent;
   text-align: left;
+  white-space: normal;
 }
 
 .ask-option:hover {
@@ -365,13 +378,14 @@ function submitAnswers() {
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
 }
 
 .ask-label {
   color: #262117;
   font-size: 14px;
   font-weight: 500;
+  line-height: 1.35;
 }
 
 .ask-description {

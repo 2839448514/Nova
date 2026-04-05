@@ -71,6 +71,7 @@ export interface ToolExecutionEntry {
 export interface AskUserOption {
   label: string;
   description: string;
+  value?: string;
   preview?: string;
 }
 

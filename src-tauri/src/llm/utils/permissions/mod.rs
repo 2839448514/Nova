@@ -6,7 +6,7 @@ use serde_json::{json, Value};
 use tauri::AppHandle;
 use tokio::sync::oneshot;
 
-use crate::llm::types::{Content, ContentBlock, Message, Role};
+use crate::llm::types::Message;
 
 // Command fragments considered destructive enough to always be gated.
 const DANGEROUS_COMMAND_PATTERNS: &[&str] = &[
@@ -103,7 +103,6 @@ struct ConversationPermissionState {
     allow_once: HashSet<String>,
     allow_session: HashSet<String>,
     deny_session: HashSet<String>,
-    processed_action_tokens: HashMap<String, u64>,
     resolved_by_request: HashMap<String, RecordedDecision>,
 }
 
@@ -219,18 +218,6 @@ fn prune_expired_pending(state: &mut ConversationPermissionState) {
             notify_permission_waiter(&request_id, PermissionAction::DenySession);
         }
     }
-}
-
-fn prune_processed_action_tokens(state: &mut ConversationPermissionState) {
-    let now = now_millis();
-    // now: 当前时间毫秒。
-    state
-        .processed_action_tokens
-        // 仅保留 TTL 内 token，避免去重集合无限增长。
-        .retain(|_, ts| {
-            // ts: token 最后处理时间。
-            now.saturating_sub(*ts) <= ACTION_TOKEN_TTL_MS
-        });
 }
 
 fn prune_resolved_decisions(state: &mut ConversationPermissionState) {
@@ -385,7 +372,7 @@ fn operation_from_input(tool_name: &str, input: &Value) -> Option<ProtectedOpera
             Some(ProtectedOperation {
                 // signature 用归一化命令，避免等价命令生成不同权限项。
                 signature: format!("{}:{}", tool_name, normalized),
-                preview: format!("{}: {}", tool_name, truncate_chars(command, 180)),
+                preview: format!("终端命令（{}）：{}", tool_name, truncate_chars(command, 180)),
                 warning: risk.clone(),
                 needs_approval: risk.is_some(),
             })
@@ -413,7 +400,7 @@ fn operation_from_input(tool_name: &str, input: &Value) -> Option<ProtectedOpera
 
             Some(ProtectedOperation {
                 signature: format!("{}:{}", tool_name, normalized),
-                preview: format!("{}: {}", tool_name, truncate_chars(path, 200)),
+                preview: format!("文件写入（{}）：{}", tool_name, truncate_chars(path, 200)),
                 warning: risk.clone(),
                 needs_approval: risk.is_some(),
             })
@@ -472,14 +459,14 @@ fn operation_from_input(tool_name: &str, input: &Value) -> Option<ProtectedOpera
     }
 }
 
-fn build_permission_prompt_payload(request_id: &str, operation: &ProtectedOperation) -> String {
+fn build_permission_prompt_payload(operation: &ProtectedOperation) -> String {
     let mut context = format!("请求执行高风险操作：{}", operation.preview);
     // context: 用户审批提示上下文。
     if let Some(w) = &operation.warning {
         // w: 风险提示文本。
         // 把规则命中的风险信息拼进上下文，便于用户做授权决策。
         context.push_str("。风险提示：");
-        context.push_str(w);
+        context.push_str(&humanize_permission_warning(w));
     }
 
     json!({
@@ -493,15 +480,18 @@ fn build_permission_prompt_payload(request_id: &str, operation: &ProtectedOperat
                 "multi_select": false,
                 "options": [
                     {
-                        "label": format!("仅本次允许 [ALLOW_ONCE::{}]", request_id),
+                        "label": "仅本次允许",
+                        "value": "allow_once",
                         "description": "只放行这一次，执行后自动失效"
                     },
                     {
-                        "label": format!("本会话允许 [ALLOW_SESSION::{}]", request_id),
+                        "label": "本会话允许",
+                        "value": "allow_session",
                         "description": "本次应用运行期间对同一操作持续放行"
                     },
                     {
-                        "label": format!("拒绝并记住 [DENY_SESSION::{}]", request_id),
+                        "label": "拒绝并记住",
+                        "value": "deny_session",
                         "description": "本会话拒绝同一操作，直到会话结束"
                     }
                 ]
@@ -511,54 +501,68 @@ fn build_permission_prompt_payload(request_id: &str, operation: &ProtectedOperat
     .to_string()
 }
 
-fn approval_action_tokens() -> [(&'static str, PermissionAction); 3] {
-    [
-        ("ALLOW_ONCE::", PermissionAction::AllowOnce),
-        ("ALLOW_SESSION::", PermissionAction::AllowSession),
-        ("DENY_SESSION::", PermissionAction::DenySession),
-    ]
+fn extract_single_quoted(raw: &str) -> Option<String> {
+    let start = raw.find('\'')?;
+    let remain = &raw[start + 1..];
+    let end = remain.find('\'')?;
+    Some(remain[..end].to_string())
+}
+
+fn humanize_permission_warning(raw: &str) -> String {
+    let stripped = raw
+        .trim()
+        .trim_start_matches("Blocked by permission gate: ")
+        .replace(
+            " Set NOVA_ALLOW_UNSAFE_TOOLS=1 only for trusted debugging.",
+            "",
+        );
+
+    if stripped.contains("command is empty") {
+        return "命令为空，已被安全策略拦截。".to_string();
+    }
+
+    if stripped.contains("target path is empty") {
+        return "目标路径为空，已被安全策略拦截。".to_string();
+    }
+
+    if stripped.contains("command contains dangerous shell command") {
+        if let Some(word) = extract_single_quoted(&stripped) {
+            return format!("命令包含高危 shell 指令 '{}'，默认已拦截。", word);
+        }
+        return "命令包含高危 shell 指令，默认已拦截。".to_string();
+    }
+
+    if stripped.contains("command contains dangerous pattern") {
+        if let Some(pattern) = extract_single_quoted(&stripped) {
+            return format!("命令命中高危模式 '{}'，默认已拦截。", pattern);
+        }
+        return "命令命中高危模式，默认已拦截。".to_string();
+    }
+
+    if stripped.contains("writing protected path") {
+        if let Some(path) = extract_single_quoted(&stripped) {
+            return format!("目标路径 '{}' 属于受保护目录，已拦截。", path);
+        }
+        return "目标路径属于受保护目录，已拦截。".to_string();
+    }
+
+    if stripped.contains("writing sensitive path") {
+        if let Some(path) = extract_single_quoted(&stripped) {
+            return format!("目标路径 '{}' 属于敏感目录，已拦截。", path);
+        }
+        return "目标路径属于敏感目录，已拦截。".to_string();
+    }
+
+    format!("{}。", stripped)
 }
 
 pub fn parse_permission_action_name(action: &str) -> Option<PermissionAction> {
     match action.trim().to_ascii_lowercase().as_str() {
-        "allow_once" | "allow-once" => Some(PermissionAction::AllowOnce),
-        "allow_session" | "allow-session" => Some(PermissionAction::AllowSession),
-        "deny_session" | "deny-session" => Some(PermissionAction::DenySession),
+        "allow_once" => Some(PermissionAction::AllowOnce),
+        "allow_session" => Some(PermissionAction::AllowSession),
+        "deny_session" => Some(PermissionAction::DenySession),
         _ => None,
     }
-}
-
-fn extract_action_tokens(text: &str) -> Vec<(PermissionAction, String, String)> {
-    // Parse approval tokens embedded in free-form user replies, e.g. ALLOW_ONCE::<id>.
-    let mut out = Vec::new();
-    // out: 提取到的动作 token 列表。
-    for (prefix, action) in approval_action_tokens() {
-        // prefix: token 前缀；action: 对应的权限动作。
-        let mut cursor = 0usize;
-        // cursor: 当前扫描位置。
-        while let Some(rel) = text[cursor..].find(prefix) {
-            // rel: 相对于 cursor 的前缀偏移。
-            let start = cursor + rel + prefix.len();
-            // start: token id 开始位置。
-            let id = text[start..]
-                .chars()
-                // request_id 限制为安全字符集合，防止把后续自然语言吞进去。
-                .take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
-                .collect::<String>();
-            // id: 从 token 后面提取到的审批请求 id。
-            if !id.is_empty() {
-                let token = format!("{}{}", prefix, id);
-                // token: 完整的审批 token 字符串。
-                out.push((action, id, token));
-            }
-            // 从当前命中后的起点继续扫描，允许同一消息里提取多个 token。
-            cursor = start;
-            if cursor >= text.len() {
-                break;
-            }
-        }
-    }
-    out
 }
 
 fn apply_decision(
@@ -603,32 +607,10 @@ fn apply_decision(
     true
 }
 
-fn extract_text_from_message(message: &Message) -> Vec<String> {
-    match &message.content {
-        Content::Text(t) => vec![t.clone()],
-        Content::Blocks(blocks) => blocks
-            .iter()
-            // blocks: 消息内容块列表。
-            // 仅提取文本块，忽略图片/工具等非文本块。
-            .filter_map(|b| {
-                if let ContentBlock::Text { text } = b {
-                    // text: 文本块内容。
-                    Some(text.clone())
-                } else {
-                    None
-                }
-            })
-            .collect(),
-    }
-}
-
 pub fn consume_user_permission_decisions(
     conversation_id: Option<&str>,
-    messages: &[Message],
+    _messages: &[Message],
 ) -> usize {
-    // Apply each action token at most once to make user decisions idempotent.
-    let mut applied = 0usize;
-    // applied: 成功应用的审批决策数。
     let mut guard = match permission_state().lock() {
         Ok(g) => g,
         Err(_) => return 0,
@@ -638,35 +620,10 @@ pub fn consume_user_permission_decisions(
     let state = conversation_state_mut(&mut guard, conversation_id);
     // state: 当前会话的权限状态。
     prune_expired_pending(state);
-    prune_processed_action_tokens(state);
     prune_resolved_decisions(state);
 
-    for message in messages {
-        // message: 逐条处理输入消息。
-        // 只有用户消息允许携带审批指令。
-        if message.role != Role::User {
-            continue;
-        }
-
-        for text in extract_text_from_message(message) {
-            // text: 当前消息中的文本片段。
-            for (action, request_id, token) in extract_action_tokens(&text) {
-                // action: 用户选择的权限动作。
-                // request_id: 审批请求 id。
-                // token: 完整审批 token 字符串。
-                // 同一个 token 只消费一次，避免历史消息重复应用。
-                if state.processed_action_tokens.contains_key(&token) {
-                    continue;
-                }
-                state.processed_action_tokens.insert(token, now_millis());
-                if apply_decision(state, action, &request_id) {
-                    applied += 1;
-                }
-            }
-        }
-    }
-
-    applied
+    // 审批决策只接受 submit_permission_decision 的显式动作值，不再从聊天文本兜底提取。
+    0
 }
 
 pub fn submit_permission_decision(
@@ -679,7 +636,6 @@ pub fn submit_permission_decision(
         .map_err(|_| "Permission state unavailable due to lock poisoning".to_string())?;
     let state = conversation_state_mut(&mut guard, conversation_id);
     prune_expired_pending(state);
-    prune_processed_action_tokens(state);
     prune_resolved_decisions(state);
 
     if apply_decision(state, action, request_id) {
@@ -702,7 +658,6 @@ pub async fn await_permission_decision(
             .map_err(|_| "Permission state unavailable due to lock poisoning".to_string())?;
         let state = conversation_state_mut(&mut guard, conversation_scope.as_deref());
         prune_expired_pending(state);
-        prune_processed_action_tokens(state);
         prune_resolved_decisions(state);
 
         if let Some(record) = state.resolved_by_request.get(request_id) {
@@ -747,7 +702,6 @@ pub async fn await_permission_decision(
                 .map_err(|_| "Permission state unavailable due to lock poisoning".to_string())?;
             let state = conversation_state_mut(&mut guard, conversation_scope.as_deref());
             prune_expired_pending(state);
-            prune_processed_action_tokens(state);
             prune_resolved_decisions(state);
             state.resolved_by_request.get(request_id).copied().map(|r| r.action)
         };
@@ -854,7 +808,6 @@ pub fn enforce_tool_permission(
     let state = conversation_state_mut(&mut guard, conversation_id);
     // state: 当前 conversation 的权限状态。
     prune_expired_pending(state);
-    prune_processed_action_tokens(state);
     prune_resolved_decisions(state);
 
     if state.deny_session.contains(&operation.signature) {
@@ -880,7 +833,7 @@ pub fn enforce_tool_permission(
         // request_id: 生成或复用的待审批请求 id。
         return PermissionEnforcement::AskUser {
             request_id: request_id.clone(),
-            payload: build_permission_prompt_payload(&request_id, &operation),
+            payload: build_permission_prompt_payload(&operation),
         };
     }
 

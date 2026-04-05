@@ -7,32 +7,36 @@ import type {
 export type PermissionActionName = "allow_once" | "allow_session" | "deny_session";
 
 function detectPermissionActionFromText(text: string): PermissionActionName | null {
-  const upper = text.toUpperCase();
-  if (upper.includes("ALLOW_ONCE::")) return "allow_once";
-  if (upper.includes("ALLOW_SESSION::")) return "allow_session";
-  if (upper.includes("DENY_SESSION::")) return "deny_session";
+  const normalized = text.trim().toLowerCase();
+  if (!normalized) return null;
+
+  if (normalized === "allow_once") {
+    return "allow_once";
+  }
+  if (normalized === "allow_session") {
+    return "allow_session";
+  }
+  if (normalized === "deny_session") {
+    return "deny_session";
+  }
   return null;
 }
 
 export function extractPermissionActionFromAnswers(
   payload: AskUserAnswerSubmission,
 ): PermissionActionName | null {
-  const candidates: string[] = [];
-
   for (const answer of Object.values(payload.answers)) {
     if (Array.isArray(answer)) {
-      candidates.push(...answer);
-    } else {
-      candidates.push(answer);
+      for (const candidate of answer) {
+        const action = detectPermissionActionFromText(candidate);
+        if (action) {
+          return action;
+        }
+      }
+      continue;
     }
-  }
 
-  if (payload.freeform?.trim()) {
-    candidates.push(payload.freeform.trim());
-  }
-
-  for (const candidate of candidates) {
-    const action = detectPermissionActionFromText(candidate);
+    const action = detectPermissionActionFromText(answer);
     if (action) {
       return action;
     }
