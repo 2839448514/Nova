@@ -598,6 +598,8 @@ impl OpenAiProvider {
                                         .await;
 
                                         for executed in executed_calls {
+                                            let serialized_input = serde_json::to_string_pretty(&executed.input)
+                                                .unwrap_or_else(|_| executed.input.to_string());
                                             // 把每个工具结果实时回传前端。
                                             app.emit(
                                                 "chat-stream",
@@ -606,7 +608,7 @@ impl OpenAiProvider {
                                                     text: None,
                                                     tool_use_id: Some(executed.id.clone()),
                                                     tool_use_name: Some(executed.name.clone()),
-                                                    tool_use_input: None,
+                                                    tool_use_input: Some(serialized_input),
                                                     tool_result: Some(executed.output.clone()),
                                                     token_usage: None,
                                                     stop_reason: None,

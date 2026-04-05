@@ -37,6 +37,7 @@ import type {
   ConversationMemory,
   ConversationMeta,
   NeedsUserInputPayload,
+  ToolExecutionEntry,
   TurnCost,
   UploadedRagFile,
 } from "../../../lib/chat-types";
@@ -76,6 +77,7 @@ export function useChatController() {
   const planMode = ref(false);
   const isCreatingNewChat = ref(false);
   const isSidebarOpen = ref(true);
+  const toolExecutionLogs = ref<ToolExecutionEntry[]>([]);
   const chatScreenRef = ref<ChatScreenHandle | null>(null);
   const toolInputById = new Map<string, string>();
   const toolNameById = new Map<string, string>();
@@ -97,6 +99,102 @@ export function useChatController() {
   function resetTurnRuntimeState() {
     resetToolTrackingState();
     resetPendingPromptState();
+  }
+
+  function findToolExecutionIndexById(toolId: string): number {
+    return toolExecutionLogs.value.findIndex((entry) => entry.id === toolId);
+  }
+
+  function latestRunningToolExecutionIdByName(toolName: string): string | null {
+    for (let i = toolExecutionLogs.value.length - 1; i >= 0; i -= 1) {
+      const entry = toolExecutionLogs.value[i];
+      if (entry.toolName === toolName && entry.status === "running") {
+        return entry.id;
+      }
+    }
+    return null;
+  }
+
+  function startToolExecutionTrace(toolId: string, toolName: string) {
+    const idx = findToolExecutionIndexById(toolId);
+    if (idx >= 0) {
+      toolExecutionLogs.value[idx] = {
+        ...toolExecutionLogs.value[idx],
+        toolName,
+        status: "running",
+        startedAt: Date.now(),
+        finishedAt: undefined,
+      };
+      return;
+    }
+
+    toolExecutionLogs.value.push({
+      id: toolId,
+      toolName,
+      input: "",
+      result: "",
+      status: "running",
+      startedAt: Date.now(),
+      finishedAt: undefined,
+    });
+  }
+
+  function appendToolExecutionInput(toolId: string, inputDelta: string) {
+    const idx = findToolExecutionIndexById(toolId);
+    if (idx < 0) {
+      return;
+    }
+
+    const entry = toolExecutionLogs.value[idx];
+    toolExecutionLogs.value[idx] = {
+      ...entry,
+      input: `${entry.input}${inputDelta}`,
+    };
+  }
+
+  function completeToolExecutionTrace(
+    toolId: string | null,
+    toolName: string,
+    result: string,
+    status: ToolExecutionEntry["status"],
+    inputFallback?: string,
+  ) {
+    const resolvedId = toolId || latestRunningToolExecutionIdByName(toolName);
+    if (!resolvedId) {
+      return;
+    }
+
+    const idx = findToolExecutionIndexById(resolvedId);
+    if (idx < 0) {
+      return;
+    }
+
+    const entry = toolExecutionLogs.value[idx];
+    const normalizedFallback = (inputFallback ?? "").trim();
+    const resolvedInput = entry.input.trim().length > 0 ? entry.input : normalizedFallback;
+    toolExecutionLogs.value[idx] = {
+      ...entry,
+      toolName,
+      input: resolvedInput,
+      result,
+      status,
+      finishedAt: Date.now(),
+    };
+  }
+
+  function markRunningToolExecutions(status: "completed" | "error" | "cancelled") {
+    const now = Date.now();
+    toolExecutionLogs.value = toolExecutionLogs.value.map((entry) => {
+      if (entry.status !== "running") {
+        return entry;
+      }
+
+      return {
+        ...entry,
+        status,
+        finishedAt: now,
+      };
+    });
   }
 
   function finalizeOrStopTurn(tokenUsage?: number) {
@@ -233,6 +331,7 @@ export function useChatController() {
     activeConversationId.value = id;
     planMode.value = agentMode.value === "plan";
     pendingUploads.value = [];
+    toolExecutionLogs.value = [];
     try {
       const saved = await loadConversationHistory(id);
       messages.value = (saved || [])
@@ -528,6 +627,7 @@ export function useChatController() {
       activeConversationId.value = id;
       messages.value = [];
       pendingUploads.value = [];
+      toolExecutionLogs.value = [];
       assistantResponse.value = "";
       isGenerating.value = false;
       planMode.value = agentMode.value === "plan";
@@ -546,6 +646,7 @@ export function useChatController() {
     isGenerating.value = false;
     planMode.value = agentMode.value === "plan";
     pendingUploads.value = [];
+    toolExecutionLogs.value = [];
     await loadConversation(id);
   }
 
@@ -599,21 +700,24 @@ export function useChatController() {
         } else if (payload.type === "tool-use-start") {
           currentToolCalls.value += 1;
           currentToolStartedAt.value = Date.now();
-          const toolName = payload.tool_use_name ?? "unknown";
-          const toolId = payload.tool_use_id ?? "";
-          if (toolId) {
-            toolNameById.set(toolId, toolName);
-            if (!toolInputById.has(toolId)) {
-              toolInputById.set(toolId, "");
-            }
+          const toolName = (payload.tool_use_name ?? "unknown").trim() || "unknown";
+          const rawToolId = (payload.tool_use_id ?? "").trim();
+          const toolId = rawToolId || `tool-${Date.now()}-${currentToolCalls.value}`;
+
+          toolNameById.set(toolId, toolName);
+          if (!toolInputById.has(toolId)) {
+            toolInputById.set(toolId, "");
           }
+
+          startToolExecutionTrace(toolId, toolName);
           assistantResponse.value += `\n> Using tool: ${toolName}...\n`;
           chatScreenRef.value?.scrollToBottom();
         } else if (payload.type === "tool-json-delta") {
-          const toolId = payload.tool_use_id ?? "";
+          const toolId = (payload.tool_use_id ?? "").trim();
           if (toolId && payload.tool_use_input) {
             const prev = toolInputById.get(toolId) ?? "";
             toolInputById.set(toolId, prev + payload.tool_use_input);
+            appendToolExecutionInput(toolId, payload.tool_use_input);
           }
         } else if (payload.type === "permission-request") {
           const requestId = (payload.tool_use_id ?? "").trim();
@@ -666,20 +770,29 @@ export function useChatController() {
             currentToolDurationMs.value += Math.max(0, Date.now() - currentToolStartedAt.value);
             currentToolStartedAt.value = null;
           }
-          const toolId = payload.tool_use_id ?? "";
+          const rawToolId = (payload.tool_use_id ?? "").trim();
+          const fallbackToolName = (payload.tool_use_name ?? "").trim();
           const toolName =
-            payload.tool_use_name ?? (toolId ? toolNameById.get(toolId) : undefined) ?? "unknown";
-          const rawInput = toolId ? toolInputById.get(toolId) ?? "" : "";
+            fallbackToolName ||
+            (rawToolId ? toolNameById.get(rawToolId) : undefined) ||
+            "unknown";
+          const toolId = rawToolId || latestRunningToolExecutionIdByName(toolName) || "";
+          const streamedInput = toolId ? toolInputById.get(toolId) ?? "" : "";
+          const fallbackInput = (payload.tool_use_input ?? "").trim();
+          const rawInput = streamedInput.trim().length > 0 ? streamedInput : fallbackInput;
           const info = summarizeToolInfo(toolName, rawInput);
           if (info) {
             assistantResponse.value += `\n> Tool info: ${info}\n`;
           }
           assistantResponse.value += `\n> Tool done: ${toolName}\n`;
+          const result = (payload.tool_result ?? "").trim();
+          completeToolExecutionTrace(toolId || null, toolName, result, "completed", rawInput);
+
           if (toolId) {
             toolInputById.delete(toolId);
             toolNameById.delete(toolId);
           }
-          const result = (payload.tool_result ?? "").trim();
+
           if (result) {
             const planModeChange = parsePlanModeChange(result);
             if (planModeChange) {
@@ -707,12 +820,14 @@ export function useChatController() {
           const turnState = payload.turn_state ?? "";
 
           if (turnState === "cancelled" || stopReason === "cancelled") {
+            markRunningToolExecutions("cancelled");
             finalizeOrStopTurn(payload.token_usage);
             resetTurnRuntimeState();
             return;
           }
 
           if (turnState === "error") {
+            markRunningToolExecutions("error");
             isGenerating.value = false;
             assistantResponse.value = "";
             assistantTokenUsage.value = undefined;
@@ -735,6 +850,7 @@ export function useChatController() {
             stopReason === "needs_user_input";
 
           if (shouldFinalize) {
+            markRunningToolExecutions("completed");
             finalizeOrStopTurn(payload.token_usage);
             resetTurnRuntimeState();
           }
@@ -771,6 +887,7 @@ export function useChatController() {
     assistantResponse,
     assistantTokenUsage,
     assistantTurnCost,
+    toolExecutionLogs,
     conversations,
     activeConversationId,
     pendingQuestion,

@@ -3,6 +3,7 @@ import Sidebar from "./components/layout/Sidebar.vue";
 import WelcomeScreen from "./components/chat/WelcomeScreen.vue";
 import ChatScreen from "./components/chat/ChatScreen.vue";
 import SessionFilesPopover from "./components/chat/files/SessionFilesPopover.vue";
+import ExecutionTracePopover from "./components/chat/files/ExecutionTracePopover.vue";
 import HooksConfigScreen from "./components/hooks/HooksConfigScreen.vue";
 import GlobalToastHost from "./components/layout/GlobalToastHost.vue";
 import { useChatController } from "./features/chat/controllers/useChatController";
@@ -13,6 +14,7 @@ const {
   assistantResponse,
   assistantTokenUsage,
   assistantTurnCost,
+  toolExecutionLogs,
   conversations,
   activeConversationId,
   conversationFiles,
@@ -70,12 +72,15 @@ void chatScreenRef;
           </div>
         </div>
 
-        <SessionFilesPopover
-          :files="conversationFiles"
-          :pendingUploads="pendingUploads"
-          @open="refreshActiveConversationFiles"
-          @remove-pending-upload="handleRemovePendingUpload"
-        />
+        <div class="flex items-center gap-2 pointer-events-auto">
+          <SessionFilesPopover
+            :files="conversationFiles"
+            :pendingUploads="pendingUploads"
+            @open="refreshActiveConversationFiles"
+            @remove-pending-upload="handleRemovePendingUpload"
+          />
+          <ExecutionTracePopover :entries="toolExecutionLogs" />
+        </div>
       </header>
 
       <HooksConfigScreen

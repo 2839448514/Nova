@@ -44,6 +44,9 @@ fn apply_tool_call_result(
     prevent_continuation: &mut bool,
     hook_stop_reason: &mut Option<String>,
 ) {
+    let serialized_input = serde_json::to_string_pretty(&executed.input)
+        .unwrap_or_else(|_| executed.input.to_string());
+
     // 广播工具结果事件。
     app.emit(
         "chat-stream",
@@ -52,7 +55,7 @@ fn apply_tool_call_result(
             text: None,
             tool_use_id: Some(executed.id.clone()),
             tool_use_name: Some(executed.name.clone()),
-            tool_use_input: None,
+            tool_use_input: Some(serialized_input),
             tool_result: Some(executed.output.clone()),
             token_usage: current_output_tokens,
             stop_reason: None,

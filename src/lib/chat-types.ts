@@ -58,6 +58,16 @@ export interface ChatMessageEvent {
   turn_state?: string;
 }
 
+export interface ToolExecutionEntry {
+  id: string;
+  toolName: string;
+  input: string;
+  result: string;
+  status: "running" | "completed" | "error" | "cancelled";
+  startedAt: number;
+  finishedAt?: number;
+}
+
 export interface AskUserOption {
   label: string;
   description: string;
