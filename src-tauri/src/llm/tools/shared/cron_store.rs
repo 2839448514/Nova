@@ -10,6 +10,8 @@ pub struct CronJob {
     pub id: String,
     pub cron: String,
     pub prompt: String,
+    #[serde(default)]
+    pub conversation_id: Option<String>,
     pub recurring: bool,
     pub durable: bool,
     pub created_at: String,

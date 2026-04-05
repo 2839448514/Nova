@@ -1,4 +1,6 @@
 use crate::llm::tools::shared::cron_store::{add_job, list_jobs, remove_job, CronJob};
+use crate::llm::commands::types::HistoryMessage;
+use crate::llm::types::{AgentMode, Content, Message, Role};
 use chrono::{DateTime, Datelike, Local, Timelike, Utc};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -12,6 +14,7 @@ const SCHEDULER_TICK_SECONDS: u64 = 15;
 #[serde(rename_all = "camelCase")]
 pub struct ScheduledTaskTriggerEvent {
     pub id: String,
+    pub conversation_id: Option<String>,
     pub cron: String,
     pub prompt: String,
     pub recurring: bool,
@@ -203,6 +206,106 @@ fn cron_matches_local_now(expr: &str, now: &DateTime<Local>) -> bool {
         && cron_field_matches(fields[4], day_of_week, 0, 6, true)
 }
 
+fn build_scheduled_conversation_title(cron: &str, prompt: &str) -> String {
+    let mut title_seed = prompt
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .map(str::trim)
+        .unwrap_or("Scheduled Task")
+        .to_string();
+
+    if title_seed.chars().count() > 48 {
+        title_seed = title_seed.chars().take(48).collect::<String>();
+    }
+
+    format!("Scheduled [{}] {}", cron, title_seed)
+}
+
+async fn create_bound_conversation_for_task(
+    app: &AppHandle,
+    cron: &str,
+    prompt: &str,
+) -> Result<String, String> {
+    let title = build_scheduled_conversation_title(cron, prompt);
+    let conversation = crate::llm::history::create_conversation(app, Some(title)).await?;
+    Ok(conversation.id)
+}
+
+async fn append_trigger_prompt_to_bound_conversation(
+    app: &AppHandle,
+    job: &CronJob,
+    triggered_at: &str,
+) -> Result<(), String> {
+    let Some(conversation_id) = job
+        .conversation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+    else {
+        return Ok(());
+    };
+
+    let content = build_scheduled_trigger_user_content(job, triggered_at);
+
+    crate::llm::history::append_history(
+        app,
+        conversation_id,
+        HistoryMessage {
+            role: "user".to_string(),
+            content,
+            attachments: None,
+            token_usage: None,
+            cost: None,
+        },
+    )
+    .await
+}
+
+fn build_scheduled_trigger_user_content(job: &CronJob, triggered_at: &str) -> String {
+    format!(
+        "[Scheduled Task Trigger]\nTask ID: {}\nCron: {}\nTriggered At: {}\n\n{}",
+        job.id, job.cron, triggered_at, job.prompt
+    )
+}
+
+async fn execute_scheduled_prompt_in_bound_conversation(
+    app: &AppHandle,
+    job: &CronJob,
+    triggered_at: &str,
+) -> Result<(), String> {
+    let Some(conversation_id) = job
+        .conversation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+    else {
+        return Ok(());
+    };
+
+    let message_content = build_scheduled_trigger_user_content(job, triggered_at);
+    let turn_messages = vec![Message {
+        role: Role::User,
+        content: Content::Text(message_content),
+    }];
+
+    crate::llm::cancellation::begin_turn(Some(conversation_id));
+    let result = crate::llm::query::send_chat_message(
+        app.clone(),
+        Some(conversation_id.to_string()),
+        turn_messages,
+        AgentMode::Agent,
+    )
+    .await;
+    crate::llm::cancellation::finish_turn(Some(conversation_id));
+
+    result.map_err(|e| {
+        format!(
+            "Failed to execute scheduled prompt for task {} in conversation {}: {}",
+            job.id, conversation_id, e
+        )
+    })
+}
+
 pub async fn run_scheduler_loop(app: AppHandle) {
     let mut ticker = time::interval(Duration::from_secs(SCHEDULER_TICK_SECONDS));
     let mut fired_minute_by_id: HashMap<String, String> = HashMap::new();
@@ -239,8 +342,38 @@ pub async fn run_scheduler_loop(app: AppHandle) {
                 continue;
             }
 
+            if let Err(e) = append_trigger_prompt_to_bound_conversation(&app, &job, &now_utc).await {
+                eprintln!(
+                    "[cron.scheduler] Failed to append trigger prompt to conversation for {}: {}",
+                    job.id, e
+                );
+            }
+
+            let app_for_turn = app.clone();
+            let job_for_turn = job.clone();
+            let triggered_at_for_turn = now_utc.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = execute_scheduled_prompt_in_bound_conversation(
+                    &app_for_turn,
+                    &job_for_turn,
+                    &triggered_at_for_turn,
+                )
+                .await
+                {
+                    eprintln!("[cron.scheduler] {}", e);
+                }
+            });
+
+            let conversation_id = job
+                .conversation_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|id| !id.is_empty())
+                .map(str::to_string);
+
             let payload = ScheduledTaskTriggerEvent {
                 id: job.id.clone(),
+                conversation_id,
                 cron: job.cron.clone(),
                 prompt: job.prompt.clone(),
                 recurring: job.recurring,
@@ -253,13 +386,23 @@ pub async fn run_scheduler_loop(app: AppHandle) {
                 Ok(_) => {
                     fired_minute_by_id.insert(job.id.clone(), minute_key.clone());
                     if !job.recurring {
-                        if let Err(e) = remove_job(&app, &job.id) {
-                            eprintln!(
-                                "[cron.scheduler] Failed to remove one-shot job {}: {}",
-                                job.id, e
-                            );
+                        match remove_job(&app, &job.id) {
+                            Ok(true) => {
+                                fired_minute_by_id.remove(&job.id);
+                            }
+                            Ok(false) => {
+                                eprintln!(
+                                    "[cron.scheduler] One-shot job {} was not removed after trigger; keeping minute guard {}",
+                                    job.id, minute_key
+                                );
+                            }
+                            Err(e) => {
+                                eprintln!(
+                                    "[cron.scheduler] Failed to remove one-shot job {}: {}. Keeping minute guard {}",
+                                    job.id, e, minute_key
+                                );
+                            }
                         }
-                        fired_minute_by_id.remove(&job.id);
                     }
                 }
                 Err(e) => {
@@ -281,7 +424,7 @@ pub fn list_scheduled_tasks(app: AppHandle) -> Result<Vec<CronJob>, String> {
 }
 
 #[tauri::command]
-pub fn create_scheduled_task(
+pub async fn create_scheduled_task(
     app: AppHandle,
     cron: String,
     prompt: String,
@@ -302,16 +445,31 @@ pub fn create_scheduled_task(
     let raw_uuid = Uuid::new_v4().simple().to_string();
     let id = format!("cron-{}", &raw_uuid[..12]);
 
+    let conversation_id =
+        create_bound_conversation_for_task(&app, cron_value, prompt_value).await?;
+
     let job = CronJob {
         id,
         cron: cron_value.to_string(),
         prompt: prompt_value.to_string(),
+        conversation_id: Some(conversation_id.clone()),
         recurring: recurring.unwrap_or(true),
         durable: durable.unwrap_or(false),
         created_at: Utc::now().to_rfc3339(),
     };
 
-    add_job(&app, job)
+    match add_job(&app, job) {
+        Ok(saved) => Ok(saved),
+        Err(e) => {
+            if let Err(cleanup_error) = crate::llm::history::delete_conversation(&app, &conversation_id).await {
+                eprintln!(
+                    "[cron.create] Failed to cleanup conversation {} after add_job error: {}",
+                    conversation_id, cleanup_error
+                );
+            }
+            Err(e)
+        }
+    }
 }
 
 #[tauri::command]

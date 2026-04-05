@@ -54,6 +54,7 @@ type BackendErrorEvent = {
 
 type ScheduledTaskTriggerEvent = {
   id: string;
+  conversationId?: string;
   cron: string;
   prompt: string;
   recurring: boolean;
@@ -1576,7 +1577,7 @@ export function useChatController() {
           emitToast({
             variant: "info",
             source: "schedule",
-            message: `定时任务触发: ${payload.id} (${payload.cron})${previewText ? ` - ${previewText}` : ""}`,
+            message: `定时任务触发: ${payload.id} (${payload.cron})${payload.conversationId ? ` [${payload.conversationId}]` : ""}${previewText ? ` - ${previewText}` : ""}`,
           });
         },
       );

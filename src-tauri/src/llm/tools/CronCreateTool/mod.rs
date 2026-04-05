@@ -1,9 +1,6 @@
-use crate::llm::tools::shared::cron_store::{add_job, CronJob};
 use crate::llm::types::Tool;
-use chrono::Utc;
 use serde_json::{json, Value};
 use tauri::AppHandle;
-use uuid::Uuid;
 
 pub fn tool() -> Tool {
     Tool {
@@ -158,25 +155,22 @@ pub async fn execute_with_app(app: &AppHandle, input: Value) -> String {
     let recurring = parse_semantic_bool(&input, "recurring", true);
     let durable = parse_semantic_bool(&input, "durable", false);
 
-    let raw_uuid = Uuid::new_v4().simple().to_string();
-    let id = format!("cron-{}", &raw_uuid[..12]);
-
-    let job = CronJob {
-        id,
-        cron: cron.to_string(),
-        prompt: prompt.to_string(),
-        recurring,
-        durable,
-        created_at: Utc::now().to_rfc3339(),
-    };
-
-    match add_job(app, job) {
+    match crate::command::cron::create_scheduled_task(
+        app.clone(),
+        cron.to_string(),
+        prompt.to_string(),
+        Some(recurring),
+        Some(durable),
+    )
+    .await
+    {
         Ok(saved) => json!({
             "ok": true,
             "id": saved.id,
             "cron": saved.cron,
             "humanSchedule": saved.cron,
             "prompt": saved.prompt,
+            "conversationId": saved.conversation_id,
             "recurring": saved.recurring,
             "durable": saved.durable,
             "createdAt": saved.created_at

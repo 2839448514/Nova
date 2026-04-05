@@ -33,6 +33,7 @@ pub async fn execute_with_app(app: &AppHandle, _input: Value) -> String {
                         "cron": job.cron,
                         "humanSchedule": job.cron,
                         "prompt": job.prompt,
+                        "conversationId": job.conversation_id,
                         "recurring": job.recurring,
                         "durable": job.durable,
                         "createdAt": job.created_at

@@ -50,6 +50,7 @@ export interface ScheduledTask {
   id: string;
   cron: string;
   prompt: string;
+  conversationId?: string;
   recurring: boolean;
   durable: boolean;
   createdAt: string;

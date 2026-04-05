@@ -233,6 +233,7 @@ onMounted(() => {
                 <span class="text-[11px] rounded px-2 py-0.5 bg-[#efe7da] text-[#6d604f] dark:bg-[#3a342c] dark:text-[#cfbda5]">{{ task.durable ? 'durable' : 'session' }}</span>
               </div>
               <div class="text-[0.82rem] text-[#6e665a] dark:text-[#bbb2a4]">cron: {{ task.cron }}</div>
+              <div class="text-[0.82rem] text-[#6e665a] dark:text-[#bbb2a4]">conversation: {{ task.conversationId || '-' }}</div>
               <div class="text-[0.86rem] text-[#302c26] dark:text-[#e5ddd0] break-words">{{ task.prompt }}</div>
               <div class="text-[11px] text-[#9c9487] dark:text-[#a59c8e]">创建于 {{ formatDateTime(task.createdAt) }}</div>
             </div>
