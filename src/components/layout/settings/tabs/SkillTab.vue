@@ -122,7 +122,7 @@ onMounted(refresh)
       class="border-[#ebe9e3] bg-[#faf9f7] dark:border-[#3b3a37] dark:bg-[#252422]"
     >
       <CardContent class="py-8 text-center text-[13.5px] text-[#aaa49a] dark:text-[#88857f]">
-        未发现技能。请将技能放在 .github/skills/*/SKILL.md 或 skills/*/SKILL.md。
+        未发现技能。请将技能放在应用数据目录的 skills 子目录（.../com.tauri-app.nova/skills/*/SKILL.md）。
       </CardContent>
     </Card>
 

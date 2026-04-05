@@ -790,6 +790,8 @@ pub async fn execute_tool_with_app(
     }
 
     match name {
+        "Skill" | "skill" => skill_tool::execute_with_app(app, input).await,
+        "config_tool" => config_tool::execute_with_app(app, input).await,
         "rag_tool" => rag_tool::execute_with_app(app, input).await,
         "mcp_tool" => mcp_tool::execute_with_app(app, input).await,
         "list_mcp_resources" => list_mcp_resources_tool::execute_with_app(app, input).await,

@@ -1,8 +1,8 @@
 use crate::llm::types::Tool;
 use serde_json::{json, Value};
-use std::env;
 use std::fs;
 use std::path::PathBuf;
+use tauri::{AppHandle, Manager};
 
 pub fn tool() -> Tool {
     Tool {
@@ -29,18 +29,11 @@ pub fn tool() -> Tool {
     }
 }
 
-fn default_settings_path() -> Result<PathBuf, String> {
-    #[cfg(target_os = "windows")]
-    {
-        let appdata = env::var("APPDATA").map_err(|_| "APPDATA is not set".to_string())?;
-        return Ok(PathBuf::from(appdata).join("com.tauri-app.nova").join("settings.json"));
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        let home = env::var("HOME").map_err(|_| "HOME is not set".to_string())?;
-        return Ok(PathBuf::from(home).join(".config").join("com.tauri-app.nova").join("settings.json"));
-    }
+fn settings_path(app: &AppHandle) -> Result<PathBuf, String> {
+    app.path()
+        .app_data_dir()
+        .map(|dir| dir.join("settings.json"))
+        .map_err(|e| format!("Failed to resolve app_data_dir for settings: {}", e))
 }
 
 fn read_settings_json(path: &PathBuf) -> Result<Value, String> {
@@ -68,13 +61,21 @@ fn write_settings_json(path: &PathBuf, value: &Value) -> Result<(), String> {
     fs::write(path, pretty).map_err(|e| format!("Failed to write settings file: {}", e))
 }
 
-pub fn execute(input: Value) -> String {
+pub fn execute(_input: Value) -> String {
+    json!({
+        "ok": false,
+        "message": "config_tool requires AppHandle-aware execution and should be routed via execute_tool_with_app."
+    })
+    .to_string()
+}
+
+pub async fn execute_with_app(app: &AppHandle, input: Value) -> String {
     let action = match input.get("action").and_then(|v| v.as_str()) {
         Some(v) => v,
         None => return "Error: Missing 'action' argument".into(),
     };
 
-    let path = match default_settings_path() {
+    let path = match settings_path(app) {
         Ok(p) => p,
         Err(e) => return format!("Error: {}", e),
     };

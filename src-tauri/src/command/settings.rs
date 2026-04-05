@@ -254,15 +254,12 @@ impl AppSettings {
     }
 }
 
-pub fn get_settings_path(app: &AppHandle) -> PathBuf {
-    // 设置文件路径优先使用 app_data_dir，失败时回退到当前目录下的 .nova。
-    match app.path().app_data_dir() {
-        Ok(dir) => dir.join("settings.json"),
-        Err(_) => std::env::current_dir()
-            .unwrap_or_else(|_| PathBuf::from("."))
-            .join(".nova")
-            .join("settings.json"),
-    }
+pub fn get_settings_path(app: &AppHandle) -> Result<PathBuf, String> {
+    // 设置文件路径严格使用 app_data_dir，不再提供回退路径。
+    app.path()
+        .app_data_dir()
+        .map(|dir| dir.join("settings.json"))
+        .map_err(|e| format!("Failed to resolve app_data_dir for settings: {}", e))
 }
 
 fn validate_hook_env(settings: &AppSettings) -> Result<(), String> {
@@ -314,7 +311,15 @@ fn validate_rag_settings(settings: &AppSettings) -> Result<(), String> {
 #[tauri::command]
 pub fn get_settings(app: AppHandle) -> AppSettings {
     // 获取 settings.json 路径。
-    let path = get_settings_path(&app);
+    let path = match get_settings_path(&app) {
+        Ok(path) => path,
+        Err(e) => {
+            eprintln!("{}", e);
+            let mut settings = AppSettings::default();
+            settings.normalize_for_runtime();
+            return settings;
+        }
+    };
     // 文件存在时尝试读取并反序列化。
     if path.exists() {
         if let Ok(content) = std::fs::read_to_string(path) {
@@ -334,7 +339,7 @@ pub fn get_settings(app: AppHandle) -> AppSettings {
 #[tauri::command]
 pub fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), String> {
     // 获取 settings.json 路径。
-    let path = get_settings_path(&app);
+    let path = get_settings_path(&app)?;
     // 确保父目录存在。
     if let Some(parent) = path.parent() {
         if let Err(e) = std::fs::create_dir_all(parent) {

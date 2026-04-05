@@ -3,6 +3,7 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
+use tauri::{AppHandle, Manager};
 
 #[derive(Debug, Clone)]
 struct SkillEntry {
@@ -146,35 +147,19 @@ fn collect_skill_files(root: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-fn repo_root_candidates() -> Vec<PathBuf> {
-    let mut roots = Vec::new();
-
-    if let Ok(cwd) = std::env::current_dir() {
-        roots.push(cwd.clone());
-        if let Some(parent) = cwd.parent() {
-            roots.push(parent.to_path_buf());
-        }
-        if let Some(grand) = cwd.parent().and_then(|p| p.parent()) {
-            roots.push(grand.to_path_buf());
-        }
-    }
-
-    roots
+fn skills_root_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    app.path()
+        .app_data_dir()
+        .map(|dir| dir.join("skills"))
+        .map_err(|e| format!("Failed to resolve app_data_dir for skills: {}", e))
 }
 
-fn load_skills() -> Vec<SkillEntry> {
+fn load_skills(app: &AppHandle) -> Result<Vec<SkillEntry>, String> {
     let mut skill_files = Vec::new();
+    let skills_root = skills_root_dir(app)?;
 
-    for root in repo_root_candidates() {
-        let github_skills = root.join(".github").join("skills");
-        if github_skills.exists() {
-            collect_skill_files(&github_skills, &mut skill_files);
-        }
-
-        let skills_dir = root.join("skills");
-        if skills_dir.exists() {
-            collect_skill_files(&skills_dir, &mut skill_files);
-        }
+    if skills_root.exists() {
+        collect_skill_files(&skills_root, &mut skill_files);
     }
 
     let mut out = Vec::new();
@@ -197,18 +182,18 @@ fn load_skills() -> Vec<SkillEntry> {
 
     out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     out.dedup_by(|a, b| normalize_name(&a.name) == normalize_name(&b.name));
-    out
+    Ok(out)
 }
 
-pub fn list_skill_summaries() -> Vec<SkillSummary> {
-    load_skills()
+pub fn list_skill_summaries_with_app(app: &AppHandle) -> Result<Vec<SkillSummary>, String> {
+    Ok(load_skills(app)?
         .into_iter()
         .map(|s| SkillSummary {
             name: s.name,
             description: s.description,
             path: s.path.display().to_string(),
         })
-        .collect()
+        .collect())
 }
 
 fn list_skills(skills: &[SkillEntry]) -> String {
@@ -261,7 +246,15 @@ fn run_skill(skills: &[SkillEntry], skill_name: &str, args: Option<&str>) -> Str
     out
 }
 
-pub fn execute(input: Value) -> String {
+pub fn execute(_input: Value) -> String {
+    json!({
+        "ok": false,
+        "message": "skill requires AppHandle-aware execution and should be routed via execute_tool_with_app."
+    })
+    .to_string()
+}
+
+pub async fn execute_with_app(app: &AppHandle, input: Value) -> String {
     let action = input
         .get("action")
         .and_then(|v| v.as_str())
@@ -269,7 +262,10 @@ pub fn execute(input: Value) -> String {
         .trim()
         .to_ascii_lowercase();
 
-    let skills = load_skills();
+    let skills = match load_skills(app) {
+        Ok(skills) => skills,
+        Err(e) => return json!({ "ok": false, "error": e }).to_string(),
+    };
 
     if action == "list" {
         return list_skills(&skills);
