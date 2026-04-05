@@ -19,21 +19,26 @@ import {
   createConversation,
   deleteConversation,
   getConversationMemory,
+  listConversationRagDocuments,
   listConversations,
   loadConversationHistory,
   sendChatMessage,
   submitPermissionDecision,
+  type RagDocumentMeta,
+  upsertConversationRagDocuments,
   upsertConversationMemory,
 } from "../services/chat-api";
 import type {
   AgentMode,
   AskUserAnswerSubmission,
+  ChatAttachment,
   ChatMessage,
   ChatMessageEvent,
   ConversationMemory,
   ConversationMeta,
   NeedsUserInputPayload,
   TurnCost,
+  UploadedRagFile,
 } from "../../../lib/chat-types";
 
 export type MainView = "chat" | "hooks";
@@ -56,6 +61,8 @@ export function useChatController() {
   const assistantTurnCost = ref<TurnCost | undefined>(undefined);
   const conversations = ref<ConversationMeta[]>([]);
   const activeConversationId = ref("");
+  const conversationFiles = ref<RagDocumentMeta[]>([]);
+  const pendingUploads = ref<UploadedRagFile[]>([]);
   const pendingQuestion = ref<NeedsUserInputPayload | null>(null);
   const pendingPermissionRequestId = ref<string | null>(null);
   const conversationMemory = ref<ConversationMemory | null>(null);
@@ -104,7 +111,9 @@ export function useChatController() {
   }
 
   function hasConversationContent(): boolean {
-    return messages.value.some((m) => m.content.trim().length > 0);
+    return messages.value.some(
+      (m) => m.content.trim().length > 0 || (m.attachments?.length ?? 0) > 0,
+    );
   }
 
   function handleAgentModeChange(mode: AgentMode) {
@@ -112,7 +121,7 @@ export function useChatController() {
     planMode.value = mode === "plan";
   }
 
-  function estimateInputTokensForTurn(userText: string): number {
+  function estimateInputTokensForTurn(userText: string, attachmentNames: string[]): number {
     const historyText = messages.value
       .slice(-12)
       .map((m) => m.content)
@@ -120,7 +129,50 @@ export function useChatController() {
     const memoryText = conversationMemory.value
       ? `Summary: ${conversationMemory.value.summary}\nFacts: ${conversationMemory.value.keyFacts.join("; ")}`
       : "";
-    return estimateTokens(`${historyText}\n${memoryText}\n${userText}`);
+    const attachmentText = attachmentNames.length
+      ? `Attachments: ${attachmentNames.join(", ")}`
+      : "";
+    return estimateTokens(`${historyText}\n${memoryText}\n${attachmentText}\n${userText}`);
+  }
+
+  function formatMessageContentForModel(msg: ChatMessage): string {
+    const content = msg.content.trim();
+    if (content) {
+      return content;
+    }
+
+    const names = msg.attachments?.map((item) => item.sourceName).filter(Boolean) ?? [];
+    if (names.length > 0) {
+      return `Attached files: ${names.join(", ")}`;
+    }
+
+    return "";
+  }
+
+  function toAttachmentMeta(files: UploadedRagFile[]): ChatAttachment[] {
+    return files.map((file) => ({
+      sourceName: file.sourceName,
+      mimeType: file.mimeType,
+      size: file.size,
+    }));
+  }
+
+  async function refreshConversationFiles(conversationId: string) {
+    if (!conversationId) {
+      conversationFiles.value = [];
+      return;
+    }
+
+    try {
+      conversationFiles.value = await listConversationRagDocuments(conversationId);
+    } catch (err) {
+      console.error("Failed to load conversation files:", err);
+      conversationFiles.value = [];
+    }
+  }
+
+  async function refreshActiveConversationFiles() {
+    await refreshConversationFiles(activeConversationId.value);
   }
 
   function buildAssistantCost(): TurnCost {
@@ -180,20 +232,28 @@ export function useChatController() {
   async function loadConversation(id: string) {
     activeConversationId.value = id;
     planMode.value = agentMode.value === "plan";
+    pendingUploads.value = [];
     try {
       const saved = await loadConversationHistory(id);
       messages.value = (saved || [])
-        .filter((m) => (m.role === "user" || m.role === "assistant") && !!m.content)
+        .filter(
+          (m) =>
+            (m.role === "user" || m.role === "assistant") &&
+            (!!m.content || (m.attachments?.length ?? 0) > 0),
+        )
         .map((m) => ({
           role: m.role as "user" | "assistant",
           content: m.content,
+          attachments: m.attachments,
           tokenUsage: m.tokenUsage,
           cost: m.cost,
         }));
       await loadConversationMemory(id);
+      await refreshConversationFiles(id);
     } catch (err) {
       console.error("Failed to load conversation messages:", err);
       messages.value = [];
+      conversationFiles.value = [];
     }
   }
 
@@ -239,18 +299,80 @@ export function useChatController() {
   }
 
   async function handleSendMessage(userText: string) {
-    if (!userText.trim() || isGenerating.value) return;
+    if (isGenerating.value) return;
+    const text = userText.trim();
+    const filesToSend = pendingUploads.value.slice();
+    if (!text && filesToSend.length === 0) return;
+
     mainView.value = "chat";
     resetPendingPromptState();
 
     if (!activeConversationId.value) {
-      const id = await createNewConversation(userText);
+      const seedTitle = text || filesToSend[0]?.sourceName || "New chat";
+      const id = await createNewConversation(seedTitle);
       if (!id) return;
       activeConversationId.value = id;
       messages.value = [];
     }
 
-    const userMsg: ChatMessage = { role: "user", content: userText };
+    let uploadedAttachments: ChatAttachment[] = [];
+    if (filesToSend.length > 0) {
+      try {
+        const result = await upsertConversationRagDocuments(
+          activeConversationId.value,
+          filesToSend.map((file) => ({
+            sourceName: file.sourceName,
+            sourceType: "file",
+            mimeType: file.mimeType,
+            content: file.content,
+          })),
+        );
+
+        if (result.added + result.updated <= 0) {
+          emitToast({
+            variant: "error",
+            source: "upload",
+            message: "文件上传失败，本轮未发送。",
+          });
+          return;
+        }
+
+        uploadedAttachments = toAttachmentMeta(filesToSend);
+        pendingUploads.value = [];
+        await refreshConversationFiles(activeConversationId.value);
+
+        if (result.rejected.length > 0) {
+          const detail = result.rejected
+            .slice(0, 2)
+            .map((item) => `${item.sourceName}(${item.reason})`)
+            .join("；");
+          emitToast({
+            variant: "error",
+            source: "upload",
+            message: `部分文件上传失败：${detail}`,
+          });
+        }
+      } catch (err) {
+        emitToast({
+          variant: "error",
+          source: "upload",
+          message: `文件上传失败，本轮未发送: ${String(err)}`,
+        });
+        return;
+      }
+    }
+
+    const modelUserText =
+      text ||
+      (uploadedAttachments.length > 0
+        ? `请结合我上传的文件回答：${uploadedAttachments.map((item) => item.sourceName).join("，")}`
+        : text);
+
+    const userMsg: ChatMessage = {
+      role: "user",
+      content: text,
+      attachments: uploadedAttachments.length > 0 ? uploadedAttachments : undefined,
+    };
     messages.value.push(userMsg);
     await persistMessage(userMsg);
     isGenerating.value = true;
@@ -261,12 +383,15 @@ export function useChatController() {
     currentToolCalls.value = 0;
     currentToolDurationMs.value = 0;
     currentOutputTokens.value = 0;
-    currentInputTokens.value = estimateInputTokensForTurn(userText);
+    currentInputTokens.value = estimateInputTokensForTurn(
+      modelUserText,
+      uploadedAttachments.map((item) => item.sourceName),
+    );
     resetToolTrackingState();
 
     const rustMessages = messages.value.map((msg) => ({
       role: msg.role,
-      content: msg.content,
+      content: formatMessageContentForModel(msg),
     }));
 
     try {
@@ -290,6 +415,28 @@ export function useChatController() {
       isGenerating.value = false;
       resetTurnRuntimeState();
     }
+  }
+
+  async function handleUploadFiles(files: UploadedRagFile[]) {
+    if (!files.length || isGenerating.value) {
+      return;
+    }
+
+    mainView.value = "chat";
+
+    pendingUploads.value = [...pendingUploads.value, ...files];
+    emitToast({
+      variant: "success",
+      source: "upload",
+      message: `已添加 ${files.length} 个文件到待发送列表。`,
+    });
+  }
+
+  function handleRemovePendingUpload(index: number) {
+    if (index < 0 || index >= pendingUploads.value.length) {
+      return;
+    }
+    pendingUploads.value.splice(index, 1);
   }
 
   async function handleCancelGeneration() {
@@ -380,9 +527,12 @@ export function useChatController() {
 
       activeConversationId.value = id;
       messages.value = [];
+      pendingUploads.value = [];
       assistantResponse.value = "";
       isGenerating.value = false;
       planMode.value = agentMode.value === "plan";
+      conversationFiles.value = [];
+      await refreshConversationFiles(id);
     } finally {
       isCreatingNewChat.value = false;
     }
@@ -395,6 +545,7 @@ export function useChatController() {
     assistantResponse.value = "";
     isGenerating.value = false;
     planMode.value = agentMode.value === "plan";
+    pendingUploads.value = [];
     await loadConversation(id);
   }
 
@@ -414,6 +565,8 @@ export function useChatController() {
           } else {
             activeConversationId.value = "";
             messages.value = [];
+            pendingUploads.value = [];
+            conversationFiles.value = [];
           }
         }
       }
@@ -621,12 +774,17 @@ export function useChatController() {
     conversations,
     activeConversationId,
     pendingQuestion,
+    pendingUploads,
+    conversationFiles,
     agentMode,
     planMode,
     mainView,
     isSidebarOpen,
     chatScreenRef,
+    refreshActiveConversationFiles,
     handleSendMessage,
+    handleUploadFiles,
+    handleRemovePendingUpload,
     handleCancelGeneration,
     handlePendingQuestionSubmit,
     handlePendingQuestionSkip,

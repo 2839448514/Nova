@@ -7,16 +7,29 @@ export interface TurnCost {
 
 export type AgentMode = "agent" | "plan" | "auto";
 
+export interface ChatAttachment {
+  sourceName: string;
+  mimeType?: string;
+  size?: number;
+}
+
 export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
+  attachments?: ChatAttachment[];
   tokenUsage?: number;
   cost?: TurnCost;
+}
+
+export interface UploadedRagFile extends ChatAttachment {
+  content: string;
+  size: number;
 }
 
 export interface PersistedMessage {
   role: string;
   content: string;
+  attachments?: ChatAttachment[];
   tokenUsage?: number;
   cost?: TurnCost;
 }

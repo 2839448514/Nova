@@ -19,6 +19,7 @@ pub struct RagDocumentInput {
     pub source_type: String,
     pub mime_type: Option<String>,
     pub content: String,
+    pub conversation_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -28,6 +29,7 @@ struct RagDocument {
     pub source_name: String,
     pub source_type: String,
     pub mime_type: Option<String>,
+    pub conversation_id: Option<String>,
     pub content: String,
     pub content_chars: usize,
     pub checksum: String,
@@ -180,6 +182,10 @@ fn normalize_optional_string(value: Option<String>) -> Option<String> {
     })
 }
 
+fn normalize_optional_conversation_id(value: Option<String>) -> Option<String> {
+    normalize_optional_string(value)
+}
+
 fn normalize_source_name(raw: &str, fallback_index: usize) -> String {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
@@ -249,10 +255,18 @@ fn calculate_search_score(source_name: &str, content: &str, terms: &[String]) ->
     score
 }
 
-pub fn rag_search_documents(
+fn rag_document_matches_scope(doc: &RagDocument, conversation_id: Option<&str>) -> bool {
+    match conversation_id {
+        Some(scope_id) => doc.conversation_id.as_deref() == Some(scope_id),
+        None => doc.conversation_id.is_none(),
+    }
+}
+
+fn rag_search_documents_with_scope(
     app: AppHandle,
     query: String,
     limit: Option<usize>,
+    conversation_id: Option<String>,
 ) -> Result<Vec<RagSearchHit>, String> {
     let query_text = query.trim();
     if query_text.is_empty() {
@@ -264,6 +278,7 @@ pub fn rag_search_documents(
         return Ok(Vec::new());
     }
 
+    let scope = normalize_optional_conversation_id(conversation_id);
     let max_hits = limit.unwrap_or(5).clamp(1, 50);
     let store = load_store(&app)?;
 
@@ -271,6 +286,10 @@ pub fn rag_search_documents(
         .documents
         .into_iter()
         .filter_map(|doc| {
+            if !rag_document_matches_scope(&doc, scope.as_deref()) {
+                return None;
+            }
+
             let score = calculate_search_score(&doc.source_name, &doc.content, &terms);
             if score == 0 {
                 return None;
@@ -297,6 +316,25 @@ pub fn rag_search_documents(
     hits.truncate(max_hits);
 
     Ok(hits)
+}
+
+pub fn rag_search_documents(
+    app: AppHandle,
+    query: String,
+    limit: Option<usize>,
+) -> Result<Vec<RagSearchHit>, String> {
+    rag_search_documents_with_scope(app, query, limit, None)
+}
+
+pub fn rag_search_conversation_documents(
+    app: AppHandle,
+    conversation_id: String,
+    query: String,
+    limit: Option<usize>,
+) -> Result<Vec<RagSearchHit>, String> {
+    let normalized_conversation_id = normalize_optional_conversation_id(Some(conversation_id))
+        .ok_or_else(|| "conversation_id is required".to_string())?;
+    rag_search_documents_with_scope(app, query, limit, Some(normalized_conversation_id))
 }
 
 pub fn rag_read_document(
@@ -327,7 +365,12 @@ pub fn rag_read_document(
 #[tauri::command]
 pub fn rag_get_stats(app: AppHandle) -> Result<RagStats, String> {
     let store = load_store(&app)?;
-    Ok(calculate_stats(&store.documents))
+    let global_documents = store
+        .documents
+        .into_iter()
+        .filter(|doc| doc.conversation_id.is_none())
+        .collect::<Vec<_>>();
+    Ok(calculate_stats(&global_documents))
 }
 
 #[tauri::command]
@@ -336,6 +379,37 @@ pub fn rag_list_documents(app: AppHandle) -> Result<Vec<RagDocumentMeta>, String
     let mut items = store
         .documents
         .into_iter()
+        .filter(|doc| doc.conversation_id.is_none())
+        .map(|doc| RagDocumentMeta {
+            id: doc.id,
+            source_name: doc.source_name,
+            source_type: doc.source_type,
+            mime_type: doc.mime_type,
+            content_chars: doc.content_chars,
+            preview: preview_text(&doc.content),
+            checksum: doc.checksum,
+            created_at: doc.created_at,
+            updated_at: doc.updated_at,
+        })
+        .collect::<Vec<_>>();
+
+    items.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    Ok(items)
+}
+
+#[tauri::command]
+pub fn rag_list_conversation_documents(
+    app: AppHandle,
+    conversation_id: String,
+) -> Result<Vec<RagDocumentMeta>, String> {
+    let scope_id = normalize_optional_conversation_id(Some(conversation_id))
+        .ok_or_else(|| "conversation_id is required".to_string())?;
+
+    let store = load_store(&app)?;
+    let mut items = store
+        .documents
+        .into_iter()
+        .filter(|doc| doc.conversation_id.as_deref() == Some(scope_id.as_str()))
         .map(|doc| RagDocumentMeta {
             id: doc.id,
             source_name: doc.source_name,
@@ -378,6 +452,7 @@ pub fn rag_upsert_documents(
     for (index, item) in documents.into_iter().enumerate() {
         let source_name = normalize_source_name(&item.source_name, index);
         let content = normalize_content(&item.content);
+        let conversation_id = normalize_optional_conversation_id(item.conversation_id);
 
         if content.is_empty() {
             rejected.push(RagRejectedItem {
@@ -399,11 +474,17 @@ pub fn rag_upsert_documents(
         let checksum = fnv1a_64_hex(&content);
         let source_type = normalize_source_type(&item.source_type);
         let mime_type = normalize_optional_string(item.mime_type);
+        let scope_key = conversation_id.clone();
 
-        if let Some(existing) = store.documents.iter_mut().find(|d| d.checksum == checksum) {
+        if let Some(existing) = store
+            .documents
+            .iter_mut()
+            .find(|d| d.checksum == checksum && d.conversation_id == scope_key)
+        {
             existing.source_name = source_name;
             existing.source_type = source_type;
             existing.mime_type = mime_type;
+            existing.conversation_id = conversation_id;
             existing.content = content;
             existing.content_chars = content_chars;
             existing.updated_at = now;
@@ -416,6 +497,7 @@ pub fn rag_upsert_documents(
             source_name,
             source_type,
             mime_type,
+            conversation_id,
             content,
             content_chars,
             checksum,
@@ -440,6 +522,48 @@ pub fn rag_upsert_documents(
 }
 
 #[tauri::command]
+pub fn rag_upsert_conversation_documents(
+    app: AppHandle,
+    conversation_id: String,
+    documents: Vec<RagDocumentInput>,
+) -> Result<RagUpsertResult, String> {
+    let normalized_conversation_id = normalize_optional_conversation_id(Some(conversation_id))
+        .ok_or_else(|| "conversation_id is required".to_string())?;
+
+    let scoped_documents = documents
+        .into_iter()
+        .map(|mut doc| {
+            doc.conversation_id = Some(normalized_conversation_id.clone());
+            doc
+        })
+        .collect::<Vec<_>>();
+
+    rag_upsert_documents(app, scoped_documents)
+}
+
+pub fn rag_remove_conversation_documents(
+    app: &AppHandle,
+    conversation_id: &str,
+) -> Result<usize, String> {
+    let normalized_conversation_id = normalize_optional_conversation_id(Some(conversation_id.to_string()));
+    let Some(scope_id) = normalized_conversation_id else {
+        return Ok(0);
+    };
+
+    let mut store = load_store(app)?;
+    let before = store.documents.len();
+    store.documents
+        .retain(|doc| doc.conversation_id.as_deref() != Some(scope_id.as_str()));
+    let removed = before.saturating_sub(store.documents.len());
+
+    if removed > 0 {
+        save_store(app, &store)?;
+    }
+
+    Ok(removed)
+}
+
+#[tauri::command]
 pub fn rag_remove_document(app: AppHandle, document_id: String) -> Result<bool, String> {
     let id = document_id.trim();
     if id.is_empty() {
@@ -461,10 +585,11 @@ pub fn rag_remove_document(app: AppHandle, document_id: String) -> Result<bool, 
 #[tauri::command]
 pub fn rag_clear_documents(app: AppHandle) -> Result<(), String> {
     let mut store = load_store(&app)?;
-    if store.documents.is_empty() {
+    let before = store.documents.len();
+    store.documents.retain(|doc| doc.conversation_id.is_some());
+    if store.documents.len() == before {
         return Ok(());
     }
 
-    store.documents.clear();
     save_store(&app, &store)
 }

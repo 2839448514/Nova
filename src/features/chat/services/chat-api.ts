@@ -11,6 +11,38 @@ import { buildConversationTitle } from "../utils/session-memory";
 
 type ChatRequestMessage = Pick<ChatMessage, "role" | "content">;
 
+export type RagUploadDocumentInput = {
+  sourceName: string;
+  sourceType: string;
+  mimeType?: string;
+  content: string;
+};
+
+export type RagRejectedItem = {
+  sourceName: string;
+  reason: string;
+};
+
+export type RagUpsertResult = {
+  added: number;
+  updated: number;
+  rejected: RagRejectedItem[];
+  totalDocuments: number;
+  totalChars: number;
+};
+
+export type RagDocumentMeta = {
+  id: string;
+  sourceName: string;
+  sourceType: string;
+  mimeType?: string;
+  contentChars: number;
+  preview: string;
+  checksum: string;
+  createdAt: number;
+  updatedAt: number;
+};
+
 export async function listConversations(): Promise<ConversationMeta[]> {
   const items = await invoke<ConversationMeta[]>("list_conversations");
   return items || [];
@@ -67,6 +99,24 @@ export async function sendChatMessage(
     messages,
     planMode,
     agentMode,
+  });
+}
+
+export async function upsertConversationRagDocuments(
+  conversationId: string,
+  documents: RagUploadDocumentInput[],
+): Promise<RagUpsertResult> {
+  return invoke<RagUpsertResult>("rag_upsert_conversation_documents", {
+    conversationId,
+    documents,
+  });
+}
+
+export async function listConversationRagDocuments(
+  conversationId: string,
+): Promise<RagDocumentMeta[]> {
+  return invoke<RagDocumentMeta[]>("rag_list_conversation_documents", {
+    conversationId,
   });
 }
 

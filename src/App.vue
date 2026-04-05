@@ -2,6 +2,7 @@
 import Sidebar from "./components/layout/Sidebar.vue";
 import WelcomeScreen from "./components/chat/WelcomeScreen.vue";
 import ChatScreen from "./components/chat/ChatScreen.vue";
+import SessionFilesPopover from "./components/chat/files/SessionFilesPopover.vue";
 import HooksConfigScreen from "./components/hooks/HooksConfigScreen.vue";
 import GlobalToastHost from "./components/layout/GlobalToastHost.vue";
 import { useChatController } from "./features/chat/controllers/useChatController";
@@ -14,13 +15,18 @@ const {
   assistantTurnCost,
   conversations,
   activeConversationId,
+  conversationFiles,
+  pendingUploads,
   pendingQuestion,
   agentMode,
   planMode,
   mainView,
   isSidebarOpen,
   chatScreenRef,
+  refreshActiveConversationFiles,
   handleSendMessage,
+  handleUploadFiles,
+  handleRemovePendingUpload,
   handleCancelGeneration,
   handlePendingQuestionSubmit,
   handlePendingQuestionSkip,
@@ -63,6 +69,13 @@ void chatScreenRef;
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
           </div>
         </div>
+
+        <SessionFilesPopover
+          :files="conversationFiles"
+          :pendingUploads="pendingUploads"
+          @open="refreshActiveConversationFiles"
+          @remove-pending-upload="handleRemovePendingUpload"
+        />
       </header>
 
       <HooksConfigScreen
@@ -75,8 +88,11 @@ void chatScreenRef;
           v-if="messages.length === 0" 
           :isGenerating="isGenerating"
           :agentMode="agentMode"
+          :pendingUploads="pendingUploads"
           @send="handleSendMessage" 
           @mode-change="handleAgentModeChange"
+          @upload-files="handleUploadFiles"
+          @remove-upload="handleRemovePendingUpload"
         />
 
         <ChatScreen 
@@ -90,9 +106,12 @@ void chatScreenRef;
           :pendingQuestion="pendingQuestion"
           :agentMode="agentMode"
           :planMode="planMode"
+          :pendingUploads="pendingUploads"
           @send="handleSendMessage"
           @cancel="handleCancelGeneration"
           @mode-change="handleAgentModeChange"
+          @upload-files="handleUploadFiles"
+          @remove-upload="handleRemovePendingUpload"
           @ask-submit="handlePendingQuestionSubmit"
           @ask-skip="handlePendingQuestionSkip"
         />

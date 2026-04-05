@@ -1,15 +1,18 @@
 <script setup lang="ts">
 import InputArea from '../layout/InputArea.vue';
-import type { AgentMode } from '../../lib/chat-types';
+import type { AgentMode, UploadedRagFile } from '../../lib/chat-types';
 
 defineProps<{
   isGenerating?: boolean;
   agentMode?: AgentMode;
+  pendingUploads?: UploadedRagFile[];
 }>();
 
 const emit = defineEmits<{
   (e: 'send', msg: string): void;
   (e: 'mode-change', mode: AgentMode): void;
+  (e: 'upload-files', files: UploadedRagFile[]): void;
+  (e: 'remove-upload', index: number): void;
 }>();
 
 const handleSend = (msg: string) => {
@@ -28,7 +31,15 @@ const handleSend = (msg: string) => {
     </h1>
 
     <div class="w-full max-w-[42rem] flex flex-col">
-      <InputArea :isGenerating="isGenerating" :agentMode="agentMode" @send="handleSend" @mode-change="emit('mode-change', $event)" />
+      <InputArea
+        :isGenerating="isGenerating"
+        :agentMode="agentMode"
+        :pendingUploads="pendingUploads"
+        @send="handleSend"
+        @mode-change="emit('mode-change', $event)"
+        @upload-files="emit('upload-files', $event)"
+        @remove-upload="emit('remove-upload', $event)"
+      />
 
       <!-- Suggestion Pills -->
       <div class="flex flex-wrap items-center justify-center gap-2 mt-4 text-[#555] dark:text-[#aaa]">

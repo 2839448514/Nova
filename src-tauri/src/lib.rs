@@ -48,7 +48,9 @@ pub fn run() {
             command::mcp::call_mcp_tool,
             command::rag::rag_get_stats,
             command::rag::rag_list_documents,
+            command::rag::rag_list_conversation_documents,
             command::rag::rag_upsert_documents,
+            command::rag::rag_upsert_conversation_documents,
             command::rag::rag_remove_document,
             command::rag::rag_clear_documents,
             command::skill::list_skills

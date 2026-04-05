@@ -6,6 +6,7 @@ import type {
   ChatMessage,
   NeedsUserInputPayload,
   TurnCost,
+  UploadedRagFile,
 } from '../../lib/chat-types';
 import InputArea from '../layout/InputArea.vue';
 import AskUserInputDialog from './AskUserInputDialog.vue';
@@ -23,6 +24,7 @@ const props = defineProps<{
   pendingQuestion?: NeedsUserInputPayload | null;
   planMode?: boolean;
   agentMode?: AgentMode;
+  pendingUploads?: UploadedRagFile[];
 }>();
 
 const emit = defineEmits<{
@@ -31,6 +33,8 @@ const emit = defineEmits<{
   (e: 'ask-skip'): void;
   (e: 'cancel'): void;
   (e: 'mode-change', mode: AgentMode): void;
+  (e: 'upload-files', files: UploadedRagFile[]): void;
+  (e: 'remove-upload', index: number): void;
 }>();
 
 const chatAreaRef = ref<HTMLElement | null>(null);
@@ -97,6 +101,14 @@ onMounted(() => {
 const handleSend = (msg: string) => {
   emit('send', msg);
   scrollToBottom();
+};
+
+const handleUploadFiles = (files: UploadedRagFile[]) => {
+  emit('upload-files', files);
+};
+
+const handleRemoveUpload = (index: number) => {
+  emit('remove-upload', index);
 };
 
 const extractToolLog = (content: string): string[] => {
@@ -251,7 +263,17 @@ defineExpose({
           @submit="emit('ask-submit', $event)"
           @skip="emit('ask-skip')"
         />
-        <InputArea v-else :isGenerating="isGenerating" :agentMode="agentMode" @send="handleSend" @cancel="emit('cancel')" @mode-change="emit('mode-change', $event)" />
+        <InputArea
+          v-else
+          :isGenerating="isGenerating"
+          :agentMode="agentMode"
+          :pendingUploads="pendingUploads"
+          @send="handleSend"
+          @cancel="emit('cancel')"
+          @mode-change="emit('mode-change', $event)"
+          @upload-files="handleUploadFiles"
+          @remove-upload="handleRemoveUpload"
+        />
       </div>
       <div class="text-center text-[0.7rem] text-muted-foreground mt-2">
         Nova can make mistakes. Please verify important information.

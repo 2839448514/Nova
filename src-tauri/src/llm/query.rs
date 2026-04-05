@@ -11,6 +11,98 @@ mod state_machine;
 
 use state_machine::TurnOutcome;
 
+const SESSION_RAG_CONTEXT_MARKER: &str = "[Session RAG Context]";
+const SESSION_RAG_SEARCH_LIMIT: usize = 5;
+
+fn text_from_content(content: &Content) -> String {
+	match content {
+		Content::Text(text) => text.trim().to_string(),
+		Content::Blocks(blocks) => blocks
+			.iter()
+			.filter_map(|block| {
+				if let ContentBlock::Text { text } = block {
+					let trimmed = text.trim();
+					if trimmed.is_empty() {
+						None
+					} else {
+						Some(trimmed.to_string())
+					}
+				} else {
+					None
+				}
+			})
+			.collect::<Vec<_>>()
+			.join("\n"),
+	}
+}
+
+fn latest_user_query_text(messages: &[Message]) -> Option<String> {
+	messages.iter().rev().find_map(|message| {
+		if message.role != Role::User {
+			return None;
+		}
+
+		let text = text_from_content(&message.content);
+		let trimmed = text.trim();
+		if trimmed.is_empty() {
+			None
+		} else {
+			Some(trimmed.to_string())
+		}
+	})
+}
+
+fn build_session_rag_context_message(
+	app: &AppHandle,
+	conversation_id: Option<&str>,
+	query: &str,
+) -> Result<Option<Message>, String> {
+	let Some(scope_id) = conversation_id
+		.map(|id| id.trim())
+		.filter(|id| !id.is_empty())
+	else {
+		return Ok(None);
+	};
+
+	let query_text = query.trim();
+	if query_text.chars().count() < 2 {
+		return Ok(None);
+	}
+
+	let hits = crate::command::rag::rag_search_conversation_documents(
+		app.clone(),
+		scope_id.to_string(),
+		query_text.to_string(),
+		Some(SESSION_RAG_SEARCH_LIMIT),
+	)?;
+
+	if hits.is_empty() {
+		return Ok(None);
+	}
+
+	let mut context_lines = vec![
+		format!("{} Query: {}", SESSION_RAG_CONTEXT_MARKER, query_text),
+		"Use the retrieved snippets below as supporting context. If they conflict with current repository reality or explicit user instructions, prioritize repository reality and user intent.".to_string(),
+		"Retrieved snippets:".to_string(),
+	];
+
+	for (idx, hit) in hits.iter().enumerate() {
+		context_lines.push(format!(
+			"{}. {} (score={}, id={})",
+			idx + 1,
+			hit.source_name,
+			hit.score,
+			hit.id
+		));
+		context_lines.push(format!("   snippet: {}", hit.snippet));
+	}
+
+	Ok(Some(Message {
+		role: Role::User,
+		content: Content::Text(context_lines.join("\n")),
+	}))
+}
+
 fn is_session_start_turn(messages: &[Message]) -> bool {
 	let assistant_count = messages
 		.iter()
@@ -36,6 +128,7 @@ fn is_session_start_turn(messages: &[Message]) -> bool {
 //     │       ├─ context_assembler                 → 注入会话恢复上下文
 //     │       ├─ run_pre_compact_hooks             → 压缩前上下文扩展
 //     │       └─ compact                           → 压缩历史消息
+//     │       └─ session rag retrieval             → 仅按当前会话文档检索并注入上下文
 //     │
 //     ├─ 3. 主循环 loop
 //     │       ├─ 取消检查                          → cancelled → break
@@ -61,6 +154,7 @@ pub async fn send_chat_message(
 	messages: Vec<Message>,
 	agent_mode: AgentMode,
 ) -> Result<(), String> {
+	let rag_query = latest_user_query_text(&messages);
 	let session_start_turn = is_session_start_turn(&messages);
 	let mut turn_messages = messages;
 
@@ -105,6 +199,21 @@ pub async fn send_chat_message(
 		&assembled_messages,
 	)
 	.await;
+
+	if let Some(query_text) = rag_query.as_deref() {
+		match build_session_rag_context_message(&app, conversation_id.as_deref(), query_text) {
+			Ok(Some(rag_context)) => current_messages.push(rag_context),
+			Ok(None) => {}
+			Err(e) => {
+				emit_backend_error(
+					&app,
+					"llm.query.session_rag_context",
+					e,
+					Some("build_session_rag_context_message"),
+				);
+			}
+		}
+	}
 
 	// 2. 根据设置选择模型提供方（Anthropic/OpenAI）。
 	// Provider 实例封装了底层调用细节。

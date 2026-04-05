@@ -11,7 +11,7 @@ pub async fn get_conversation_resume_context_by_pool(
     // 查询 compact 边界之后（含边界时刻）的消息。
     let rows = sqlx::query(
         r#"
-        SELECT role, content, token_usage, cost_json
+        SELECT role, content, attachments_json, token_usage, cost_json
         FROM conversation_messages
         WHERE conversation_id = ? AND created_at >= ?
         ORDER BY created_at ASC, id ASC
@@ -34,6 +34,10 @@ pub async fn get_conversation_resume_context_by_pool(
             role: row.get::<String, _>("role"),
             // 读取 content。
             content: row.get::<String, _>("content"),
+            // 读取 attachments_json。
+            attachments: row
+                .get::<Option<String>, _>("attachments_json")
+                .and_then(|s| serde_json::from_str(&s).ok()),
             // 读取 token_usage。
             token_usage: row.get::<Option<i64>, _>("token_usage"),
             cost: row

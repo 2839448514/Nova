@@ -12,6 +12,20 @@ const emit = defineEmits<{
   (e: 'retry', index: number): void;
   (e: 'copy', index: number): void;
 }>();
+
+const formatFileSize = (bytes?: number) => {
+  if (!bytes || !Number.isFinite(bytes) || bytes <= 0) {
+    return '';
+  }
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+  const kb = bytes / 1024;
+  if (kb < 1024) {
+    return `${kb.toFixed(1)} KB`;
+  }
+  return `${(kb / 1024).toFixed(1)} MB`;
+};
 </script>
 
 <template>
@@ -30,7 +44,24 @@ const emit = defineEmits<{
         </span>
       </div>
       <div class="bg-[#f1eee7] dark:bg-[#2d2d2d] px-4 py-2.5 rounded-xl border border-[#e6e1d6] dark:border-[#3c3c3c]">
-        <div class="text-[0.92rem] leading-relaxed whitespace-pre-wrap break-words text-[#23211b] dark:text-[#ececec]">
+        <div v-if="message.attachments?.length" class="mb-2 flex flex-wrap gap-1.5">
+          <div
+            v-for="(file, i) in message.attachments"
+            :key="`${file.sourceName}-${i}`"
+            class="inline-flex items-center gap-1.5 rounded-md border border-[#dfd8ca] dark:border-[#4a4a4a] bg-[#fbf8f1] dark:bg-[#353535] px-2 py-1 text-[11px] text-[#5a5245] dark:text-[#d7d0c5]"
+          >
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+            </svg>
+            <span class="max-w-[180px] truncate" :title="file.sourceName">{{ file.sourceName }}</span>
+            <span v-if="formatFileSize(file.size)" class="opacity-70">{{ formatFileSize(file.size) }}</span>
+          </div>
+        </div>
+        <div
+          v-if="message.content.trim()"
+          class="text-[0.92rem] leading-relaxed whitespace-pre-wrap break-words text-[#23211b] dark:text-[#ececec]"
+        >
           {{ message.content }}
         </div>
       </div>

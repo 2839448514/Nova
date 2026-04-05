@@ -14,11 +14,24 @@ pub struct ConversationMeta {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+pub struct HistoryAttachment {
+    // 附件显示名称。
+    pub source_name: String,
+    // 可选 mime 类型。
+    pub mime_type: Option<String>,
+    // 可选文件大小（字节）。
+    pub size: Option<u64>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct HistoryMessage {
     // 消息角色（user/assistant）。
     pub role: String,
     // 消息文本内容。
     pub content: String,
+    // 可选附件列表。
+    pub attachments: Option<Vec<HistoryAttachment>>,
     // 可选 token 使用量。
     pub token_usage: Option<i64>,
     // 可选成本结构（JSON）。
