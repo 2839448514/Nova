@@ -67,6 +67,8 @@ type ChatScreenHandle = {
   scrollToBottom: () => void;
 };
 
+const SCHEDULED_CONVERSATION_TITLE_PREFIX = "Scheduled [";
+
 type ConversationTurnRuntimeState = {
   isGenerating: boolean;
   assistantResponse: string;
@@ -643,7 +645,9 @@ export function useChatController() {
   async function refreshConversations() {
     try {
       const items = await listConversations();
-      conversations.value = items || [];
+      conversations.value = (items || []).filter(
+        (item) => !item.title.startsWith(SCHEDULED_CONVERSATION_TITLE_PREFIX),
+      );
     } catch (err) {
       console.error("Failed to list conversations:", err);
     }

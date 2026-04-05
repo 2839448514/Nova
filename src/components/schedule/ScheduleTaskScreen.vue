@@ -16,6 +16,7 @@ type MainView = "chat" | "hooks" | "agent" | "schedule";
 
 const emit = defineEmits<{
   (e: "change-main-view", view: MainView): void;
+  (e: "open-task-conversation", conversationId: string): void;
 }>();
 
 const loading = ref(false);
@@ -131,6 +132,20 @@ async function handleDeleteTask(id: string) {
   }
 }
 
+function handleOpenTaskConversation(task: ScheduledTask) {
+  const conversationId = (task.conversationId ?? "").trim();
+  if (!conversationId) {
+    emitToast({
+      variant: "error",
+      source: "schedule",
+      message: `任务 ${task.id} 缺少绑定会话，无法打开。`,
+    });
+    return;
+  }
+
+  emit("open-task-conversation", conversationId);
+}
+
 onMounted(() => {
   loadTasks();
 });
@@ -238,15 +253,26 @@ onMounted(() => {
               <div class="text-[11px] text-[#9c9487] dark:text-[#a59c8e]">创建于 {{ formatDateTime(task.createdAt) }}</div>
             </div>
 
-            <Button
-              variant="ghost"
-              size="sm"
-              class="text-[#9c5b4a] hover:bg-[#f4e6df] dark:hover:bg-[#3a2d2a]"
-              :disabled="!!deletingIds[task.id]"
-              @click="handleDeleteTask(task.id)"
-            >
-              {{ deletingIds[task.id] ? '删除中...' : '删除' }}
-            </Button>
+            <div class="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                class="text-[#5b6f8e] hover:bg-[#e8eef8] dark:hover:bg-[#2e3541]"
+                :disabled="!(task.conversationId && task.conversationId.trim())"
+                @click="handleOpenTaskConversation(task)"
+              >
+                查看任务详细
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                class="text-[#9c5b4a] hover:bg-[#f4e6df] dark:hover:bg-[#3a2d2a]"
+                :disabled="!!deletingIds[task.id]"
+                @click="handleDeleteTask(task.id)"
+              >
+                {{ deletingIds[task.id] ? '删除中...' : '删除' }}
+              </Button>
+            </div>
           </div>
         </div>
       </CardContent>

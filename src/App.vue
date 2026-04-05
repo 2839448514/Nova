@@ -104,6 +104,7 @@ void chatScreenRef;
       <ScheduleTaskScreen
         v-else-if="mainView === 'schedule'"
         @change-main-view="handleChangeMainView"
+        @open-task-conversation="handleSelectConversation"
       />
 
       <template v-else>
