@@ -116,8 +116,14 @@ fn is_session_start_turn(messages: &[Message]) -> bool {
 	assistant_count == 0 && user_count <= 1
 }
 
-// 入口函数：发送用户聊天消息，驱动 LLM 请求和工具调用流程。
-// 这个函数负责准备消息、循环调度 provider、处理 tool-result 掉回、最后发送 stop 事件。
+// 入口函数：发送用户聊天消息，驱动整轮 LLM 编排。
+// 它负责：
+// 1) 在真正请求模型前准备上下文（hooks / session restore / compact / session RAG）
+// 2) 循环调用 provider，并把 provider 返回的新消息与 tool_result 回灌到 current_messages
+// 3) 根据 needs_user_input / cancelled / prevent_continuation / has_tool_result 决定是否续跑
+// 4) 在正常结束路径统一执行 session_end_hooks 并发送 stop 事件
+// 5) 在 provider 错误路径执行 error_hooks，发送 stop(error) 后直接返回 Err
+//
 // send_chat_message
 //     │
 //     ├─ 1. 回合前准备
@@ -127,25 +133,27 @@ fn is_session_start_turn(messages: &[Message]) -> bool {
 //     ├─ 2. 上下文构建
 //     │       ├─ context_assembler                 → 注入会话恢复上下文
 //     │       ├─ run_pre_compact_hooks             → 压缩前上下文扩展
-//     │       └─ compact                           → 压缩历史消息
+//     │       ├─ compact                           → 压缩历史消息 / 大型 tool_result
 //     │       └─ session rag retrieval             → 仅按当前会话文档检索并注入上下文
 //     │
 //     ├─ 3. 主循环 loop
 //     │       ├─ 取消检查                          → cancelled → break
-//     │       ├─ 权限决策消费
-//     │       ├─ provider.send_request (流式)      → 错误: run_error_hooks + emit stop(error) + return Err
+//     │       ├─ 应用已提交的权限决策 / 维持审批状态
+//     │       ├─ provider.send_request (流式)
+//     │       │       └─ 错误: run_error_hooks + emit stop(error) + return Err
 //     │       ├─ provider 报告 cancelled           → break
 //     │       ├─ 合并新消息到 current_messages
 //     │       ├─ needs_user_input                  → break
-//     │       ├─ provider.prevent_continuation     → stop_hook_prevented → break
-//     │       ├─ has_tool_result                   → continue (下一轮)
+//     │       ├─ provider_result.prevent_continuation
+//     │       │       └─ stop_hook_prevented       → break
+//     │       ├─ has_tool_result                   → continue (下一轮，等待模型消费 tool_result)
 //     │       └─ !has_tool_result
 //     │               ├─ run_stop_hooks
 //     │               │       ├─ prevent_continuation → break
 //     │               │       └─ added_context → current_messages.extend → continue
 //     │               └─ 正常结束                 → completed → break
 //     │
-//     └─ 4. 回合收尾
+//     └─ 4. 回合收尾（正常路径）
 //             ├─ run_session_end_hooks             → 可覆盖 stop_reason
 //             └─ emit stop                         → return Ok
 pub async fn send_chat_message(
