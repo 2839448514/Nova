@@ -446,38 +446,63 @@ pub async fn upsert_conversation_tool_log(
 }
 
 // Clear history data.
-// - with conversation_id: clear only that conversation's messages
-// - without conversation_id: clear all messages and all conversation rows
+// - with conversation_id: clear the scoped conversation's persisted data
+// - without conversation_id: clear all persisted history and conversation rows
 pub async fn clear_history(app: &AppHandle, conversation_id: Option<String>) -> Result<(), String> {
     let pool = get_pool_with_schema(app).await?;
+    let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
 
     if let Some(id) = conversation_id {
         sqlx::query("DELETE FROM conversation_messages WHERE conversation_id = ?")
             .bind(&id)
-            .execute(&pool)
+            .execute(&mut *tx)
             .await
             .map_err(|e| e.to_string())?;
         sqlx::query("DELETE FROM conversation_tool_logs WHERE conversation_id = ?")
             .bind(&id)
-            .execute(&pool)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?;
+        sqlx::query("DELETE FROM conversation_memory WHERE conversation_id = ?")
+            .bind(&id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?;
+        sqlx::query("DELETE FROM conversation_compact_boundaries WHERE conversation_id = ?")
+            .bind(&id)
+            .execute(&mut *tx)
             .await
             .map_err(|e| e.to_string())?;
 
+        tx.commit().await.map_err(|e| e.to_string())?;
         crate::command::rag::rag_remove_conversation_documents(app, &id)?;
     } else {
         sqlx::query("DELETE FROM conversation_messages")
-            .execute(&pool)
+            .execute(&mut *tx)
             .await
             .map_err(|e| e.to_string())?;
         sqlx::query("DELETE FROM conversation_tool_logs")
-            .execute(&pool)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?;
+        sqlx::query("DELETE FROM conversation_memory")
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?;
+        sqlx::query("DELETE FROM conversation_compact_boundaries")
+            .execute(&mut *tx)
             .await
             .map_err(|e| e.to_string())?;
         sqlx::query("DELETE FROM conversations")
-            .execute(&pool)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?;
+        sqlx::query("DELETE FROM messages")
+            .execute(&mut *tx)
             .await
             .map_err(|e| e.to_string())?;
 
+        tx.commit().await.map_err(|e| e.to_string())?;
         crate::command::rag::rag_remove_all_conversation_documents(app)?;
     }
 

@@ -20,7 +20,6 @@ import {
 const theme = ref<UiTheme>(getStoredUiTheme())
 const language = ref<UiLanguage>(getStoredUiLanguage())
 const isSavingPreferences = ref(false)
-const isClearingHistory = ref(false)
 const cachedSettings = ref<Record<string, unknown> | null>(null)
 
 const localeTexts = {
@@ -29,13 +28,6 @@ const localeTexts = {
     appearanceDesc: '选择 Nova 在你的设备上的显示方式。',
     languageTitle: '语言',
     languageDesc: '切换界面显示语言。',
-    clearHistoryTitle: '清空聊天历史',
-    clearHistoryDesc: '删除本地消息和会话级数据。',
-    clearHistoryButton: '清空历史',
-    clearHistoryWorking: '清理中...',
-    clearHistoryConfirm: '确认清空全部聊天历史吗？该操作不可撤销。',
-    clearHistoryDone: '已清空聊天历史。',
-    clearHistoryFailed: '清空聊天历史失败：',
     settingsSaveFailed: '保存设置失败：',
     themeSystem: '系统',
     themeLight: '浅色',
@@ -48,13 +40,6 @@ const localeTexts = {
     appearanceDesc: 'Select how Nova looks on your device.',
     languageTitle: 'Language',
     languageDesc: 'Change the interface language.',
-    clearHistoryTitle: 'Clear Chat History',
-    clearHistoryDesc: 'Remove all local messages and session data.',
-    clearHistoryButton: 'Clear History',
-    clearHistoryWorking: 'Clearing...',
-    clearHistoryConfirm: 'Clear all chat history? This action cannot be undone.',
-    clearHistoryDone: 'Chat history cleared.',
-    clearHistoryFailed: 'Failed to clear chat history: ',
     settingsSaveFailed: 'Failed to save settings: ',
     themeSystem: 'System',
     themeLight: 'Light',
@@ -151,36 +136,6 @@ const onLanguageSelect = (value: string) => {
   onLanguageChange()
 }
 
-const clearHistory = async () => {
-  if (isClearingHistory.value) {
-    return
-  }
-
-  if (!window.confirm(t.value.clearHistoryConfirm)) {
-    return
-  }
-
-  isClearingHistory.value = true
-  try {
-    await invoke('clear_history', { conversationId: null })
-    window.dispatchEvent(new CustomEvent('history-cleared'))
-    emitToast({
-      variant: 'success',
-      source: 'history',
-      message: t.value.clearHistoryDone,
-    })
-  } catch (error) {
-    console.error('Failed to clear history:', error)
-    emitToast({
-      variant: 'error',
-      source: 'history',
-      message: `${t.value.clearHistoryFailed}${String(error)}`,
-    })
-  } finally {
-    isClearingHistory.value = false
-  }
-}
-
 onMounted(() => {
   void loadSettings()
 })
@@ -224,23 +179,6 @@ onMounted(() => {
             <SelectItem value="en-US">{{ t.languageEnglish }}</SelectItem>
           </SelectContent>
         </Select>
-      </CardContent>
-    </Card>
-
-    <Card class="border-[#ebe9e3] dark:border-[#3b3a37]">
-      <CardHeader class="pb-2">
-        <CardTitle class="text-[0.9rem]">{{ t.clearHistoryTitle }}</CardTitle>
-        <CardDescription>{{ t.clearHistoryDesc }}</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <Button
-          variant="destructive"
-          size="sm"
-          :disabled="isClearingHistory"
-          @click="clearHistory"
-        >
-          {{ isClearingHistory ? t.clearHistoryWorking : t.clearHistoryButton }}
-        </Button>
       </CardContent>
     </Card>
   </div>
