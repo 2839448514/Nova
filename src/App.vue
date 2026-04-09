@@ -146,7 +146,7 @@ void chatScreenRef;
 </template>
 
 <style>
-/* Global reset since App.vue doesn't have styled-scoped anymore */
+
 html, body, #app {
   margin: 0;
   padding: 0;

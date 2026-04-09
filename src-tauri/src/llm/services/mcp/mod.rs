@@ -1,206 +1,64 @@
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::time::Duration;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{Child, ChildStdin, ChildStdout, Command};
+use tauri::{AppHandle, Manager};
 use tokio::sync::Mutex;
 use tokio::time::timeout;
-use tauri::{AppHandle, Manager};
 
+mod sse;
+mod stdio;
+mod streamable_http;
 mod types;
+
+use sse::connect_sse;
+use stdio::{connect_stdio, StdioMcpConnection};
+use streamable_http::{connect_streamable_http, StreamableHttpMcpConnection};
 
 pub use types::{McpResourceInfo, McpRuntimeStatus, McpServerConfig, McpServerStatus, McpToolInfo};
 
-struct StdioMcpConnection {
-    child: Child,
-    reader: BufReader<ChildStdout>,
-    writer: ChildStdin,
-    next_id: u64,
+enum ServerConnection {
+    Stdio(StdioMcpConnection),
+    StreamableHttp(StreamableHttpMcpConnection),
 }
 
-impl StdioMcpConnection {
-    async fn send_message(&mut self, value: &Value) -> Result<(), String> {
-        // value: 要通过 stdio 发送的 JSON 值
-        // 将 Value 序列化为字节数组
-        let mut bytes = serde_json::to_vec(value).map_err(|e| e.to_string())?;
-        // 在 stdio 行协议上以换行符分隔消息
-        bytes.push(b'\n');
-        // 将字节写入子进程 stdin
-        self.writer.write_all(&bytes).await.map_err(|e| e.to_string())?;
-        // 确保数据被刷新到子进程
-        self.writer.flush().await.map_err(|e| e.to_string())
-    }
-
-    async fn read_message(&mut self) -> Result<Value, String> {
-        // 持续读取直到解析到合法的 JSON 行或遇到流关闭
-        loop {
-            let mut line = String::new();
-            // read_line 将读取到的字节数返回到 n
-            let n = self
-                .reader
-                .read_line(&mut line)
-                .await
-                .map_err(|e| e.to_string())?;
-            // n == 0 表示流已关闭
-            if n == 0 {
-                return Err("MCP stdio stream closed".into());
-            }
-
-            // trim 并检查是否为空行，跳过空白或日志行
-            let line = line.trim();
-            if line.is_empty() {
-                continue;
-            }
-
-            // 尝试解析该行为 JSON 值；某些服务器在启动时会在 stdout 打印日志，解析失败则跳过
-            match serde_json::from_str::<Value>(line) {
-                Ok(v) => return Ok(v),
-                Err(_) => continue,
-            }
-        }
-    }
-
-    async fn send_request(&mut self, method: &str, params: Value) -> Result<Value, String> {
-        // 使用自增 id 来关联请求与响应
-        let id = self.next_id;
-        self.next_id += 1;
-
-        // 构造 JSON-RPC 请求体
-        let req = json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "method": method,
-            "params": params
-        });
-        // 发送请求
-        self.send_message(&req).await?;
-
-        // 持续读取直到遇到匹配 id 的响应
-        loop {
-            let msg = self.read_message().await?;
-            // 尝试从响应中解析 id（支持数字或字符串类型）
-            let msg_id = msg
-                .get("id")
-                .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse::<u64>().ok())));
-            // 如果不是我们请求的 id，则跳过该消息
-            if msg_id != Some(id) {
-                continue;
-            }
-            // 如果存在 error 字段，返回错误
-            if let Some(err) = msg.get("error") {
-                return Err(format!("MCP error: {}", err));
-            }
-            // 返回 result 字段或空对象作为默认
-            return Ok(msg.get("result").cloned().unwrap_or_else(|| json!({})));
-        }
-    }
-
-    async fn send_notification(&mut self, method: &str, params: Value) -> Result<(), String> {
-        // 通知无 id 字段，按 JSON-RPC 通知规范构造
-        let req = json!({
-            "jsonrpc": "2.0",
-            "method": method,
-            "params": params
-        });
-        self.send_message(&req).await
-    }
-
+impl ServerConnection {
     async fn list_tools(&mut self) -> Result<Vec<McpToolInfo>, String> {
-        // 请求工具列表并从返回值中提取 "tools" 数组
-        let result = self.send_request("tools/list", json!({})).await?;
-        let tools = result
-            .get("tools")
-            .and_then(|v| v.as_array())
-            .cloned()
-            .unwrap_or_default();
-
-        // 将 JSON 值数组映射为 McpToolInfo 结构体向量
-        Ok(tools
-            .into_iter()
-            .filter_map(|t| {
-                // name: 必需字段，缺失则跳过该条目
-                let name = t.get("name").and_then(|v| v.as_str())?.to_string();
-                // description: 可选字段
-                let description = t
-                    .get("description")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
-                // input_schema: 可能是嵌套 JSON
-                let input_schema = t.get("inputSchema").cloned();
-                Some(McpToolInfo {
-                    name,
-                    description,
-                    input_schema,
-                })
-            })
-            .collect())
-    }
-
-    async fn call_tool(&mut self, tool_name: &str, arguments: Value) -> Result<Value, String> {
-        // 直接调用 tools/call 接口并返回结果
-        self.send_request(
-            "tools/call",
-            json!({
-                "name": tool_name,
-                "arguments": arguments
-            }),
-        )
-        .await
+        match self {
+            Self::Stdio(conn) => conn.list_tools().await,
+            Self::StreamableHttp(conn) => conn.list_tools().await,
+        }
     }
 
     async fn list_resources(&mut self) -> Result<Vec<McpResourceInfo>, String> {
-        // 请求资源列表并解析 "resources" 字段
-        let result = self.send_request("resources/list", json!({})).await?;
-        let resources = result
-            .get("resources")
-            .and_then(|v| v.as_array())
-            .cloned()
-            .unwrap_or_default();
-
-        // 将每个资源 JSON 对象映射为 McpResourceInfo
-        Ok(resources
-            .into_iter()
-            .filter_map(|r| {
-                let uri = r.get("uri").and_then(|v| v.as_str())?.to_string();
-                let name = r
-                    .get("name")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or(&uri)
-                    .to_string();
-                let description = r
-                    .get("description")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
-                let mime_type = r
-                    .get("mimeType")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
-                Some(McpResourceInfo {
-                    uri,
-                    name,
-                    description,
-                    mime_type,
-                })
-            })
-            .collect())
+        match self {
+            Self::Stdio(conn) => conn.list_resources().await,
+            Self::StreamableHttp(conn) => conn.list_resources().await,
+        }
     }
 
     async fn read_resource(&mut self, uri: &str) -> Result<Value, String> {
-        // 调用 resources/read 并返回原始 JSON 值
-        self.send_request("resources/read", json!({ "uri": uri })).await
+        match self {
+            Self::Stdio(conn) => conn.read_resource(uri).await,
+            Self::StreamableHttp(conn) => conn.read_resource(uri).await,
+        }
+    }
+
+    async fn call_tool(&mut self, tool_name: &str, arguments: Value) -> Result<Value, String> {
+        match self {
+            Self::Stdio(conn) => conn.call_tool(tool_name, arguments).await,
+            Self::StreamableHttp(conn) => conn.call_tool(tool_name, arguments).await,
+        }
     }
 
     async fn shutdown(&mut self) {
-        // 终止子进程（忽略错误）
-        let _ = self.child.kill().await;
+        match self {
+            Self::Stdio(conn) => conn.shutdown().await,
+            Self::StreamableHttp(conn) => conn.shutdown().await,
+        }
     }
-}
-
-enum ServerConnection {
-    Stdio(StdioMcpConnection),
 }
 
 struct RegisteredServer {
@@ -236,131 +94,8 @@ fn server_type(config: &McpServerConfig) -> String {
     match config {
         McpServerConfig::Stdio { .. } => "stdio".to_string(),
         McpServerConfig::Sse { .. } => "sse".to_string(),
+        McpServerConfig::StreamableHttp { .. } => "streamable_http".to_string(),
     }
-}
-
-async fn connect_stdio(command: &str, args: &[String], env_map: &HashMap<String, String>) -> Result<StdioMcpConnection, String> {
-    // 解析可能的复合命令：如果 args 为空而 command 中含空格，则把 command 拆分为命令名与参数
-    let mut parsed_command = command.trim().to_string();
-    let mut parsed_args = args.to_vec();
-    if parsed_args.is_empty() && parsed_command.contains(' ') {
-        // parts: 将 command 按空白拆分为 token 列表
-        let mut parts = parsed_command
-            .split_whitespace()
-            .map(|s| s.to_string())
-            .collect::<Vec<_>>();
-        if !parts.is_empty() {
-            // 将首个 token 作为命令名，其余作为参数
-            parsed_command = parts.remove(0);
-            parsed_args = parts;
-        }
-    }
-
-    // spawn_once: 封装一次性 spawn 调用，便于在后续做 fallback
-    let spawn_once = |cmd_name: &str, cmd_args: &[String]| {
-        let mut cmd = Command::new(cmd_name);
-        // 将参数应用到 Command
-        cmd.args(cmd_args);
-        // 管道化 stdin/stdout，以便与子进程通信
-        cmd.stdin(std::process::Stdio::piped());
-        cmd.stdout(std::process::Stdio::piped());
-        // 将 stderr 重定向到 null，避免污染 stdout
-        cmd.stderr(std::process::Stdio::null());
-
-        // 将 env_map 中的环境变量注入子进程
-        for (k, v) in env_map {
-            cmd.env(k, v);
-        }
-
-        // 返回 spawn 调用的结果
-        cmd.spawn()
-    };
-
-    // 尝试启动子进程，如失败则在 Windows 上尝试通过 cmd /C 回退启动
-    let mut child = match spawn_once(&parsed_command, &parsed_args) {
-        Ok(child) => child,
-        Err(primary_err) => {
-            #[cfg(windows)]
-            {
-                // 如果找不到可执行文件，尝试使用 cmd 回退（支持传入复杂命令行）
-                if primary_err.kind() == std::io::ErrorKind::NotFound {
-                    let mut shell_args = vec!["/C".to_string(), parsed_command.clone()];
-                    shell_args.extend(parsed_args.clone());
-                    match spawn_once("cmd", &shell_args) {
-                        Ok(child) => child,
-                        Err(shell_err) => {
-                            return Err(format!(
-                                "Failed to spawn MCP server: {} (and cmd fallback failed: {}). Hint: for Playwright MCP use command 'npx' with args '-y @playwright/mcp@latest'.",
-                                primary_err,
-                                shell_err
-                            ));
-                        }
-                    }
-                } else {
-                    return Err(format!(
-                        "Failed to spawn MCP server: {}. Hint: for Playwright MCP use command 'npx' with args '-y @playwright/mcp@latest'.",
-                        primary_err
-                    ));
-                }
-            }
-            #[cfg(not(windows))]
-            {
-                // 非 Windows 平台直接返回错误
-                return Err(format!(
-                    "Failed to spawn MCP server: {}. Hint: for Playwright MCP use command 'npx' with args '-y @playwright/mcp@latest'.",
-                    primary_err
-                ));
-            }
-        }
-    };
-
-    // 提取子进程的 stdin/stdout 管道句柄，若不存在则认为启动异常
-    let stdin = child.stdin.take().ok_or_else(|| "Missing MCP stdin pipe".to_string())?;
-    let stdout = child.stdout.take().ok_or_else(|| "Missing MCP stdout pipe".to_string())?;
-
-    // 构造连接对象，reader 用于按行读取 stdout，writer 写入 stdin
-    let mut conn = StdioMcpConnection {
-        child,
-        reader: BufReader::new(stdout),
-        writer: stdin,
-        next_id: 1,
-    };
-
-    // 发送 initialize 请求并带超时保护，防止首次 npx 安装等长时阻塞
-    let init_result = timeout(
-        MCP_CONNECT_TIMEOUT,
-        conn.send_request(
-            "initialize",
-            json!({
-                "protocolVersion": "2024-11-05",
-                "capabilities": {},
-                "clientInfo": {
-                    "name": "nova",
-                    "version": "0.1.0"
-                }
-            }),
-        ),
-    )
-    .await;
-
-    match init_result {
-        // 初始化成功
-        Ok(Ok(_)) => {}
-        // MCP 返回错误信息
-        Ok(Err(e)) => return Err(e),
-        // 超时则关闭连接并返回超时错误
-        Err(_) => {
-            let _ = conn.shutdown().await;
-            return Err("MCP server initialize timeout (30s). First-time npx install may be slow; please retry or pre-run `npx -y @playwright/mcp@latest --help` in terminal.".to_string());
-        }
-    }
-
-    // 通知 MCP 已初始化（忽略返回值）
-    let _ = conn
-        .send_notification("notifications/initialized", json!({}))
-        .await;
-
-    Ok(conn)
 }
 
 fn get_mcp_settings_path(app: &AppHandle) -> PathBuf {
@@ -378,7 +113,39 @@ fn load_persisted_servers(app: &AppHandle) -> Vec<PersistedServer> {
         Err(_) => return Vec::new(),
     };
 
-    serde_json::from_str::<Vec<PersistedServer>>(&content).unwrap_or_default()
+    if let Ok(list) = serde_json::from_str::<Vec<PersistedServer>>(&content) {
+        return list;
+    }
+
+    // 兼容 Claude/Cline 常见的 mcpServers 对象格式。
+    let value = match serde_json::from_str::<Value>(&content) {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
+    };
+
+    let Some(servers_obj) = value.get("mcpServers").and_then(|v| v.as_object()) else {
+        return Vec::new();
+    };
+
+    let mut servers = Vec::with_capacity(servers_obj.len());
+    for (name, cfg_value) in servers_obj {
+        let Ok(config) = serde_json::from_value::<McpServerConfig>(cfg_value.clone()) else {
+            continue;
+        };
+
+        let enabled = cfg_value
+            .get("enabled")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+
+        servers.push(PersistedServer {
+            name: name.clone(),
+            enabled,
+            config,
+        });
+    }
+
+    servers
 }
 
 fn save_persisted_servers(app: &AppHandle, servers: &[PersistedServer]) -> Result<(), String> {
@@ -426,15 +193,15 @@ async fn connect_server(
                         )
                     }
                     Ok(result) => match result {
-                    Ok(tools) => tools.len(),
-                    Err(e) => {
-                        return (
-                            McpRuntimeStatus::Connected,
-                            0,
-                            Some(e),
-                            Some(ServerConnection::Stdio(conn)),
-                        )
-                    }
+                        Ok(tools) => tools.len(),
+                        Err(e) => {
+                            return (
+                                McpRuntimeStatus::Connected,
+                                0,
+                                Some(e),
+                                Some(ServerConnection::Stdio(conn)),
+                            )
+                        }
                     },
                 };
                 (
@@ -446,12 +213,45 @@ async fn connect_server(
             }
             Err(e) => (McpRuntimeStatus::Error, 0, Some(e), None),
         },
-        McpServerConfig::Sse { .. } => (
-            McpRuntimeStatus::Error,
-            0,
-            Some("SSE MCP runtime not implemented yet. Use stdio for now.".to_string()),
-            None,
-        ),
+        McpServerConfig::Sse { url } => {
+            let error = connect_sse(url)
+                .err()
+                .unwrap_or_else(|| "SSE MCP runtime not implemented yet. Use stdio for now.".to_string());
+            (McpRuntimeStatus::Error, 0, Some(error), None)
+        }
+        McpServerConfig::StreamableHttp { url } => match connect_streamable_http(url).await {
+            Ok(mut conn) => {
+                let tool_count = match timeout(MCP_CONNECT_TIMEOUT, conn.list_tools()).await {
+                    Err(_) => {
+                        let _ = conn.shutdown().await;
+                        return (
+                            McpRuntimeStatus::Error,
+                            0,
+                            Some("MCP tools/list timeout (30s). streamable_http server may be overloaded or blocked.".to_string()),
+                            None,
+                        );
+                    }
+                    Ok(result) => match result {
+                        Ok(tools) => tools.len(),
+                        Err(e) => {
+                            return (
+                                McpRuntimeStatus::Connected,
+                                0,
+                                Some(e),
+                                Some(ServerConnection::StreamableHttp(conn)),
+                            )
+                        }
+                    },
+                };
+                (
+                    McpRuntimeStatus::Connected,
+                    tool_count,
+                    None,
+                    Some(ServerConnection::StreamableHttp(conn)),
+                )
+            }
+            Err(e) => (McpRuntimeStatus::Error, 0, Some(e), None),
+        },
     }
 }
 
@@ -475,7 +275,7 @@ async fn reconnect_server(app: &AppHandle, name: &str) -> Result<(), String> {
         .get_mut(name)
         .ok_or_else(|| format!("MCP server '{}' not found", name))?;
 
-    if let Some(ServerConnection::Stdio(conn)) = server.connection.as_mut() {
+    if let Some(conn) = server.connection.as_mut() {
         conn.shutdown().await;
     }
 
@@ -564,7 +364,7 @@ pub async fn add_mcp_server(app: AppHandle, name: String, config: McpServerConfi
 
     let mut map = runtime().lock().await;
     if let Some(mut old) = map.remove(&name) {
-        if let Some(ServerConnection::Stdio(conn)) = old.connection.as_mut() {
+        if let Some(conn) = old.connection.as_mut() {
             conn.shutdown().await;
         }
     }
@@ -592,7 +392,7 @@ pub async fn remove_mcp_server(app: AppHandle, name: String) -> Result<(), Strin
 
     let mut map = runtime().lock().await;
     if let Some(mut item) = map.remove(&name) {
-        if let Some(ServerConnection::Stdio(conn)) = item.connection.as_mut() {
+        if let Some(conn) = item.connection.as_mut() {
             conn.shutdown().await;
         }
     }
@@ -638,7 +438,7 @@ pub async fn reload_all_mcp_servers(app: AppHandle) -> Result<(), String> {
                 server.status = McpRuntimeStatus::Disconnected;
                 server.tool_count = 0;
                 server.error = None;
-                if let Some(ServerConnection::Stdio(conn)) = server.connection.as_mut() {
+                if let Some(conn) = server.connection.as_mut() {
                     conn.shutdown().await;
                 }
                 server.connection = None;
@@ -649,7 +449,7 @@ pub async fn reload_all_mcp_servers(app: AppHandle) -> Result<(), String> {
         let (status, tool_count, error, connection) = connect_server(&cfg).await;
         let mut map = runtime().lock().await;
         if let Some(server) = map.get_mut(&name) {
-            if let Some(ServerConnection::Stdio(conn)) = server.connection.as_mut() {
+            if let Some(conn) = server.connection.as_mut() {
                 conn.shutdown().await;
             }
             server.status = status;
@@ -679,7 +479,7 @@ pub async fn set_mcp_server_enabled(app: AppHandle, name: String, enabled: bool)
         let (status, tool_count, error, connection) = connect_server(&cfg).await;
         let mut map = runtime().lock().await;
         if let Some(server) = map.get_mut(&name) {
-            if let Some(ServerConnection::Stdio(conn)) = server.connection.as_mut() {
+            if let Some(conn) = server.connection.as_mut() {
                 conn.shutdown().await;
             }
             server.enabled = true;
@@ -691,7 +491,7 @@ pub async fn set_mcp_server_enabled(app: AppHandle, name: String, enabled: bool)
     } else {
         let mut map = runtime().lock().await;
         if let Some(server) = map.get_mut(&name) {
-            if let Some(ServerConnection::Stdio(conn)) = server.connection.as_mut() {
+            if let Some(conn) = server.connection.as_mut() {
                 conn.shutdown().await;
             }
             server.enabled = false;
@@ -728,7 +528,7 @@ pub async fn list_mcp_tools(app: AppHandle, server_name: String) -> Result<Vec<M
             .ok_or_else(|| format!("MCP server '{}' not found", server_name))?;
 
         match server.connection.as_mut() {
-            Some(ServerConnection::Stdio(conn)) => conn.list_tools().await,
+            Some(conn) => conn.list_tools().await,
             None => Err("Server is not connected".into()),
         }
     };
@@ -745,7 +545,7 @@ pub async fn list_mcp_tools(app: AppHandle, server_name: String) -> Result<Vec<M
                 .ok_or_else(|| format!("MCP server '{}' not found", server_name))?;
 
             match server.connection.as_mut() {
-                Some(ServerConnection::Stdio(conn)) => conn.list_tools().await?,
+                Some(conn) => conn.list_tools().await?,
                 None => return Err("Server is not connected".into()),
             }
         }
@@ -783,7 +583,7 @@ pub async fn list_mcp_resources(app: AppHandle, server_name: String) -> Result<V
             .ok_or_else(|| format!("MCP server '{}' not found", server_name))?;
 
         match server.connection.as_mut() {
-            Some(ServerConnection::Stdio(conn)) => conn.list_resources().await,
+            Some(conn) => conn.list_resources().await,
             None => Err("Server is not connected".into()),
         }
     };
@@ -800,7 +600,7 @@ pub async fn list_mcp_resources(app: AppHandle, server_name: String) -> Result<V
                 .ok_or_else(|| format!("MCP server '{}' not found", server_name))?;
 
             match server.connection.as_mut() {
-                Some(ServerConnection::Stdio(conn)) => conn.list_resources().await?,
+                Some(conn) => conn.list_resources().await?,
                 None => return Err("Server is not connected".into()),
             }
         }
@@ -841,7 +641,7 @@ pub async fn read_mcp_resource(
             .ok_or_else(|| format!("MCP server '{}' not found", server_name))?;
 
         match server.connection.as_mut() {
-            Some(ServerConnection::Stdio(conn)) => conn.read_resource(&uri).await,
+            Some(conn) => conn.read_resource(&uri).await,
             None => Err("Server is not connected".into()),
         }
     };
@@ -858,7 +658,7 @@ pub async fn read_mcp_resource(
                 .ok_or_else(|| format!("MCP server '{}' not found", server_name))?;
 
             match server.connection.as_mut() {
-                Some(ServerConnection::Stdio(conn)) => conn.read_resource(&uri).await?,
+                Some(conn) => conn.read_resource(&uri).await?,
                 None => return Err("Server is not connected".into()),
             }
         }
@@ -900,7 +700,7 @@ pub async fn call_mcp_tool(
             .ok_or_else(|| format!("MCP server '{}' not found", server_name))?;
 
         match server.connection.as_mut() {
-            Some(ServerConnection::Stdio(conn)) => conn.call_tool(&tool_name, arguments.clone()).await,
+            Some(conn) => conn.call_tool(&tool_name, arguments.clone()).await,
             None => Err("Server is not connected".into()),
         }
     };
@@ -917,7 +717,7 @@ pub async fn call_mcp_tool(
                 .ok_or_else(|| format!("MCP server '{}' not found", server_name))?;
 
             match server.connection.as_mut() {
-                Some(ServerConnection::Stdio(conn)) => conn.call_tool(&tool_name, arguments).await?,
+                Some(conn) => conn.call_tool(&tool_name, arguments).await?,
                 None => return Err("Server is not connected".into()),
             }
         }

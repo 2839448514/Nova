@@ -5,9 +5,9 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 
-type MCPServerConfig = { type: 'stdio'; command: string; args: string[]; env?: Record<string, string> } | { type: 'sse'; url: string }
-type ServerStatus = { name: string; status: 'connected' | 'error' | 'connecting' | 'disconnected'; type: 'stdio' | 'sse'; enabled: boolean; toolCount?: number; error?: string }
-type MCPForm = { name: string; type: 'stdio' | 'sse'; command: string; args: string; env: string; url: string }
+type MCPServerConfig = { type: 'stdio'; command: string; args: string[]; env?: Record<string, string> } | { type: 'sse'; url: string } | { type: 'streamable_http'; url: string }
+type ServerStatus = { name: string; status: 'connected' | 'error' | 'connecting' | 'disconnected'; type: 'stdio' | 'sse' | 'streamable_http'; enabled: boolean; toolCount?: number; error?: string }
+type MCPForm = { name: string; type: 'stdio' | 'sse' | 'streamable_http'; command: string; args: string; env: string; url: string }
 type ToastItem = { id: number; message: string; variant: 'error' | 'success' }
 
 const addServer = async (name: string, config: MCPServerConfig) => {
@@ -76,7 +76,9 @@ const submit = async () => {
     config = { type: 'stdio', command: form.value.command.trim(), args, ...(Object.keys(env).length ? { env } : {}) }
   } else {
     if (!form.value.url.trim()) { error.value = '请填写 URL'; return }
-    config = { type: 'sse', url: form.value.url.trim() }
+    config = form.value.type === 'sse'
+      ? { type: 'sse', url: form.value.url.trim() }
+      : { type: 'streamable_http', url: form.value.url.trim() }
   }
   adding.value = true; error.value = ''
   try {
@@ -176,11 +178,12 @@ refresh()
           <label class="text-[13px] font-semibold text-[#1a1915] dark:text-[#e8e3db] mb-[6px] uppercase tracking-wider">名称</label>
           <Input v-model="form.name" placeholder="filesystem" class="w-full h-9 px-3 text-[14px] bg-white dark:bg-[#2e2d2a] border border-[#e8e3db] dark:border-[#44423f] rounded-lg text-[#1a1915] dark:text-[#d3d0c9] placeholder:text-[#b0a99f] dark:placeholder:text-[#66645e] focus:outline-none focus:border-[#d7a16f]"/>
         </div>
-        <div class="w-[120px] flex flex-col text-[14px]">
+        <div class="w-[210px] flex flex-col text-[14px]">
           <label class="text-[13px] font-semibold text-[#1a1915] dark:text-[#e8e3db] mb-[6px] uppercase tracking-wider">类型</label>
           <div class="flex p-[2px] bg-[#f0ede7] dark:bg-[#32312e] rounded-[8px]">
             <Button variant="ghost" size="sm" class="h-auto flex-1 py-[5px] text-[12px]" :class="{ 'bg-white text-[#1a1915] shadow-[0_1px_3px_rgba(0,0,0,0.05)] dark:bg-[#44423f] dark:text-[#e8e3db]': form.type === 'stdio' }" @click="form.type = 'stdio'">stdio</Button>
             <Button variant="ghost" size="sm" class="h-auto flex-1 py-[5px] text-[12px]" :class="{ 'bg-white text-[#1a1915] shadow-[0_1px_3px_rgba(0,0,0,0.05)] dark:bg-[#44423f] dark:text-[#e8e3db]': form.type === 'sse' }" @click="form.type = 'sse'">SSE</Button>
+            <Button variant="ghost" size="sm" class="h-auto flex-1 py-[5px] text-[12px]" :class="{ 'bg-white text-[#1a1915] shadow-[0_1px_3px_rgba(0,0,0,0.05)] dark:bg-[#44423f] dark:text-[#e8e3db]': form.type === 'streamable_http' }" @click="form.type = 'streamable_http'">streamable_http</Button>
           </div>
         </div>
       </div>
@@ -200,8 +203,8 @@ refresh()
       </template>
       <template v-else>
         <div class="mb-2.5 flex flex-col text-[14px]">
-          <label class="text-[13px] font-semibold text-[#1a1915] dark:text-[#e8e3db] mb-[6px] uppercase tracking-wider">SSE URL</label>
-          <Input v-model="form.url" placeholder="http://localhost:8080/sse" class="w-full h-9 px-3 text-[14px] bg-white dark:bg-[#2e2d2a] border border-[#e8e3db] dark:border-[#44423f] rounded-lg text-[#1a1915] dark:text-[#d3d0c9] placeholder:text-[#b0a99f] dark:placeholder:text-[#66645e] focus:outline-none focus:border-[#d7a16f] font-mono"/>
+          <label class="text-[13px] font-semibold text-[#1a1915] dark:text-[#e8e3db] mb-[6px] uppercase tracking-wider">{{ form.type === 'sse' ? 'SSE URL' : 'HTTP URL' }}</label>
+          <Input v-model="form.url" :placeholder="form.type === 'sse' ? 'http://localhost:8080/sse' : 'https://example.com/mcp'" class="w-full h-9 px-3 text-[14px] bg-white dark:bg-[#2e2d2a] border border-[#e8e3db] dark:border-[#44423f] rounded-lg text-[#1a1915] dark:text-[#d3d0c9] placeholder:text-[#b0a99f] dark:placeholder:text-[#66645e] focus:outline-none focus:border-[#d7a16f] font-mono"/>
         </div>
       </template>
       <div v-if="error" class="text-[12.5px] text-[#c0392b] dark:text-[#e57373] mb-2.5">{{ error }}</div>
