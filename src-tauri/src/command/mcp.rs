@@ -2,12 +2,35 @@ use serde_json::Value;
 use tauri::AppHandle;
 
 // 复用 services 层的 MCP 对外类型。
-pub use crate::llm::services::mcp::{McpResourceInfo, McpServerConfig, McpServerStatus, McpToolInfo};
+pub use crate::llm::services::mcp::{
+    McpResourceInfo,
+    McpServerConfig,
+    McpServerEntry,
+    McpServerStatus,
+    McpToolInfo,
+};
 
 #[tauri::command]
 pub async fn add_mcp_server(app: AppHandle, name: String, config: McpServerConfig) -> Result<(), String> {
     // 将 tauri 命令直接转发到 MCP service。
     crate::llm::services::mcp::add_mcp_server(app, name, config).await
+}
+
+#[tauri::command]
+pub async fn get_mcp_server(app: AppHandle, name: String) -> Result<McpServerEntry, String> {
+    // 读取指定 MCP server 的完整配置。
+    crate::llm::services::mcp::get_mcp_server(app, name).await
+}
+
+#[tauri::command]
+pub async fn update_mcp_server(
+    app: AppHandle,
+    old_name: String,
+    new_name: String,
+    config: McpServerConfig,
+) -> Result<(), String> {
+    // 更新指定 MCP server，必要时允许改名并重连。
+    crate::llm::services::mcp::update_mcp_server(app, old_name, new_name, config).await
 }
 
 #[tauri::command]

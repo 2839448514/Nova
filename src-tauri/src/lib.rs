@@ -53,6 +53,8 @@ pub fn run() {
             command::history::get_conversation_resume_context,
             command::history::upsert_conversation_memory,
             command::mcp::add_mcp_server,
+            command::mcp::get_mcp_server,
+            command::mcp::update_mcp_server,
             command::mcp::remove_mcp_server,
             command::mcp::get_mcp_server_statuses,
             command::mcp::reload_all_mcp_servers,

@@ -6,12 +6,19 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 
 type MCPServerConfig = { type: 'stdio'; command: string; args: string[]; env?: Record<string, string> } | { type: 'sse'; url: string } | { type: 'streamable_http'; url: string }
+type MCPServerEntry = { name: string; enabled: boolean; config: MCPServerConfig }
 type ServerStatus = { name: string; status: 'connected' | 'error' | 'connecting' | 'disconnected'; type: 'stdio' | 'sse' | 'streamable_http'; enabled: boolean; toolCount?: number; error?: string }
 type MCPForm = { name: string; type: 'stdio' | 'sse' | 'streamable_http'; command: string; args: string; env: string; url: string }
 type ToastItem = { id: number; message: string; variant: 'error' | 'success' }
 
 const addServer = async (name: string, config: MCPServerConfig) => {
   await invoke('add_mcp_server', { name, config })
+}
+const getServer = async (name: string): Promise<MCPServerEntry> => {
+  return await invoke('get_mcp_server', { name })
+}
+const updateServer = async (oldName: string, newName: string, config: MCPServerConfig) => {
+  await invoke('update_mcp_server', { oldName, newName, config })
 }
 const removeServer = async (name: string) => {
   await invoke('remove_mcp_server', { name })
@@ -33,6 +40,9 @@ const reloading = ref(false)
 const error = ref('')
 const toasts = ref<ToastItem[]>([])
 const showForm = ref(false)
+const editingOriginalName = ref<string | null>(null)
+const editingEnabled = ref(true)
+const loadingEditName = ref<string | null>(null)
 const removingName = ref<string | null>(null)
 const togglingName = ref<string | null>(null)
 const form = ref<MCPForm>({ name: '', type: 'stdio', command: 'npx', args: '-y @playwright/mcp@latest', env: '', url: '' })
@@ -47,8 +57,49 @@ const pushToast = (message: string, variant: ToastItem['variant']) => {
 
 const resetForm = () => {
   form.value = { name: '', type: 'stdio', command: 'npx', args: '-y @playwright/mcp@latest', env: '', url: '' }
+  editingOriginalName.value = null
+  editingEnabled.value = true
   error.value = ''
   showForm.value = false
+}
+
+const openCreateForm = () => {
+  if (showForm.value && !editingOriginalName.value) {
+    resetForm()
+    return
+  }
+  resetForm()
+  showForm.value = true
+}
+
+const fillFormFromServer = (server: MCPServerEntry) => {
+  const { config } = server
+  editingOriginalName.value = server.name
+  editingEnabled.value = server.enabled
+
+  if (config.type === 'stdio') {
+    const env = config.env
+      ? Object.entries(config.env).map(([key, value]) => `${key}=${value}`).join('\n')
+      : ''
+    form.value = {
+      name: server.name,
+      type: 'stdio',
+      command: config.command,
+      args: config.args.join(' '),
+      env,
+      url: ''
+    }
+    return
+  }
+
+  form.value = {
+    name: server.name,
+    type: config.type,
+    command: '',
+    args: '',
+    env: '',
+    url: config.url
+  }
 }
 
 const refresh = async () => {
@@ -61,9 +112,28 @@ const refresh = async () => {
   finally { loading.value = false }
 }
 
+const handleEdit = async (name: string) => {
+  loadingEditName.value = name
+  error.value = ''
+  try {
+    const server = await getServer(name)
+    fillFormFromServer(server)
+    showForm.value = true
+  }
+  catch (e) {
+    pushToast(`读取配置失败(${name}): ${String(e)}`, 'error')
+  }
+  finally {
+    loadingEditName.value = null
+  }
+}
+
 const submit = async () => {
   const name = form.value.name.trim()
   if (!name) { error.value = '请填写名称'; return }
+  const isEditing = Boolean(editingOriginalName.value)
+  const originalName = editingOriginalName.value
+  const wasEnabled = editingEnabled.value
   let config: MCPServerConfig
   if (form.value.type === 'stdio') {
     if (!form.value.command.trim()) { error.value = '请填写命令'; return }
@@ -82,13 +152,19 @@ const submit = async () => {
   }
   adding.value = true; error.value = ''
   try {
-    await addServer(name, config)
+    if (isEditing && originalName) {
+      await updateServer(originalName, name, config)
+    } else {
+      await addServer(name, config)
+    }
     resetForm()
     await refresh()
-    pushToast('MCP 服务已添加并触发连接。', 'success')
+    pushToast(isEditing
+      ? `MCP 服务已更新${wasEnabled ? '并重新连接' : ''}。`
+      : 'MCP 服务已添加并触发连接。', 'success')
   }
   catch (e) {
-    const msg = `添加失败: ${String(e)}`
+    const msg = `${isEditing ? '更新失败' : '添加失败'}: ${String(e)}`
     error.value = msg
     pushToast(msg, 'error')
   }
@@ -166,13 +242,26 @@ refresh()
           </svg>
           重新连接
         </Button>
-        <Button size="sm" class="bg-[#da7756] text-white hover:bg-[#c06548]" @click="showForm = !showForm">
-          {{ showForm ? '取消' : '+ 添加' }}
+        <Button size="sm" class="bg-[#da7756] text-white hover:bg-[#c06548]" @click="openCreateForm">
+          {{ showForm && !editingOriginalName ? '取消' : '+ 添加' }}
         </Button>
       </div>
     </div>
 
     <div v-if="showForm" class="bg-[#faf9f7] dark:bg-[#252422] border border-[#ebe9e3] dark:border-[#3b3a37] rounded-xl p-4 mb-4 flex flex-col transition-all overflow-hidden origin-top">
+      <div class="flex items-center justify-between mb-3">
+        <div>
+          <div class="text-[14px] font-semibold text-[#1a1915] dark:text-[#e8e3db]">
+            {{ editingOriginalName ? '编辑 MCP 服务' : '添加 MCP 服务' }}
+          </div>
+          <div class="text-[12px] text-[#8a8478] dark:text-[#a09e99] mt-0.5">
+            {{ editingOriginalName ? '修改后会覆盖当前配置，并在已启用时自动重连。' : '保存后会立即写入配置，并尝试连接服务。' }}
+          </div>
+        </div>
+        <span v-if="editingOriginalName" class="text-[11px] px-2 py-1 rounded bg-[#f0ede7] dark:bg-[#32312e] text-[#8a8478] dark:text-[#a09e99] font-mono">
+          原名称: {{ editingOriginalName }}
+        </span>
+      </div>
       <div class="flex gap-3 items-end mb-2.5">
         <div class="flex-1 flex flex-col text-[14px]">
           <label class="text-[13px] font-semibold text-[#1a1915] dark:text-[#e8e3db] mb-[6px] uppercase tracking-wider">名称</label>
@@ -209,7 +298,9 @@ refresh()
       </template>
       <div v-if="error" class="text-[12.5px] text-[#c0392b] dark:text-[#e57373] mb-2.5">{{ error }}</div>
       <div class="flex items-center justify-end gap-3 mt-2">
-        <Button class="h-9 bg-[#da7756] text-white hover:bg-[#c06548]" :disabled="adding" @click="submit">{{ adding ? '连接中...' : '添加并连接' }}</Button>
+        <Button class="h-9 bg-[#da7756] text-white hover:bg-[#c06548]" :disabled="adding" @click="submit">
+          {{ adding ? (editingOriginalName ? '保存中...' : '连接中...') : (editingOriginalName ? '保存修改' : '添加并连接') }}
+        </Button>
         <Button variant="outline" size="sm" @click="resetForm">取消</Button>
       </div>
     </div>
@@ -237,6 +328,9 @@ refresh()
           </div>
         </div>
         <div class="flex items-center gap-2 shrink-0">
+          <Button variant="outline" size="sm" class="px-3 py-1.5 text-[12px]" :disabled="loadingEditName === s.name" @click="handleEdit(s.name)">
+            {{ loadingEditName === s.name ? '读取中...' : '编辑' }}
+          </Button>
           <Button variant="outline" size="sm" class="px-3 py-1.5 text-[12px]" :class="s.enabled ? 'text-[#8a6d3b] dark:text-[#d6b77a] border-[#ead8b5] dark:border-[#5a4b2f] hover:bg-[#fff8ec] dark:hover:bg-[#3a3226]' : 'text-[#2e7d32] dark:text-[#7bc67f] border-[#cfe8d1] dark:border-[#355c37] hover:bg-[#effaf0] dark:hover:bg-[#233323]'" :disabled="togglingName === s.name" @click="handleToggleEnabled(s.name, !s.enabled)">
             {{ togglingName === s.name ? '处理中...' : (s.enabled ? '停用' : '启用') }}
           </Button>

@@ -17,7 +17,14 @@ use sse::connect_sse;
 use stdio::{connect_stdio, StdioMcpConnection};
 use streamable_http::{connect_streamable_http, StreamableHttpMcpConnection};
 
-pub use types::{McpResourceInfo, McpRuntimeStatus, McpServerConfig, McpServerStatus, McpToolInfo};
+pub use types::{
+    McpResourceInfo,
+    McpRuntimeStatus,
+    McpServerConfig,
+    McpServerEntry,
+    McpServerStatus,
+    McpToolInfo,
+};
 
 enum ServerConnection {
     Stdio(StdioMcpConnection),
@@ -384,6 +391,80 @@ pub async fn add_mcp_server(app: AppHandle, name: String, config: McpServerConfi
 
     persist_runtime(&app).await?;
 
+    Ok(())
+}
+
+pub async fn get_mcp_server(app: AppHandle, name: String) -> Result<McpServerEntry, String> {
+    ensure_runtime_loaded(&app).await;
+
+    let map = runtime().lock().await;
+    let server = map
+        .get(&name)
+        .ok_or_else(|| format!("MCP server '{}' not found", name))?;
+
+    Ok(McpServerEntry {
+        name,
+        enabled: server.enabled,
+        config: server.config.clone(),
+    })
+}
+
+pub async fn update_mcp_server(
+    app: AppHandle,
+    old_name: String,
+    new_name: String,
+    config: McpServerConfig,
+) -> Result<(), String> {
+    ensure_runtime_loaded(&app).await;
+
+    let old_name = old_name.trim().to_string();
+    let new_name = new_name.trim().to_string();
+    if old_name.is_empty() || new_name.is_empty() {
+        return Err("Server name cannot be empty".into());
+    }
+
+    let enabled = {
+        let map = runtime().lock().await;
+        let current = map
+            .get(&old_name)
+            .ok_or_else(|| format!("MCP server '{}' not found", old_name))?;
+
+        if old_name != new_name && map.contains_key(&new_name) {
+            return Err(format!("MCP server '{}' already exists", new_name));
+        }
+
+        current.enabled
+    };
+
+    let (status, connected_tools, error, connection) = if enabled {
+        connect_server(&config).await
+    } else {
+        (McpRuntimeStatus::Disconnected, 0, None, None)
+    };
+
+    let mut map = runtime().lock().await;
+    let mut old = map
+        .remove(&old_name)
+        .ok_or_else(|| format!("MCP server '{}' not found", old_name))?;
+
+    if let Some(conn) = old.connection.as_mut() {
+        conn.shutdown().await;
+    }
+
+    map.insert(
+        new_name,
+        RegisteredServer {
+            config,
+            enabled,
+            status,
+            tool_count: connected_tools,
+            error,
+            connection,
+        },
+    );
+    drop(map);
+
+    persist_runtime(&app).await?;
     Ok(())
 }
 

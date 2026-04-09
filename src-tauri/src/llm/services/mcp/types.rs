@@ -45,6 +45,15 @@ pub enum McpServerConfig {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+// 返回给前端的 MCP 服务配置项。
+pub struct McpServerEntry {
+    pub name: String,
+    pub enabled: bool,
+    pub config: McpServerConfig,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 // 返回给前端的服务运行状态快照。
 pub struct McpServerStatus {
     pub name: String,

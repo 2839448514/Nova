@@ -21,3 +21,4 @@
 - New backend behavior should be introduced in small modules, not monolithic files.
 - Keep public function signatures stable when possible; if changed, update all call sites in the same commit.
 - Run diagnostics after refactor and resolve compile or type errors before finishing.
+Get-ChildItem -Path src/, src-tauri/src/ -Recurse -Include *.rs,*.vue,*.ts | ForEach-Object { Get-Content $_.FullName } | Out-File -Encoding utf8 all_code.txt

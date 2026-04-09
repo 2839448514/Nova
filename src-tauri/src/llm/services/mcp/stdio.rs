@@ -6,6 +6,9 @@ use tokio::time::timeout;
 
 use super::{McpResourceInfo, McpToolInfo, MCP_CONNECT_TIMEOUT};
 
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
 pub(super) struct StdioMcpConnection {
     child: Child,
     reader: BufReader<ChildStdout>,
@@ -186,6 +189,9 @@ pub(super) async fn connect_stdio(
         cmd.stdin(std::process::Stdio::piped());
         cmd.stdout(std::process::Stdio::piped());
         cmd.stderr(std::process::Stdio::null());
+
+        #[cfg(windows)]
+        cmd.creation_flags(CREATE_NO_WINDOW);
 
         for (k, v) in env_map {
             cmd.env(k, v);
