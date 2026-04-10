@@ -1,21 +1,26 @@
 <script setup lang="ts">
 import { nextTick, onMounted, onUnmounted, ref, watch, computed } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
-import type { AgentMode, UploadedRagFile } from '../../lib/chat-types';
+import type {
+  AgentMode,
+  PendingUploadFile,
+  UploadedImageFile,
+  UploadedRagFile,
+} from '../../lib/chat-types';
 import { emitToast } from '../../lib/toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 const props = defineProps<{
   isGenerating?: boolean;
   agentMode?: AgentMode;
-  pendingUploads?: UploadedRagFile[];
+  pendingUploads?: PendingUploadFile[];
 }>();
 
 const emit = defineEmits<{
   (e: 'send', msg: string): void;
   (e: 'cancel'): void;
   (e: 'mode-change', mode: AgentMode): void;
-  (e: 'upload-files', files: UploadedRagFile[]): void;
+  (e: 'upload-files', files: PendingUploadFile[]): void;
   (e: 'remove-upload', index: number): void;
 }>();
 
@@ -24,8 +29,9 @@ const textareaRef = ref<HTMLTextAreaElement | null>(null);
 const fileInputRef = ref<HTMLInputElement | null>(null);
 
 const MAX_UPLOAD_FILE_SIZE_BYTES = 2 * 1024 * 1024;
+const MAX_IMAGE_FILE_SIZE_BYTES = 5 * 1024 * 1024;
 const MAX_UPLOAD_FILE_CHARS = 200_000;
-const SUPPORTED_EXTENSIONS = new Set([
+const SUPPORTED_TEXT_EXTENSIONS = new Set([
   'txt',
   'md',
   'markdown',
@@ -59,6 +65,25 @@ const SUPPORTED_EXTENSIONS = new Set([
   'ps1',
   'bat',
 ]);
+const SUPPORTED_IMAGE_MIME_TYPES = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/webp',
+  'image/gif',
+]);
+const IMAGE_EXTENSION_TO_MIME: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  webp: 'image/webp',
+  gif: 'image/gif',
+};
+const IMAGE_MIME_TO_EXTENSION: Record<string, string> = {
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'image/webp': 'webp',
+  'image/gif': 'gif',
+};
 
 const settings = ref<any>(null);
 
@@ -134,6 +159,131 @@ const extensionOf = (fileName: string) => {
   return fileName.slice(idx + 1).toLowerCase();
 };
 
+const inferImageMimeType = (file: File): string | null => {
+  const normalizedMime = (file.type || '').trim().toLowerCase();
+  if (normalizedMime && SUPPORTED_IMAGE_MIME_TYPES.has(normalizedMime)) {
+    return normalizedMime;
+  }
+  const ext = extensionOf(file.name);
+  return IMAGE_EXTENSION_TO_MIME[ext] || null;
+};
+
+const readAsDataUrl = (file: File): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result);
+        return;
+      }
+      reject(new Error('无法读取文件数据'));
+    };
+    reader.onerror = () => {
+      reject(reader.error ?? new Error('读取文件失败'));
+    };
+    reader.readAsDataURL(file);
+  });
+
+const fallbackPastedImageName = (mimeType: string, index: number) => {
+  const ext = IMAGE_MIME_TO_EXTENSION[mimeType] || 'png';
+  return `pasted-image-${Date.now()}-${index + 1}.${ext}`;
+};
+
+const buildPendingUploadFiles = async (files: File[]): Promise<{
+  accepted: PendingUploadFile[];
+  rejected: string[];
+}> => {
+  const accepted: PendingUploadFile[] = [];
+  const rejected: string[] = [];
+
+  for (let i = 0; i < files.length; i += 1) {
+    const file = files[i];
+    const imageMimeType = inferImageMimeType(file);
+    if (imageMimeType) {
+      if (file.size > MAX_IMAGE_FILE_SIZE_BYTES) {
+        rejected.push(`${file.name || `图片${i + 1}`}: 超过 5MB 图片限制`);
+        continue;
+      }
+
+      let dataUrl: string;
+      try {
+        dataUrl = await readAsDataUrl(file);
+      } catch {
+        rejected.push(`${file.name || `图片${i + 1}`}: 图片读取失败`);
+        continue;
+      }
+
+      const commaIndex = dataUrl.indexOf(',');
+      if (commaIndex < 0) {
+        rejected.push(`${file.name || `图片${i + 1}`}: 图片数据格式无效`);
+        continue;
+      }
+
+      const base64Data = dataUrl.slice(commaIndex + 1).trim();
+      if (!base64Data) {
+        rejected.push(`${file.name || `图片${i + 1}`}: 图片数据为空`);
+        continue;
+      }
+
+      const imageItem: UploadedImageFile = {
+        kind: 'image',
+        sourceName: file.name || fallbackPastedImageName(imageMimeType, i),
+        mimeType: imageMimeType,
+        mediaType: imageMimeType,
+        data: base64Data,
+        size: file.size,
+      };
+      accepted.push(imageItem);
+      continue;
+    }
+
+    const ext = extensionOf(file.name);
+    if (!SUPPORTED_TEXT_EXTENSIONS.has(ext)) {
+      rejected.push(`${file.name || `文件${i + 1}`}: 不支持的文件类型`);
+      continue;
+    }
+
+    if (file.size > MAX_UPLOAD_FILE_SIZE_BYTES) {
+      rejected.push(`${file.name || `文件${i + 1}`}: 超过 2MB 限制`);
+      continue;
+    }
+
+    const content = (await file.text()).trim();
+    if (!content) {
+      rejected.push(`${file.name || `文件${i + 1}`}: 文件内容为空`);
+      continue;
+    }
+
+    if (content.length > MAX_UPLOAD_FILE_CHARS) {
+      rejected.push(`${file.name || `文件${i + 1}`}: 内容超过 ${MAX_UPLOAD_FILE_CHARS.toLocaleString()} 字符`);
+      continue;
+    }
+
+    const textItem: UploadedRagFile = {
+      kind: 'document',
+      sourceName: file.name,
+      mimeType: file.type || undefined,
+      content,
+      size: file.size,
+    };
+    accepted.push(textItem);
+  }
+
+  return { accepted, rejected };
+};
+
+const notifyRejected = (rejected: string[]) => {
+  if (rejected.length <= 0) {
+    return;
+  }
+
+  emitToast({
+    variant: 'error',
+    source: 'upload',
+    message: `以下文件未导入：${rejected.slice(0, 2).join('；')}`,
+  });
+};
+
 const triggerFilePicker = () => {
   if (props.isGenerating) return;
   fileInputRef.value?.click();
@@ -146,53 +296,45 @@ const onFileChange = async (event: Event) => {
     return;
   }
 
-  const accepted: UploadedRagFile[] = [];
-  const rejected: string[] = [];
-
-  for (const file of files) {
-    const ext = extensionOf(file.name);
-    if (!SUPPORTED_EXTENSIONS.has(ext)) {
-      rejected.push(`${file.name}: 不支持的文件类型`);
-      continue;
-    }
-
-    if (file.size > MAX_UPLOAD_FILE_SIZE_BYTES) {
-      rejected.push(`${file.name}: 超过 2MB 限制`);
-      continue;
-    }
-
-    const content = (await file.text()).trim();
-    if (!content) {
-      rejected.push(`${file.name}: 文件内容为空`);
-      continue;
-    }
-
-    if (content.length > MAX_UPLOAD_FILE_CHARS) {
-      rejected.push(`${file.name}: 内容超过 ${MAX_UPLOAD_FILE_CHARS.toLocaleString()} 字符`);
-      continue;
-    }
-
-    accepted.push({
-      sourceName: file.name,
-      mimeType: file.type || undefined,
-      content,
-      size: file.size,
-    });
-  }
+  const { accepted, rejected } = await buildPendingUploadFiles(files);
 
   if (accepted.length > 0) {
     emit('upload-files', accepted);
   }
 
-  if (rejected.length > 0) {
-    emitToast({
-      variant: 'error',
-      source: 'upload',
-      message: `以下文件未导入：${rejected.slice(0, 2).join('；')}`,
-    });
-  }
+  notifyRejected(rejected);
 
   input.value = '';
+};
+
+const onTextareaPaste = async (event: ClipboardEvent) => {
+  if (props.isGenerating) return;
+
+  const clipboardData = event.clipboardData;
+  if (!clipboardData) {
+    return;
+  }
+
+  const itemFiles = Array.from(clipboardData.items ?? [])
+    .filter((item) => item.kind === 'file')
+    .map((item) => item.getAsFile())
+    .filter((file): file is File => !!file);
+  const files = itemFiles.length > 0 ? itemFiles : Array.from(clipboardData.files ?? []);
+  if (files.length === 0) {
+    return;
+  }
+
+  const imageFiles = files.filter((file) => !!inferImageMimeType(file));
+  if (imageFiles.length === 0) {
+    return;
+  }
+
+  event.preventDefault();
+  const { accepted, rejected } = await buildPendingUploadFiles(imageFiles);
+  if (accepted.length > 0) {
+    emit('upload-files', accepted);
+  }
+  notifyRejected(rejected);
 };
 
 const focusTextarea = () => {
@@ -285,7 +427,32 @@ defineExpose({
             :key="`${file.sourceName}-${index}`"
             class="inline-flex items-center gap-2 rounded-lg border border-[#e6e1d6] dark:border-[#474747] bg-[#f6f3ec] dark:bg-[#323232] px-2.5 py-1.5 text-[12px] text-[#5b5447] dark:text-[#d7d0c5]"
           >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <svg
+              v-if="file.kind === 'image'"
+              width="13"
+              height="13"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+              <circle cx="8.5" cy="8.5" r="1.5" />
+              <path d="M21 15l-5-5L5 21" />
+            </svg>
+            <svg
+              v-else
+              width="13"
+              height="13"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
               <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
               <polyline points="14 2 14 8 20 8" />
             </svg>
@@ -304,7 +471,7 @@ defineExpose({
           </div>
         </div>
       </div>
-      <textarea ref="textareaRef" v-model="currentInput" @keydown.enter="sendMessage" @input="autoResize"
+      <textarea ref="textareaRef" v-model="currentInput" @keydown.enter="sendMessage" @input="autoResize" @paste="onTextareaPaste"
         placeholder="Message Nova..." rows="1"
         class="w-full bg-transparent border-none text-[0.95rem] text-[#1a1a1a] dark:text-[#ececec] resize-none outline-none block max-h-[40vh] px-4 pt-3 pb-2 placeholder:text-[#a3a3a3]"></textarea>
 

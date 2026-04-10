@@ -21,6 +21,12 @@ pub struct HistoryAttachment {
     pub mime_type: Option<String>,
     // 可选文件大小（字节）。
     pub size: Option<u64>,
+    // 附件类型（document/image）。
+    pub kind: Option<String>,
+    // 图片媒体类型（仅 image 附件）。
+    pub media_type: Option<String>,
+    // 图片 base64 数据（仅 image 附件）。
+    pub data: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

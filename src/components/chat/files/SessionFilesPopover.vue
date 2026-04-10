@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from "vue";
 import { Button } from "@/components/ui/button";
-import type { UploadedRagFile } from "../../../lib/chat-types";
+import type { PendingUploadFile } from "../../../lib/chat-types";
 import SessionFileItem from "./SessionFileItem.vue";
 
 type SessionFileMeta = {
@@ -18,7 +18,7 @@ type SessionFileMeta = {
 
 const props = defineProps<{
   files: SessionFileMeta[];
-  pendingUploads: UploadedRagFile[];
+  pendingUploads: PendingUploadFile[];
 }>();
 
 const emit = defineEmits<{

@@ -11,7 +11,11 @@ import type {
 import type { PermissionActionName } from "../../../lib/chat-payloads";
 import { buildConversationTitle } from "../utils/session-memory";
 
-type ChatRequestMessage = Pick<ChatMessage, "role" | "content">;
+type ChatRequestContent = string | Array<Record<string, unknown>>;
+
+type ChatRequestMessage = Pick<ChatMessage, "role"> & {
+  content: ChatRequestContent;
+};
 
 export type RagUploadDocumentInput = {
   sourceName: string;

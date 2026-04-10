@@ -6,8 +6,8 @@ import type {
   AskUserAnswerSubmission,
   ChatMessage,
   NeedsUserInputPayload,
+  PendingUploadFile,
   TurnCost,
-  UploadedRagFile,
 } from '../../lib/chat-types';
 import InputArea from '../layout/InputArea.vue';
 import AskUserInputDialog from './AskUserInputDialog.vue';
@@ -25,7 +25,7 @@ const props = defineProps<{
   pendingQuestion?: NeedsUserInputPayload | null;
   planMode?: boolean;
   agentMode?: AgentMode;
-  pendingUploads?: UploadedRagFile[];
+  pendingUploads?: PendingUploadFile[];
 }>();
 
 const emit = defineEmits<{
@@ -34,7 +34,7 @@ const emit = defineEmits<{
   (e: 'ask-skip'): void;
   (e: 'cancel'): void;
   (e: 'mode-change', mode: AgentMode): void;
-  (e: 'upload-files', files: UploadedRagFile[]): void;
+  (e: 'upload-files', files: PendingUploadFile[]): void;
   (e: 'remove-upload', index: number): void;
 }>();
 
@@ -104,7 +104,7 @@ const handleSend = (msg: string) => {
   scrollToBottom();
 };
 
-const handleUploadFiles = (files: UploadedRagFile[]) => {
+const handleUploadFiles = (files: PendingUploadFile[]) => {
   emit('upload-files', files);
 };
 

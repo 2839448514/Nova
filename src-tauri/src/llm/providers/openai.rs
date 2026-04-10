@@ -137,6 +137,25 @@ struct PendingToolCall {
     arguments: String,
 }
 
+fn build_openai_image_part(source: &crate::llm::types::ImageSource) -> Option<Value> {
+    if !source.source_type.eq_ignore_ascii_case("base64") {
+        return None;
+    }
+
+    let media_type = source.media_type.trim();
+    let data = source.data.trim();
+    if media_type.is_empty() || data.is_empty() {
+        return None;
+    }
+
+    Some(serde_json::json!({
+        "type": "image_url",
+        "image_url": {
+            "url": format!("data:{};base64,{}", media_type, data)
+        }
+    }))
+}
+
 impl OpenAiProvider {
     pub async fn send_request(
         &self,
@@ -182,8 +201,9 @@ impl OpenAiProvider {
                     });
                 }
                 crate::llm::types::Content::Blocks(blocks) => {
-                    // blocks 消息拆分为文本、tool_calls、tool_results 三类。
+                    // blocks 消息拆分为文本、图片、tool_calls、tool_results 四类。
                     let mut text_parts = Vec::new();
+                    let mut image_parts = Vec::new();
                     let mut tool_calls = Vec::new();
                     let mut tool_results = Vec::new();
                     
@@ -191,6 +211,11 @@ impl OpenAiProvider {
                         match b {
                             ContentBlock::Text { text } => {
                                 text_parts.push(text.clone());
+                            }
+                            ContentBlock::Image { source } => {
+                                if let Some(part) = build_openai_image_part(source) {
+                                    image_parts.push(part);
+                                }
                             }
                             ContentBlock::ToolUse { id, name, input } => {
                                 // ToolUse 的 input 需要序列化为 OpenAI function.arguments 字符串。
@@ -252,8 +277,23 @@ impl OpenAiProvider {
                             tool_call_id: None,
                         });
                     } else {
-                        // User message might contain text AND tool results
-                        if !text_parts.is_empty() {
+                        // User message might contain text/image/tool results.
+                        if !image_parts.is_empty() {
+                            let mut user_content_parts = Vec::new();
+                            if !text_parts.is_empty() {
+                                user_content_parts.push(serde_json::json!({
+                                    "type": "text",
+                                    "text": text_parts.join("\n")
+                                }));
+                            }
+                            user_content_parts.extend(image_parts);
+                            oai_messages.push(OpenAiMessage {
+                                role: "user".into(),
+                                content: Some(Value::Array(user_content_parts)),
+                                tool_calls: None,
+                                tool_call_id: None,
+                            });
+                        } else if !text_parts.is_empty() {
                             oai_messages.push(OpenAiMessage {
                                 role: "user".into(),
                                 content: Some(Value::String(text_parts.join("\n"))),

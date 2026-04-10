@@ -7,10 +7,15 @@ export interface TurnCost {
 
 export type AgentMode = "agent" | "plan" | "auto";
 
+export type AttachmentKind = "document" | "image";
+
 export interface ChatAttachment {
   sourceName: string;
   mimeType?: string;
   size?: number;
+  kind?: AttachmentKind;
+  mediaType?: string;
+  data?: string;
 }
 
 export interface ChatMessage {
@@ -22,9 +27,19 @@ export interface ChatMessage {
 }
 
 export interface UploadedRagFile extends ChatAttachment {
+  kind: "document";
   content: string;
   size: number;
 }
+
+export interface UploadedImageFile extends ChatAttachment {
+  kind: "image";
+  mediaType: string;
+  data: string;
+  size: number;
+}
+
+export type PendingUploadFile = UploadedRagFile | UploadedImageFile;
 
 export interface PersistedMessage {
   role: string;

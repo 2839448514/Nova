@@ -39,8 +39,10 @@ import type {
   ConversationMemory,
   ConversationMeta,
   NeedsUserInputPayload,
+  PendingUploadFile,
   ToolExecutionEntry,
   TurnCost,
+  UploadedImageFile,
   UploadedRagFile,
 } from "../../../lib/chat-types";
 
@@ -65,6 +67,25 @@ type ScheduledTaskTriggerEvent = {
 
 type ChatScreenHandle = {
   scrollToBottom: () => void;
+};
+
+type ModelTextBlock = {
+  type: "text";
+  text: string;
+};
+
+type ModelImageBlock = {
+  type: "image";
+  source: {
+    type: "base64";
+    media_type: string;
+    data: string;
+  };
+};
+
+type ModelMessage = {
+  role: "user" | "assistant";
+  content: string | Array<ModelTextBlock | ModelImageBlock>;
 };
 
 const SCHEDULED_CONVERSATION_TITLE_PREFIX = "Scheduled [";
@@ -95,7 +116,7 @@ export function useChatController() {
   const conversations = ref<ConversationMeta[]>([]);
   const activeConversationId = ref("");
   const conversationFiles = ref<RagDocumentMeta[]>([]);
-  const pendingUploads = ref<UploadedRagFile[]>([]);
+  const pendingUploads = ref<PendingUploadFile[]>([]);
   const pendingQuestion = ref<NeedsUserInputPayload | null>(null);
   const pendingPermissionRequestId = ref<string | null>(null);
   const conversationMemory = ref<ConversationMemory | null>(null);
@@ -570,7 +591,11 @@ export function useChatController() {
 
   function formatMessageContentForModel(msg: ChatMessage): string {
     const content = msg.content.trim();
-    const names = msg.attachments?.map((item) => item.sourceName).filter(Boolean) ?? [];
+    const names =
+      msg.attachments
+        ?.filter((item) => item.kind !== "image")
+        .map((item) => item.sourceName)
+        .filter(Boolean) ?? [];
     const ragNotice =
       names.length > 0
         ? `\n\n已上传文件（可在会话RAG中检索）：${names.join("，")}\n若你不确定答案，请先在RAG中检索相关片段，再视情况使用 web_search / web_fetch。`
@@ -587,12 +612,97 @@ export function useChatController() {
     return "";
   }
 
-  function toAttachmentMeta(files: UploadedRagFile[]): ChatAttachment[] {
-    return files.map((file) => ({
-      sourceName: file.sourceName,
-      mimeType: file.mimeType,
-      size: file.size,
-    }));
+  function isDocumentUploadFile(file: PendingUploadFile): file is UploadedRagFile {
+    return file.kind === "document";
+  }
+
+  function isImageUploadFile(file: PendingUploadFile): file is UploadedImageFile {
+    return file.kind === "image";
+  }
+
+  function isImageAttachment(item: ChatAttachment): item is ChatAttachment & {
+    kind: "image";
+    mediaType: string;
+    data: string;
+  } {
+    return item.kind === "image" && !!item.mediaType && !!item.data;
+  }
+
+  function toAttachmentMeta(files: PendingUploadFile[]): ChatAttachment[] {
+    return files.map((file) => {
+      if (file.kind === "image") {
+        return {
+          sourceName: file.sourceName,
+          mimeType: file.mimeType,
+          size: file.size,
+          kind: "image",
+          mediaType: file.mediaType,
+          data: file.data,
+        };
+      }
+
+      return {
+        sourceName: file.sourceName,
+        mimeType: file.mimeType,
+        size: file.size,
+        kind: "document",
+      };
+    });
+  }
+
+  function buildModelMessage(msg: ChatMessage): ModelMessage {
+    const textContent = formatMessageContentForModel(msg);
+    if (msg.role !== "user") {
+      return {
+        role: msg.role,
+        content: textContent,
+      };
+    }
+
+    const imageAttachments = (msg.attachments ?? []).filter(isImageAttachment);
+    if (imageAttachments.length === 0) {
+      return {
+        role: msg.role,
+        content: textContent,
+      };
+    }
+
+    const fallbackText = textContent || "请结合我上传的图片回答。";
+    const blocks: Array<ModelTextBlock | ModelImageBlock> = [
+      {
+        type: "text",
+        text: fallbackText,
+      },
+    ];
+
+    for (const image of imageAttachments) {
+      const mediaType = (image.mediaType || image.mimeType || "").trim().toLowerCase();
+      const data = (image.data || "").trim();
+      if (!mediaType || !data) {
+        continue;
+      }
+
+      blocks.push({
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: mediaType,
+          data,
+        },
+      });
+    }
+
+    if (blocks.length <= 1) {
+      return {
+        role: msg.role,
+        content: fallbackText,
+      };
+    }
+
+    return {
+      role: msg.role,
+      content: blocks,
+    };
   }
 
   async function refreshConversationFiles(conversationId: string) {
@@ -832,6 +942,8 @@ export function useChatController() {
     if (isGenerating.value) return;
     const text = userText.trim();
     const filesToSend = pendingUploads.value.slice();
+    const textFiles = filesToSend.filter(isDocumentUploadFile);
+    const imageFiles = filesToSend.filter(isImageUploadFile);
     if (!text && filesToSend.length === 0) return;
 
     mainView.value = "chat";
@@ -847,12 +959,12 @@ export function useChatController() {
 
     const sendingConversationId = activeConversationId.value;
 
-    let uploadedAttachments: ChatAttachment[] = [];
-    if (filesToSend.length > 0) {
+    let uploadedAttachments: ChatAttachment[] = toAttachmentMeta(imageFiles);
+    if (textFiles.length > 0) {
       try {
         const result = await upsertConversationRagDocuments(
           sendingConversationId,
-          filesToSend.map((file) => ({
+          textFiles.map((file) => ({
             sourceName: file.sourceName,
             sourceType: "file",
             mimeType: file.mimeType,
@@ -860,7 +972,7 @@ export function useChatController() {
           })),
         );
 
-        if (result.added + result.updated <= 0) {
+        if (result.added + result.updated <= 0 && imageFiles.length === 0) {
           emitToast({
             variant: "error",
             source: "upload",
@@ -869,9 +981,13 @@ export function useChatController() {
           return;
         }
 
-        uploadedAttachments = toAttachmentMeta(filesToSend);
-        pendingUploads.value = [];
-          await refreshConversationFiles(sendingConversationId);
+        const rejectedNames = new Set(result.rejected.map((item) => item.sourceName));
+        const acceptedTextFiles = textFiles.filter((file) => !rejectedNames.has(file.sourceName));
+        uploadedAttachments = [
+          ...toAttachmentMeta(acceptedTextFiles),
+          ...toAttachmentMeta(imageFiles),
+        ];
+        await refreshConversationFiles(sendingConversationId);
 
         if (result.rejected.length > 0) {
           const detail = result.rejected
@@ -894,6 +1010,10 @@ export function useChatController() {
       }
     }
 
+    if (filesToSend.length > 0) {
+      pendingUploads.value = [];
+    }
+
     if (activeConversationId.value !== sendingConversationId) {
       emitToast({
         variant: "info",
@@ -904,10 +1024,16 @@ export function useChatController() {
     }
 
     const uploadedAttachmentNames = uploadedAttachments.map((item) => item.sourceName);
+    const uploadedDocumentNames = uploadedAttachments
+      .filter((item) => item.kind !== "image")
+      .map((item) => item.sourceName);
+    const uploadedImageCount = uploadedAttachments.filter((item) => item.kind === "image").length;
     const modelUserText =
       text ||
-      (uploadedAttachmentNames.length > 0
-        ? `请结合我上传的文件回答：${uploadedAttachmentNames.join("，")}`
+      (uploadedImageCount > 0
+        ? "请结合我上传的图片回答。"
+        : uploadedDocumentNames.length > 0
+          ? `请结合我上传的文件回答：${uploadedDocumentNames.join("，")}`
         : text);
 
     const userMsg: ChatMessage = {
@@ -931,10 +1057,7 @@ export function useChatController() {
     );
     resetToolTrackingState();
 
-    const rustMessages = messages.value.map((msg) => ({
-      role: msg.role,
-      content: formatMessageContentForModel(msg),
-    }));
+    const rustMessages = messages.value.map((msg) => buildModelMessage(msg));
 
     try {
       await sendChatMessage(
@@ -983,7 +1106,7 @@ export function useChatController() {
     }
   }
 
-  async function handleUploadFiles(files: UploadedRagFile[]) {
+  async function handleUploadFiles(files: PendingUploadFile[]) {
     if (!files.length || isGenerating.value) {
       return;
     }
@@ -994,7 +1117,7 @@ export function useChatController() {
     emitToast({
       variant: "success",
       source: "upload",
-      message: `已添加 ${files.length} 个文件到待发送列表。`,
+      message: `已添加 ${files.length} 个附件到待发送列表。`,
     });
   }
 

@@ -8,6 +8,7 @@ const TOKEN_OVERHEAD_PER_MESSAGE: i64 = 6;
 const TOKEN_OVERHEAD_PER_BLOCK: i64 = 3;
 const TOKEN_OVERHEAD_TOOL_USE: i64 = 20;
 const TOKEN_OVERHEAD_TOOL_RESULT: i64 = 14;
+const TOKEN_OVERHEAD_IMAGE_INPUT: i64 = 512;
 
 // 策略阈值：目前根据历史消息数和估算 token 来判断是否启用Micro/Full压缩。
 const MICRO_COMPACT_MESSAGE_THRESHOLD: usize = 24;
@@ -120,6 +121,8 @@ fn estimate_block_tokens(block: &ContentBlock) -> i64 {
     match block {
         // 文本块：块开销 + 文本估算
         ContentBlock::Text { text } => TOKEN_OVERHEAD_PER_BLOCK + estimate_text_tokens(text),
+        // 图片块：采用固定近似开销，避免按 base64 字符长度严重高估。
+        ContentBlock::Image { .. } => TOKEN_OVERHEAD_PER_BLOCK + TOKEN_OVERHEAD_IMAGE_INPUT,
         // 工具调用：块开销 + 固定工具使用开销 + 输入 JSON 的结构化估算
         ContentBlock::ToolUse { input, .. } => {
             TOKEN_OVERHEAD_PER_BLOCK + TOKEN_OVERHEAD_TOOL_USE + estimate_json_tokens(input)

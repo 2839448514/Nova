@@ -1,17 +1,17 @@
 <script setup lang="ts">
 import InputArea from '../layout/InputArea.vue';
-import type { AgentMode, UploadedRagFile } from '../../lib/chat-types';
+import type { AgentMode, PendingUploadFile } from '../../lib/chat-types';
 
 defineProps<{
   isGenerating?: boolean;
   agentMode?: AgentMode;
-  pendingUploads?: UploadedRagFile[];
+  pendingUploads?: PendingUploadFile[];
 }>();
 
 const emit = defineEmits<{
   (e: 'send', msg: string): void;
   (e: 'mode-change', mode: AgentMode): void;
-  (e: 'upload-files', files: UploadedRagFile[]): void;
+  (e: 'upload-files', files: PendingUploadFile[]): void;
   (e: 'remove-upload', index: number): void;
 }>();
 

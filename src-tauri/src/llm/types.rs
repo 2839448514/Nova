@@ -40,6 +40,16 @@ pub enum Content {
     Blocks(Vec<ContentBlock>),
 }
 
+// 图片源（当前仅支持 base64）。
+// 对应 Anthropic image block: source.type/media_type/data。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImageSource {
+    #[serde(rename = "type")]
+    pub source_type: String,
+    pub media_type: String,
+    pub data: String,
+}
+
 // 结构化内容块。
 // 通过 serde tag="type" 与外部协议对齐。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -48,6 +58,10 @@ pub enum ContentBlock {
     // 普通文本块。
     #[serde(rename = "text")]
     Text { text: String },
+
+    // 图片输入块（用于多模态请求）。
+    #[serde(rename = "image")]
+    Image { source: ImageSource },
     
     // 模型发起的工具调用请求。
     // id/name/input 对应 provider 的 tool_use 事件。
