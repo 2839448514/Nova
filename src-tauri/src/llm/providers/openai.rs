@@ -2,7 +2,7 @@ use futures_util::StreamExt;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 use tokio::time::timeout;
@@ -104,6 +104,9 @@ struct OpenAiDelta {
     content: Option<String>,
     // 工具调用增量。
     tool_calls: Option<Vec<OpenAiToolCall>>,
+    // 兼容部分 OpenAI-compatible / reasoning 接口的推理增量字段。
+    #[serde(flatten)]
+    extra: HashMap<String, Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -123,6 +126,25 @@ struct OpenAiFunctionCall {
     name: Option<String>,
     // 工具函数参数增量。
     arguments: Option<String>,
+}
+
+fn extract_reasoning_text(value: &Value) -> String {
+    match value {
+        Value::String(text) => text.clone(),
+        Value::Array(items) => items.iter().map(extract_reasoning_text).collect::<Vec<_>>().join(""),
+        Value::Object(map) => {
+            for key in ["text", "content", "reasoning", "summary", "delta"] {
+                if let Some(found) = map.get(key) {
+                    let extracted = extract_reasoning_text(found);
+                    if !extracted.is_empty() {
+                        return extracted;
+                    }
+                }
+            }
+            String::new()
+        }
+        _ => String::new(),
+    }
 }
 
 pub struct OpenAiProvider;
@@ -212,6 +234,7 @@ impl OpenAiProvider {
                             ContentBlock::Text { text } => {
                                 text_parts.push(text.clone());
                             }
+                            ContentBlock::Thinking { .. } => {}
                             ContentBlock::Image { source } => {
                                 if let Some(part) = build_openai_image_part(source) {
                                     image_parts.push(part);
@@ -488,8 +511,13 @@ impl OpenAiProvider {
                         // 解析 OpenAI chunk JSON。
                         if let Ok(chunk) = serde_json::from_str::<OpenAiStreamChunk>(data) {
                             for choice in chunk.choices {
+                                let OpenAiDelta {
+                                    content,
+                                    tool_calls,
+                                    extra,
+                                } = choice.delta;
                                 // 文本增量路径。
-                                if let Some(content) = choice.delta.content {
+                                if let Some(content) = content {
                                     generated_text.push_str(&content);
                                     app.emit(
                                         "chat-stream",
@@ -508,9 +536,33 @@ impl OpenAiProvider {
                                     )
                                     .ok();
                                 }
+
+                                for key in ["reasoning", "reasoning_content"] {
+                                    if let Some(value) = extra.get(key) {
+                                        let reasoning_text = extract_reasoning_text(value);
+                                        if !reasoning_text.is_empty() {
+                                            app.emit(
+                                                "chat-stream",
+                                                ChatMessageEvent {
+                                                    r#type: "reasoning".into(),
+                                                    text: Some(reasoning_text),
+                                                    tool_use_id: None,
+                                                    tool_use_name: None,
+                                                    tool_use_input: None,
+                                                    tool_result: None,
+                                                    token_usage: None,
+                                                    stop_reason: None,
+                                                    turn_state: Some("streaming_reasoning".into()),
+                                                    conversation_id: conversation_id.map(str::to_string),
+                                                },
+                                            )
+                                            .ok();
+                                        }
+                                    }
+                                }
                                 
                                 // 工具调用增量路径。
-                                if let Some(tool_calls) = choice.delta.tool_calls {
+                                if let Some(tool_calls) = tool_calls {
                                     for tc in tool_calls {
                                         // 按 index 拿到并更新 pending entry。
                                         let entry = pending_tool_calls.entry(tc.index).or_default();

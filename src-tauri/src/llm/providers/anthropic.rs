@@ -298,26 +298,49 @@ impl AnthropicProvider {
                         match event {
                             StreamEvent::ContentBlockStart { content_block, .. } => {
                                 // 工具调用块开始。
-                                if let StreamContentBlock::ToolUse { id, name, .. } = content_block {
-                                    current_tool_id = Some(id.clone());
-                                    current_tool_name = Some(name.clone());
-                                    current_tool_input.clear();
-                                    app.emit(
-                                        "chat-stream",
-                                        ChatMessageEvent {
-                                            r#type: "tool-use-start".into(),
-                                            text: None,
-                                            tool_use_id: Some(id),
-                                            tool_use_name: Some(name),
-                                            tool_use_input: None,
-                                            tool_result: None,
-                                            token_usage: None,
-                                            stop_reason: None,
-                                            turn_state: Some("tool_running".into()),
-                                            conversation_id: conversation_id.map(str::to_string),
-                                        },
-                                    )
-                                    .ok();
+                                match content_block {
+                                    StreamContentBlock::ToolUse { id, name, .. } => {
+                                        current_tool_id = Some(id.clone());
+                                        current_tool_name = Some(name.clone());
+                                        current_tool_input.clear();
+                                        app.emit(
+                                            "chat-stream",
+                                            ChatMessageEvent {
+                                                r#type: "tool-use-start".into(),
+                                                text: None,
+                                                tool_use_id: Some(id),
+                                                tool_use_name: Some(name),
+                                                tool_use_input: None,
+                                                tool_result: None,
+                                                token_usage: None,
+                                                stop_reason: None,
+                                                turn_state: Some("tool_running".into()),
+                                                conversation_id: conversation_id.map(str::to_string),
+                                            },
+                                        )
+                                        .ok();
+                                    }
+                                    StreamContentBlock::Thinking { thinking } => {
+                                        if !thinking.is_empty() {
+                                            app.emit(
+                                                "chat-stream",
+                                                ChatMessageEvent {
+                                                    r#type: "reasoning".into(),
+                                                    text: Some(thinking),
+                                                    tool_use_id: None,
+                                                    tool_use_name: None,
+                                                    tool_use_input: None,
+                                                    tool_result: None,
+                                                    token_usage: None,
+                                                    stop_reason: None,
+                                                    turn_state: Some("streaming_reasoning".into()),
+                                                    conversation_id: conversation_id.map(str::to_string),
+                                                },
+                                            )
+                                            .ok();
+                                        }
+                                    }
+                                    StreamContentBlock::Text { .. } => {}
                                 }
                             }
                             StreamEvent::ContentBlockDelta { delta, .. } => match delta {
@@ -341,6 +364,25 @@ impl AnthropicProvider {
                                     )
                                     .ok();
                                 }
+                                StreamDelta::ThinkingDelta { thinking } => {
+                                    app.emit(
+                                        "chat-stream",
+                                        ChatMessageEvent {
+                                            r#type: "reasoning".into(),
+                                            text: Some(thinking),
+                                            tool_use_id: None,
+                                            tool_use_name: None,
+                                            tool_use_input: None,
+                                            tool_result: None,
+                                            token_usage: None,
+                                            stop_reason: None,
+                                            turn_state: Some("streaming_reasoning".into()),
+                                            conversation_id: conversation_id.map(str::to_string),
+                                        },
+                                    )
+                                    .ok();
+                                }
+                                StreamDelta::SignatureDelta { .. } => {}
                                 StreamDelta::InputJsonDelta { partial_json } => {
                                     // 工具输入 JSON 增量追加并回传。
                                     current_tool_input.push_str(&partial_json);

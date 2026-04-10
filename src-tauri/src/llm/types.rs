@@ -59,6 +59,10 @@ pub enum ContentBlock {
     #[serde(rename = "text")]
     Text { text: String },
 
+    // 推理/思考块。
+    #[serde(rename = "thinking")]
+    Thinking { thinking: String },
+
     // 图片输入块（用于多模态请求）。
     #[serde(rename = "image")]
     Image { source: ImageSource },
@@ -174,6 +178,8 @@ pub enum StreamEvent {
 pub enum StreamContentBlock {
     #[serde(rename = "text")]
     Text { text: String },
+    #[serde(rename = "thinking")]
+    Thinking { thinking: String },
     #[serde(rename = "tool_use")]
     ToolUse { id: String, name: String, input: Value },
 }
@@ -185,6 +191,12 @@ pub enum StreamDelta {
     // 文本增量。
     #[serde(rename = "text_delta")]
     TextDelta { text: String },
+    // 思考增量。
+    #[serde(rename = "thinking_delta")]
+    ThinkingDelta { thinking: String },
+    // Anthropic 思考签名增量，当前仅消费不展示。
+    #[serde(rename = "signature_delta")]
+    SignatureDelta { signature: String },
     // 工具参数 JSON 片段增量。
     #[serde(rename = "input_json_delta")]
     InputJsonDelta { partial_json: String },

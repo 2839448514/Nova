@@ -253,6 +253,7 @@ async fn append_trigger_prompt_to_bound_conversation(
         HistoryMessage {
             role: "user".to_string(),
             content,
+            reasoning: None,
             attachments: None,
             token_usage: None,
             cost: None,

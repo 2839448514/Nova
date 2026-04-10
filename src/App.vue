@@ -15,6 +15,7 @@ const {
   messages,
   isGenerating,
   assistantResponse,
+  assistantReasoning,
   assistantTokenUsage,
   assistantTurnCost,
   toolExecutionLogs,
@@ -125,6 +126,7 @@ void chatScreenRef;
           :messages="messages"
           :isGenerating="isGenerating"
           :assistantResponse="assistantResponse"
+          :assistantReasoning="assistantReasoning"
           :assistantTokenUsage="assistantTokenUsage"
           :assistantTurnCost="assistantTurnCost"
           :pendingQuestion="pendingQuestion"

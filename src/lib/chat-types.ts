@@ -21,6 +21,7 @@ export interface ChatAttachment {
 export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
+  reasoning?: string;
   attachments?: ChatAttachment[];
   tokenUsage?: number;
   cost?: TurnCost;
@@ -44,6 +45,7 @@ export type PendingUploadFile = UploadedRagFile | UploadedImageFile;
 export interface PersistedMessage {
   role: string;
   content: string;
+  reasoning?: string;
   attachments?: ChatAttachment[];
   tokenUsage?: number;
   cost?: TurnCost;

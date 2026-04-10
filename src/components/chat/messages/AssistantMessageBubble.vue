@@ -39,6 +39,13 @@ const emit = defineEmits<{
           本次 {{ message.tokenUsage ?? 0 }} · 会话 {{ conversationTokenUsage }}
         </span>
       </div>
+      <details
+        v-if="message.reasoning?.trim()"
+        class="reasoning-panel"
+      >
+        <summary>AI 思考过程</summary>
+        <MarkdownRenderer :content="message.reasoning" />
+      </details>
       <MarkdownRenderer :content="message.content" />
       <ToolLogPanel :items="toolLogs" />
       <div class="msg-toolbar">
@@ -111,6 +118,50 @@ const emit = defineEmits<{
   color: #a09e99;
   border-color: #5a5549;
   background: rgba(60, 56, 48, 0.45);
+}
+
+.reasoning-panel {
+  margin-bottom: 10px;
+  border: 1px solid rgba(225, 218, 204, 0.9);
+  background: rgba(249, 246, 239, 0.85);
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+
+.reasoning-panel summary {
+  cursor: pointer;
+  font-size: 11px;
+  color: #8a8478;
+  user-select: none;
+  list-style: none;
+}
+
+.reasoning-panel summary::-webkit-details-marker {
+  display: none;
+}
+
+.reasoning-panel summary::before {
+  content: "▸";
+  display: inline-block;
+  margin-right: 6px;
+  transition: transform 0.15s ease;
+}
+
+.reasoning-panel[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.reasoning-panel :deep(.markdown-body) {
+  margin-top: 8px;
+}
+
+.dark .reasoning-panel {
+  border-color: #4a443a;
+  background: rgba(41, 38, 33, 0.92);
+}
+
+.dark .reasoning-panel summary {
+  color: #b1ab9f;
 }
 
 </style>

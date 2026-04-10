@@ -36,6 +36,8 @@ pub struct HistoryMessage {
     pub role: String,
     // 消息文本内容。
     pub content: String,
+    // 可选思考内容。
+    pub reasoning: Option<String>,
     // 可选附件列表。
     pub attachments: Option<Vec<HistoryAttachment>>,
     // 可选 token 使用量。

@@ -54,6 +54,7 @@ async fn ensure_schema(pool: &SqlitePool) -> Result<(), String> {
             conversation_id TEXT NOT NULL,
             role TEXT NOT NULL,
             content TEXT NOT NULL,
+            reasoning TEXT,
             attachments_json TEXT,
             token_usage INTEGER,
             cost_json TEXT,
@@ -123,6 +124,18 @@ async fn ensure_schema(pool: &SqlitePool) -> Result<(), String> {
             .await;
 
     if let Err(e) = alter_attachments_result {
+        let msg = e.to_string().to_lowercase();
+        if !msg.contains("duplicate column") {
+            return Err(e.to_string());
+        }
+    }
+
+    let alter_reasoning_result =
+        sqlx::query("ALTER TABLE conversation_messages ADD COLUMN reasoning TEXT")
+            .execute(pool)
+            .await;
+
+    if let Err(e) = alter_reasoning_result {
         let msg = e.to_string().to_lowercase();
         if !msg.contains("duplicate column") {
             return Err(e.to_string());
@@ -229,7 +242,7 @@ pub async fn load_history(
     let pool = get_pool_with_schema(app).await?;
 
     let rows = sqlx::query(
-        "SELECT role, content, attachments_json, token_usage, cost_json FROM conversation_messages WHERE conversation_id = ? ORDER BY created_at ASC, id ASC",
+        "SELECT role, content, reasoning, attachments_json, token_usage, cost_json FROM conversation_messages WHERE conversation_id = ? ORDER BY created_at ASC, id ASC",
     )
     .bind(conversation_id)
     .fetch_all(&pool)
@@ -241,6 +254,7 @@ pub async fn load_history(
         .map(|row| HistoryMessage {
             role: row.get::<String, _>("role"),
             content: row.get::<String, _>("content"),
+            reasoning: row.get::<Option<String>, _>("reasoning"),
             attachments: row
                 .get::<Option<String>, _>("attachments_json")
                 .and_then(|s| serde_json::from_str(&s).ok()),
@@ -275,6 +289,10 @@ pub async fn append_history(
     let now = chrono::Utc::now().timestamp();
     let role = message.role.clone();
     let content = message.content.clone();
+    let reasoning = message
+        .reasoning
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty());
     let attachments_json = message
         .attachments
         .and_then(|v| serde_json::to_string(&v).ok());
@@ -282,11 +300,12 @@ pub async fn append_history(
     let cost_json = message.cost.and_then(|v| serde_json::to_string(&v).ok());
 
     sqlx::query(
-        "INSERT INTO conversation_messages (conversation_id, role, content, attachments_json, token_usage, cost_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO conversation_messages (conversation_id, role, content, reasoning, attachments_json, token_usage, cost_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(normalized_conversation_id)
     .bind(&role)
     .bind(&content)
+    .bind(reasoning)
     .bind(attachments_json)
     .bind(token_usage)
     .bind(cost_json)

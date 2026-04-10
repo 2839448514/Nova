@@ -122,7 +122,7 @@ pub async fn refresh_conversation_memory(
 ) -> Result<(), String> {
     // 拉取最近 24 条消息用于重建 memory。
     let rows = sqlx::query(
-        "SELECT role, content, attachments_json, token_usage, cost_json FROM conversation_messages WHERE conversation_id = ? ORDER BY created_at DESC, id DESC LIMIT 24",
+        "SELECT role, content, reasoning, attachments_json, token_usage, cost_json FROM conversation_messages WHERE conversation_id = ? ORDER BY created_at DESC, id DESC LIMIT 24",
     )
     .bind(conversation_id)
     .fetch_all(pool)
@@ -137,6 +137,7 @@ pub async fn refresh_conversation_memory(
             role: row.get::<String, _>("role"),
             // 读取 content。
             content: row.get::<String, _>("content"),
+            reasoning: row.get::<Option<String>, _>("reasoning"),
             // 读取 attachments_json。
             attachments: row
                 .get::<Option<String>, _>("attachments_json")
@@ -240,7 +241,7 @@ pub async fn get_conversation_handover_by_pool(
 
     // 拉取最近 limit 条消息。
     let rows = sqlx::query(
-        "SELECT role, content, attachments_json, token_usage, cost_json FROM conversation_messages WHERE conversation_id = ? ORDER BY created_at DESC, id DESC LIMIT ?",
+        "SELECT role, content, reasoning, attachments_json, token_usage, cost_json FROM conversation_messages WHERE conversation_id = ? ORDER BY created_at DESC, id DESC LIMIT ?",
     )
     .bind(conversation_id)
     .bind(limit)
@@ -254,6 +255,7 @@ pub async fn get_conversation_handover_by_pool(
         .map(|row| HistoryMessage {
             role: row.get::<String, _>("role"),
             content: row.get::<String, _>("content"),
+            reasoning: row.get::<Option<String>, _>("reasoning"),
             attachments: row
                 .get::<Option<String>, _>("attachments_json")
                 .and_then(|s| serde_json::from_str(&s).ok()),

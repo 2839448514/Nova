@@ -93,6 +93,7 @@ const SCHEDULED_CONVERSATION_TITLE_PREFIX = "Scheduled [";
 type ConversationTurnRuntimeState = {
   isGenerating: boolean;
   assistantResponse: string;
+  assistantReasoning: string;
   assistantTokenUsage?: number;
   assistantTurnCost?: TurnCost;
   pendingQuestion: NeedsUserInputPayload | null;
@@ -111,6 +112,7 @@ export function useChatController() {
   const messages = ref<ChatMessage[]>([]);
   const isGenerating = ref(false);
   const assistantResponse = ref("");
+  const assistantReasoning = ref("");
   const assistantTokenUsage = ref<number | undefined>(undefined);
   const assistantTurnCost = ref<TurnCost | undefined>(undefined);
   const conversations = ref<ConversationMeta[]>([]);
@@ -144,6 +146,7 @@ export function useChatController() {
     return {
       isGenerating: false,
       assistantResponse: "",
+      assistantReasoning: "",
       assistantTokenUsage: undefined,
       assistantTurnCost: undefined,
       pendingQuestion: null,
@@ -177,6 +180,7 @@ export function useChatController() {
     return {
       isGenerating: isGenerating.value,
       assistantResponse: assistantResponse.value,
+      assistantReasoning: assistantReasoning.value,
       assistantTokenUsage: assistantTokenUsage.value,
       assistantTurnCost: assistantTurnCost.value,
       pendingQuestion: pendingQuestion.value,
@@ -195,6 +199,7 @@ export function useChatController() {
   function applyRuntimeStateToActive(state: ConversationTurnRuntimeState) {
     isGenerating.value = state.isGenerating;
     assistantResponse.value = state.assistantResponse;
+    assistantReasoning.value = state.assistantReasoning;
     assistantTokenUsage.value = state.assistantTokenUsage;
     assistantTurnCost.value = state.assistantTurnCost;
     pendingQuestion.value = state.pendingQuestion;
@@ -220,6 +225,7 @@ export function useChatController() {
   function clearActiveRuntimeState() {
     isGenerating.value = false;
     assistantResponse.value = "";
+    assistantReasoning.value = "";
     assistantTokenUsage.value = undefined;
     assistantTurnCost.value = undefined;
     pendingQuestion.value = null;
@@ -242,9 +248,10 @@ export function useChatController() {
     }
 
     const hasRenderableResponse = state.assistantResponse.trim().length > 0;
+    const hasReasoning = state.assistantReasoning.trim().length > 0;
     const hasPendingPrompt = !!state.pendingPermissionRequestId || !!state.pendingQuestion;
     const hasRunningTool = state.toolExecutionLogs.some((entry) => entry.status === "running");
-    if (!state.isGenerating && !hasRenderableResponse && !hasPendingPrompt && !hasRunningTool) {
+    if (!state.isGenerating && !hasRenderableResponse && !hasReasoning && !hasPendingPrompt && !hasRunningTool) {
       runtimeStateByConversation.delete(key);
     }
   }
@@ -554,11 +561,12 @@ export function useChatController() {
   }
 
   function finalizeOrStopTurn(tokenUsage?: number) {
-    if (assistantResponse.value.trim().length > 0) {
+    if (assistantResponse.value.trim().length > 0 || assistantReasoning.value.trim().length > 0) {
       finalizeAssistantTurn(tokenUsage);
       return;
     }
     assistantResponse.value = "";
+    assistantReasoning.value = "";
     assistantTokenUsage.value = undefined;
     assistantTurnCost.value = undefined;
     isGenerating.value = false;
@@ -566,7 +574,7 @@ export function useChatController() {
 
   function hasConversationContent(): boolean {
     return messages.value.some(
-      (m) => m.content.trim().length > 0 || (m.attachments?.length ?? 0) > 0,
+      (m) => m.content.trim().length > 0 || (m.reasoning?.trim().length ?? 0) > 0 || (m.attachments?.length ?? 0) > 0,
     );
   }
 
@@ -800,11 +808,12 @@ export function useChatController() {
         .filter(
           (m) =>
             (m.role === "user" || m.role === "assistant") &&
-            (!!m.content || (m.attachments?.length ?? 0) > 0),
+            (!!m.content || !!m.reasoning || (m.attachments?.length ?? 0) > 0),
         )
         .map((m) => ({
           role: m.role as "user" | "assistant",
           content: m.content,
+          reasoning: m.reasoning,
           attachments: m.attachments,
           tokenUsage: m.tokenUsage,
           cost: m.cost,
@@ -861,6 +870,7 @@ export function useChatController() {
     preservePendingPrompt = false,
   ) {
     const finalText = state.assistantResponse.trim();
+    const finalReasoning = state.assistantReasoning.trim();
     const fallbackTokenUsage = finalText ? estimateTokens(finalText) : 0;
     const resolvedTokenUsage =
       typeof tokenUsage === "number" && tokenUsage > 0
@@ -873,10 +883,11 @@ export function useChatController() {
       state.currentOutputTokens = resolvedTokenUsage;
     }
 
-    if (finalText) {
+    if (finalText || finalReasoning) {
       const assistantMsg: ChatMessage = {
         role: "assistant",
-        content: finalText,
+        content: finalText || "（本轮没有返回可显示的文本内容）",
+        reasoning: finalReasoning || undefined,
         tokenUsage: resolvedTokenUsage > 0 ? resolvedTokenUsage : undefined,
         cost: buildAssistantCostForState(state),
       };
@@ -884,6 +895,7 @@ export function useChatController() {
     }
 
     state.assistantResponse = "";
+    state.assistantReasoning = "";
     state.assistantTokenUsage = undefined;
     state.assistantTurnCost = undefined;
     state.isGenerating = false;
@@ -906,6 +918,7 @@ export function useChatController() {
 
   function finalizeAssistantTurn(tokenUsage?: number) {
     const finalText = assistantResponse.value.trim();
+    const finalReasoning = assistantReasoning.value.trim();
     const fallbackTokenUsage = finalText ? estimateTokens(finalText) : 0;
     const resolvedTokenUsage =
       typeof tokenUsage === "number" && tokenUsage > 0
@@ -923,6 +936,7 @@ export function useChatController() {
     const assistantMsg: ChatMessage = {
       role: "assistant",
       content: finalText || "（本轮没有返回可显示的文本内容）",
+      reasoning: finalReasoning || undefined,
       tokenUsage: resolvedTokenUsage > 0 ? resolvedTokenUsage : undefined,
       cost,
     };
@@ -930,6 +944,7 @@ export function useChatController() {
     void persistMessage(assistantMsg);
     void persistConversationMemory(activeConversationId.value);
     assistantResponse.value = "";
+    assistantReasoning.value = "";
     assistantTokenUsage.value = undefined;
     isGenerating.value = false;
     if (activeConversationId.value) {
@@ -1045,6 +1060,7 @@ export function useChatController() {
     await persistMessage(userMsg, sendingConversationId);
     isGenerating.value = true;
     assistantResponse.value = "";
+    assistantReasoning.value = "";
     assistantTokenUsage.value = undefined;
     assistantTurnCost.value = undefined;
     currentToolStartedAt.value = null;
@@ -1081,6 +1097,7 @@ export function useChatController() {
 
       if (isActiveFailedConversation) {
         assistantResponse.value = "";
+        assistantReasoning.value = "";
         assistantTokenUsage.value = undefined;
         assistantTurnCost.value = undefined;
         isGenerating.value = false;
@@ -1089,6 +1106,7 @@ export function useChatController() {
       } else {
         const backgroundState = ensureRuntimeState(sendingConversationId);
         backgroundState.assistantResponse = "";
+        backgroundState.assistantReasoning = "";
         backgroundState.assistantTokenUsage = undefined;
         backgroundState.assistantTurnCost = undefined;
         backgroundState.isGenerating = false;
@@ -1279,6 +1297,7 @@ export function useChatController() {
     runtimeStateByConversation.clear();
     resetTurnRuntimeState();
     assistantResponse.value = "";
+    assistantReasoning.value = "";
     assistantTokenUsage.value = undefined;
     assistantTurnCost.value = undefined;
     pendingUploads.value = [];
@@ -1310,6 +1329,12 @@ export function useChatController() {
     if (payload.type === "text" && payload.text) {
       state.isGenerating = true;
       state.assistantResponse += payload.text;
+      return;
+    }
+
+    if (payload.type === "reasoning" && payload.text) {
+      state.isGenerating = true;
+      state.assistantReasoning += payload.text;
       return;
     }
 
@@ -1444,6 +1469,7 @@ export function useChatController() {
       markRunningToolExecutionsInState(conversationId, state, "cancelled");
       state.isGenerating = false;
       state.assistantResponse = "";
+      state.assistantReasoning = "";
       state.assistantTokenUsage = undefined;
       state.assistantTurnCost = undefined;
       state.pendingPermissionRequestId = null;
@@ -1463,6 +1489,7 @@ export function useChatController() {
       markRunningToolExecutionsInState(conversationId, state, "error");
       state.isGenerating = false;
       state.assistantResponse = "";
+      state.assistantReasoning = "";
       state.assistantTokenUsage = undefined;
       state.assistantTurnCost = undefined;
       state.pendingPermissionRequestId = null;
@@ -1535,6 +1562,9 @@ export function useChatController() {
 
         if (payload.type === "text" && payload.text) {
           assistantResponse.value += payload.text;
+          chatScreenRef.value?.scrollToBottom();
+        } else if (payload.type === "reasoning" && payload.text) {
+          assistantReasoning.value += payload.text;
           chatScreenRef.value?.scrollToBottom();
         } else if (payload.type === "tool-use-start") {
           currentToolCalls.value += 1;
@@ -1672,6 +1702,7 @@ export function useChatController() {
             markRunningToolExecutions("error");
             isGenerating.value = false;
             assistantResponse.value = "";
+            assistantReasoning.value = "";
             assistantTokenUsage.value = undefined;
             assistantTurnCost.value = undefined;
             resetTurnRuntimeState();
@@ -1769,6 +1800,7 @@ export function useChatController() {
     messages,
     isGenerating,
     assistantResponse,
+    assistantReasoning,
     assistantTokenUsage,
     assistantTurnCost,
     toolExecutionLogs,
