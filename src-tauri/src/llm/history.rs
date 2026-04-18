@@ -4,7 +4,9 @@ use tauri::{AppHandle, Manager};
 use uuid::Uuid;
 
 use crate::llm::commands::memory;
-use crate::llm::commands::types::{ConversationMeta, HistoryMessage, HistoryToolExecution};
+use crate::llm::commands::types::{
+    ConversationMeta, GlobalMemoryEntry, HistoryMessage, HistoryToolExecution,
+};
 
 // Build sqlite database URL under app data directory.
 // Format: sqlite:<path>?mode=rwc (read/write/create).
@@ -97,6 +99,19 @@ async fn ensure_schema(pool: &SqlitePool) -> Result<(), String> {
             created_at INTEGER NOT NULL,
             FOREIGN KEY (conversation_id) REFERENCES conversations(id)
         );
+
+        CREATE TABLE IF NOT EXISTS global_memory (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            content TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            source TEXT NOT NULL,
+            content_hash TEXT NOT NULL UNIQUE,
+            hits INTEGER NOT NULL DEFAULT 1,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_global_memory_updated_at ON global_memory(updated_at DESC);
         "#,
     )
     .execute(pool)
@@ -164,6 +179,140 @@ pub async fn get_pool_with_schema(app: &AppHandle) -> Result<SqlitePool, String>
     let pool = get_pool(app).await?;
     ensure_schema(&pool).await?;
     Ok(pool)
+}
+
+fn normalize_global_memory_content(raw: &str) -> String {
+    raw.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn normalize_global_memory_kind(raw: Option<&str>) -> String {
+    match raw.unwrap_or("fact").trim().to_ascii_lowercase().as_str() {
+        "preference" => "preference".to_string(),
+        "rule" => "rule".to_string(),
+        _ => "fact".to_string(),
+    }
+}
+
+fn normalize_global_memory_source(raw: Option<&str>) -> String {
+    let normalized = raw.unwrap_or("assistant").trim().to_ascii_lowercase();
+    if normalized.is_empty() {
+        "assistant".to_string()
+    } else {
+        normalized
+    }
+}
+
+fn hash_global_memory_content(content: &str) -> String {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    let mut hasher = DefaultHasher::new();
+    content.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
+
+fn map_global_memory_row(row: sqlx::sqlite::SqliteRow) -> GlobalMemoryEntry {
+    GlobalMemoryEntry {
+        id: row.get::<i64, _>("id"),
+        content: row.get::<String, _>("content"),
+        kind: row.get::<String, _>("kind"),
+        source: row.get::<String, _>("source"),
+        hits: row.get::<i64, _>("hits"),
+        created_at: row.get::<i64, _>("created_at"),
+        updated_at: row.get::<i64, _>("updated_at"),
+    }
+}
+
+pub async fn upsert_global_memory(
+    app: &AppHandle,
+    content: &str,
+    kind: Option<&str>,
+    source: Option<&str>,
+) -> Result<GlobalMemoryEntry, String> {
+    let pool = get_pool_with_schema(app).await?;
+    let normalized_content = normalize_global_memory_content(content);
+    if normalized_content.is_empty() {
+        return Err("global memory content is empty".to_string());
+    }
+
+    let kind = normalize_global_memory_kind(kind);
+    let source = normalize_global_memory_source(source);
+    let content_hash = hash_global_memory_content(&normalized_content);
+    let now = chrono::Utc::now().timestamp();
+
+    sqlx::query(
+        r#"
+        INSERT INTO global_memory (content, kind, source, content_hash, hits, created_at, updated_at)
+        VALUES (?, ?, ?, ?, 1, ?, ?)
+        ON CONFLICT(content_hash) DO UPDATE SET
+            content = excluded.content,
+            kind = excluded.kind,
+            source = excluded.source,
+            hits = global_memory.hits + 1,
+            updated_at = excluded.updated_at
+        "#,
+    )
+    .bind(&normalized_content)
+    .bind(&kind)
+    .bind(&source)
+    .bind(&content_hash)
+    .bind(now)
+    .bind(now)
+    .execute(&pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let row = sqlx::query(
+        "SELECT id, content, kind, source, hits, created_at, updated_at FROM global_memory WHERE content_hash = ?",
+    )
+    .bind(&content_hash)
+    .fetch_one(&pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    Ok(map_global_memory_row(row))
+}
+
+pub async fn list_global_memory(
+    app: &AppHandle,
+    limit: Option<i64>,
+) -> Result<Vec<GlobalMemoryEntry>, String> {
+    let pool = get_pool_with_schema(app).await?;
+    let normalized_limit = limit.unwrap_or(12).clamp(1, 100);
+
+    let rows = sqlx::query(
+        "SELECT id, content, kind, source, hits, created_at, updated_at FROM global_memory ORDER BY updated_at DESC, id DESC LIMIT ?",
+    )
+    .bind(normalized_limit)
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    Ok(rows.into_iter().map(map_global_memory_row).collect::<Vec<_>>())
+}
+
+pub async fn delete_global_memory(
+    app: &AppHandle,
+    id: i64,
+) -> Result<bool, String> {
+    let pool = get_pool_with_schema(app).await?;
+    let result = sqlx::query("DELETE FROM global_memory WHERE id = ?")
+        .bind(id)
+        .execute(&pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(result.rows_affected() > 0)
+}
+
+pub async fn clear_global_memory(app: &AppHandle) -> Result<i64, String> {
+    let pool = get_pool_with_schema(app).await?;
+    let result = sqlx::query("DELETE FROM global_memory")
+        .execute(&pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(result.rows_affected() as i64)
 }
 
 async fn conversation_exists(pool: &SqlitePool, conversation_id: &str) -> Result<bool, String> {

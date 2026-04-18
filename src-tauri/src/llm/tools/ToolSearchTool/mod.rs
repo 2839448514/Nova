@@ -48,6 +48,7 @@ pub fn execute(input: Value) -> String {
         "read_mcp_resource",
         "ask_user_question",
         "plan_for_approval",
+        "remember_global_memory",
         "config_tool",
     ];
 

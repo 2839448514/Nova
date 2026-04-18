@@ -3,6 +3,7 @@ use tauri::AppHandle;
 use crate::llm::types::{Content, ContentBlock, Message, Role};
 
 const SESSION_RESTORE_MARKER: &str = "[Session Restore Context]";
+const GLOBAL_MEMORY_MARKER: &str = "[Global Memory]";
 
 #[derive(Debug, Clone, Copy)]
 pub struct AssembleOptions {
@@ -34,6 +35,34 @@ fn env_context_message() -> Option<Message> {
     })
 }
 
+async fn global_memory_message(app: &AppHandle) -> Option<Message> {
+    let entries = crate::llm::history::list_global_memory(app, Some(8))
+        .await
+        .ok()?;
+    if entries.is_empty() {
+        return None;
+    }
+
+    let mut lines = vec![
+        GLOBAL_MEMORY_MARKER.to_string(),
+        "Use these persistent preferences/facts across sessions when relevant.".to_string(),
+    ];
+
+    for (idx, item) in entries.iter().enumerate() {
+        lines.push(format!(
+            "{}. [{}] {}",
+            idx + 1,
+            item.kind,
+            item.content
+        ));
+    }
+
+    Some(Message {
+        role: Role::User,
+        content: Content::Text(lines.join("\n")),
+    })
+}
+
 // 检查消息序列里是否已经包含会话恢复标记，避免重复插入。
 pub fn has_session_restore_marker(messages: &[Message]) -> bool {
     messages.iter().any(|m| match &m.content {
@@ -41,6 +70,19 @@ pub fn has_session_restore_marker(messages: &[Message]) -> bool {
         Content::Blocks(blocks) => blocks.iter().any(|b| {
             if let ContentBlock::Text { text } = b {
                 text.contains(SESSION_RESTORE_MARKER)
+            } else {
+                false
+            }
+        }),
+    })
+}
+
+fn has_global_memory_marker(messages: &[Message]) -> bool {
+    messages.iter().any(|m| match &m.content {
+        Content::Text(t) => t.contains(GLOBAL_MEMORY_MARKER),
+        Content::Blocks(blocks) => blocks.iter().any(|b| {
+            if let ContentBlock::Text { text } = b {
+                text.contains(GLOBAL_MEMORY_MARKER)
             } else {
                 false
             }
@@ -59,6 +101,12 @@ pub async fn assemble_messages_for_turn(
     options: AssembleOptions,
 ) -> Vec<Message> {
     let mut assembled = incoming.to_vec();
+
+    if !has_global_memory_marker(&assembled) {
+        if let Some(global_msg) = global_memory_message(app).await {
+            assembled.insert(0, global_msg);
+        }
+    }
 
     if options.include_session_restore
         && !has_session_restore_marker(&assembled)

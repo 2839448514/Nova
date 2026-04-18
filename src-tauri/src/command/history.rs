@@ -5,7 +5,7 @@ use crate::llm::history;
 // 对外复用 llm/commands 公共类型。
 pub use crate::llm::commands::types::{
     CompactBoundary, CompactContext, ConversationHandover, ConversationMemory, ConversationMeta,
-    HistoryMessage, HistoryToolExecution, ResumeContext,
+    GlobalMemoryEntry, HistoryMessage, HistoryToolExecution, ResumeContext,
 };
 
 #[tauri::command]
@@ -167,4 +167,32 @@ pub async fn upsert_conversation_memory(
     let pool = history::get_pool_with_schema(&app).await?;
     // upsert 会话 memory。
     memory::upsert_conversation_memory_by_pool(&pool, &conversation_id, &summary, &key_facts).await
+}
+
+#[tauri::command]
+pub async fn list_global_memory(
+    app: AppHandle,
+    limit: Option<i64>,
+) -> Result<Vec<GlobalMemoryEntry>, String> {
+    history::list_global_memory(&app, limit).await
+}
+
+#[tauri::command]
+pub async fn upsert_global_memory(
+    app: AppHandle,
+    content: String,
+    kind: Option<String>,
+    source: Option<String>,
+) -> Result<GlobalMemoryEntry, String> {
+    history::upsert_global_memory(&app, &content, kind.as_deref(), source.as_deref()).await
+}
+
+#[tauri::command]
+pub async fn delete_global_memory(app: AppHandle, id: i64) -> Result<bool, String> {
+    history::delete_global_memory(&app, id).await
+}
+
+#[tauri::command]
+pub async fn clear_global_memory(app: AppHandle) -> Result<i64, String> {
+    history::clear_global_memory(&app).await
 }

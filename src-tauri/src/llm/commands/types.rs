@@ -78,6 +78,25 @@ pub struct ConversationMemory {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+pub struct GlobalMemoryEntry {
+    // 全局记忆记录 ID。
+    pub id: i64,
+    // 记忆文本内容。
+    pub content: String,
+    // 记忆类型（preference/fact/rule）。
+    pub kind: String,
+    // 记忆来源（assistant/user/tool）。
+    pub source: String,
+    // 相同记忆被命中的累计次数。
+    pub hits: i64,
+    // 创建时间（unix 秒）。
+    pub created_at: i64,
+    // 最近更新时间（unix 秒）。
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct ConversationHandover {
     // 会话 ID。
     pub conversation_id: String,

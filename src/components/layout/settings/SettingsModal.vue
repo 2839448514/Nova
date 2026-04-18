@@ -8,6 +8,7 @@ import McpTab     from './tabs/McpTab.vue'
 import RagTab     from './tabs/RagTab.vue'
 import SkillTab   from './tabs/SkillTab.vue'
 import DataTab    from './tabs/DataTab.vue'
+import MemoryTab  from './tabs/MemoryTab.vue'
 import AboutTab   from './tabs/AboutTab.vue'
 import {
   getStoredUiLanguage,
@@ -19,7 +20,7 @@ const props = defineProps<{ modelValue: boolean }>()
 const emit  = defineEmits<{ 'update:modelValue': [val: boolean] }>()
 const close = () => emit('update:modelValue', false)
 
-type Tab = 'general' | 'model' | 'mcp' | 'rag' | 'skill' | 'data' | 'about'
+type Tab = 'general' | 'model' | 'mcp' | 'rag' | 'skill' | 'memory' | 'data' | 'about'
 const activeTab = ref<Tab>('general')
 const uiLanguage = ref<UiLanguage>(getStoredUiLanguage())
 
@@ -29,6 +30,7 @@ const tabs: { id: Tab; icon: string }[] = [
   { id: 'mcp', icon: 'M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z' },
   { id: 'rag', icon: 'M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.746 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253' },
   { id: 'skill', icon: 'M9.813 15.904A3 3 0 1012.087 18M5.143 4.567a3 3 0 103.707 3.707M18.36 5.143a3 3 0 10-3.707 3.707' },
+  { id: 'memory', icon: 'M9 12h6M9 16h6M9 8h6M6 3h12a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V5a2 2 0 012-2z' },
   { id: 'data', icon: 'M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4' },
   { id: 'about', icon: 'M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z' },
 ]
@@ -40,6 +42,7 @@ const tabLabelByLanguage: Record<UiLanguage, Record<Tab, string>> = {
     mcp: 'MCP',
     rag: 'RAG',
     skill: '技能',
+    memory: '记忆',
     data: '数据',
     about: '关于',
   },
@@ -49,6 +52,7 @@ const tabLabelByLanguage: Record<UiLanguage, Record<Tab, string>> = {
     mcp: 'MCP',
     rag: 'RAG',
     skill: 'Skills',
+    memory: 'Memory',
     data: 'Data',
     about: 'About',
   },
@@ -143,6 +147,7 @@ onUnmounted(() => {
                 <McpTab     v-else-if="activeTab === 'mcp'"   ref="mcpRef" />
                 <RagTab     v-else-if="activeTab === 'rag'"   ref="ragRef" />
                 <SkillTab   v-else-if="activeTab === 'skill'" />
+                <MemoryTab  v-else-if="activeTab === 'memory'" />
                 <DataTab    v-else-if="activeTab === 'data'" />
                 <AboutTab   v-else-if="activeTab === 'about'" />
               </div>

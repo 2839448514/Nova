@@ -57,6 +57,8 @@ pub mod file_edit_tool;
 pub mod ask_user_question_tool;
 #[path = "PlanForApprovalTool/mod.rs"]
 pub mod plan_for_approval_tool;
+#[path = "RememberGlobalMemoryTool/mod.rs"]
+pub mod remember_global_memory_tool;
 #[path = "ConfigTool/mod.rs"]
 pub mod config_tool;
 #[path = "EnterPlanModeTool/mod.rs"]
@@ -735,6 +737,10 @@ fn registered_tools() -> Vec<RegisteredTool> {
             execute: plan_for_approval_tool::execute,
         },
         RegisteredTool {
+            tool: remember_global_memory_tool::tool,
+            execute: remember_global_memory_tool::execute,
+        },
+        RegisteredTool {
             tool: enter_plan_mode_tool::tool,
             execute: enter_plan_mode_tool::execute,
         },
@@ -842,6 +848,7 @@ pub async fn execute_tool_with_app(
         "read_mcp_resource" => read_mcp_resource_tool::execute_with_app(app, input).await,
         "mcp_auth" => mcp_auth_tool::execute_with_app(app, conversation_id, input).await,
         "lsp_tool" => lsp_tool::execute_with_app(app, conversation_id, input).await,
+        "remember_global_memory" => remember_global_memory_tool::execute_with_app(app, input).await,
         _ => execute_tool(name, input),
     }
 }

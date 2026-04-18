@@ -31,6 +31,15 @@ const AUTO_MODE_SECTION: &str = r#"
 - Ask for user input only when blocked by missing requirements, permissions, or irreversible decisions.
 "#;
 
+const GLOBAL_MEMORY_SECTION: &str = r#"
+
+## Global Memory
+- You may store stable cross-session memory by calling `remember_global_memory`.
+- Use it for durable user preferences, long-lived project rules, or persistent facts that improve future turns.
+- Do not store secrets, credentials, private tokens, or one-off ephemeral details.
+- Keep memory entries concise, specific, and reusable.
+"#;
+
 fn read_non_empty_file(path: &PathBuf) -> Option<String> {
     // 读取文件文本，读取失败返回 None。
     let text = std::fs::read_to_string(path).ok()?;
@@ -66,10 +75,12 @@ pub fn load_system_prompt(_app: &AppHandle, agent_mode: AgentMode) -> Result<Str
         )
     })?;
 
+    let prompt_with_memory = format!("{}{}", prompt, GLOBAL_MEMORY_SECTION);
+
     // 按执行模式拼接附加段。
     match agent_mode {
-        AgentMode::Plan => Ok(format!("{}{}", prompt, PLAN_MODE_SECTION)),
-        AgentMode::Auto => Ok(format!("{}{}", prompt, AUTO_MODE_SECTION)),
-        AgentMode::Agent => Ok(prompt),
+        AgentMode::Plan => Ok(format!("{}{}", prompt_with_memory, PLAN_MODE_SECTION)),
+        AgentMode::Auto => Ok(format!("{}{}", prompt_with_memory, AUTO_MODE_SECTION)),
+        AgentMode::Agent => Ok(prompt_with_memory),
     }
 }
