@@ -14,9 +14,11 @@ const PLAN_MODE_SECTION: &str = r#"
 ## Plan Mode
 - You are currently in plan mode.
 - In this mode, prioritize understanding the problem, exploring the codebase, identifying constraints, and proposing a concrete implementation strategy.
-- Avoid editing files unless the user explicitly asks to skip planning or approves implementation.
-- Use `ask_user_question` if a design decision still depends on user intent.
-- When the plan is ready and aligned, use `exit_plan_mode` before proceeding with implementation.
+- Do not edit files or run implementation tools before explicit user approval.
+- When your plan is ready, call `plan_for_approval` with summary, concrete steps, and key risks so the user can review and decide.
+- If the user asks for adjustments, revise the plan and call `plan_for_approval` again.
+- Only after the user explicitly approves implementation should you use `exit_plan_mode` and proceed to implementation.
+- Use `ask_user_question` for extra clarifications only when needed to unblock planning decisions.
 "#;
 
 // 自动迭代模式附加内容：鼓励在单轮中自主推进，只有被真实阻塞时再请求用户输入。

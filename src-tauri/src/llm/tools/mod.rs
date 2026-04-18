@@ -55,6 +55,8 @@ pub mod file_read_tool;
 pub mod file_edit_tool;
 #[path = "AskUserQuestionTool/mod.rs"]
 pub mod ask_user_question_tool;
+#[path = "PlanForApprovalTool/mod.rs"]
+pub mod plan_for_approval_tool;
 #[path = "ConfigTool/mod.rs"]
 pub mod config_tool;
 #[path = "EnterPlanModeTool/mod.rs"]
@@ -727,6 +729,10 @@ fn registered_tools() -> Vec<RegisteredTool> {
         RegisteredTool {
             tool: ask_user_question_tool::tool,
             execute: ask_user_question_tool::execute,
+        },
+        RegisteredTool {
+            tool: plan_for_approval_tool::tool,
+            execute: plan_for_approval_tool::execute,
         },
         RegisteredTool {
             tool: enter_plan_mode_tool::tool,

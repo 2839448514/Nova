@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { nextTick, onMounted, ref } from 'vue';
-import { Card, CardContent } from '@/components/ui/card';
 import type {
   AgentMode,
   AskUserAnswerSubmission,
@@ -274,16 +273,6 @@ defineExpose({
 
     <div class="w-full bg-transparent px-4 pt-4 pb-6">
       <div class="w-full max-w-[760px] mx-auto">
-        <div
-          v-if="planMode"
-          class="mb-3"
-        >
-          <Card class="border-[#e6dfcf] bg-[#f8f4eb] py-0 dark:border-[#4c4338] dark:bg-[#2d2923]">
-            <CardContent class="px-4 py-3 text-[0.88rem] text-[#5e584c] dark:text-[#d8cfbf]">
-              当前处于 `Plan Mode`：优先调研、澄清和规划，确认方案后再进入实现。
-            </CardContent>
-          </Card>
-        </div>
         <AskUserInputDialog
           v-if="pendingQuestion"
           :request="pendingQuestion"
