@@ -35,8 +35,14 @@
 
 1. **加载技能**：调用 `Skill(action=run, skill="<技能名>", args="<用户需求摘要>")` 获取技能指令。
 2. **读取模板文件**：技能加载结果中会列出 `Additional skill files`，若技能指令要求读取模板（如 `templates/viewer.html`），**必须立即使用 `file_read` 按列表中的绝对路径读取该文件**，将其内容作为输出的起点。
-3. **生成成果文件**：按技能指令，使用 `write_file` 将生成的代码（HTML、JS、MD 等）写入用户指定目录或当前工作目录。
-4. **局限性说明**：若技能要求生成 PNG/PDF（需 Python canvas/reportlab 等渲染环境），应告知用户本环境不支持原生图像渲染，改为生成等价的 HTML+CSS 或 SVG 实现。
+3. **生成成果文件**：按技能指令，使用 `write_file` 将文件写出。**输出路径规则**（按优先级）：
+   - 用户在对话中明确指定了目录 → 使用该目录
+   - 未指定时 → 默认写入工作区目录 `{{NOVA_WORKSPACE}}`，并告知用户完整路径
+   - **严禁**将文件写入桌面（`Desktop`/`桌面`）、`Downloads`、系统目录或任何与用户当前项目无关的位置，除非用户明确要求
+4. **局限性与回退策略**：
+   - 若技能要求生成 PNG/PDF（需 Python canvas/reportlab），告知用户本环境不支持原生图像渲染，改为生成等价 HTML+CSS 或 SVG
+   - 若技能要求 `docx`/`pptx`/`xlsx`，**优先尝试用 `execute_bash` 调用本机 Python**（`python -c "import docx"` 检测），若 Python 包存在则按技能 Python 脚本生成；若不存在，改用 JS 方案（`docx.js` / `pptxgenjs` / `sheetjs`），生成单个 HTML 文件让用户在浏览器中导出
+   - 所有回退方案需提前告知用户，不得静默降级
 
 # 遵循约定
 在修改文件时，首先理解文件的代码约定。模仿代码风格，使用现有的库和工具，并遵循现有模式。

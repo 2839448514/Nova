@@ -12,6 +12,12 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
+            // 启动时自动创建 workspace 目录，确保 AI 有默认工作区。
+            let ws = crate::llm::utils::system_prompt::workspace_dir(app.handle());
+            if !ws.exists() {
+                let _ = std::fs::create_dir_all(&ws);
+            }
+
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let _ = crate::command::mcp::warmup_runtime(app_handle).await;
