@@ -4,6 +4,9 @@ import { invoke } from '@tauri-apps/api/core'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 
+const deletingPath = ref<string | null>(null)
+const deleteError = ref('')
+
 type SkillItem = {
   name: string
   description: string
@@ -79,6 +82,20 @@ const save = async () => {
 }
 
 onMounted(refresh)
+
+const deleteSkill = async (skill: SkillItem) => {
+  if (!confirm(`确定要删除技能「${skill.name}」吗？此操作将永久删除该技能目录，无法恢复。`)) return
+  deletingPath.value = skill.path
+  deleteError.value = ''
+  try {
+    await invoke('delete_skill', { path: skill.path })
+    await refresh()
+  } catch (e) {
+    deleteError.value = `删除失败: ${String(e)}`
+  } finally {
+    deletingPath.value = null
+  }
+}
 </script>
 
 <template>
@@ -150,6 +167,16 @@ onMounted(refresh)
                 class="h-7 px-3 text-[12px]"
                 @click="skill.enabled = !skill.enabled"
               >{{ skill.enabled ? '停用' : '启用' }}</Button>
+              <Button
+                variant="outline"
+                size="sm"
+                class="h-7 px-2 text-[12px] border-[#f0cfc9] text-[#c0392b] hover:bg-[#fdf3f2] dark:border-[#5c2e2e] dark:text-[#e57373] dark:hover:bg-[#3a2020]"
+                :disabled="deletingPath === skill.path"
+                @click="deleteSkill(skill)"
+              >
+                <svg v-if="deletingPath !== skill.path" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+                <span v-else>...</span>
+              </Button>
             </div>
           </div>
         </CardHeader>
@@ -158,6 +185,7 @@ onMounted(refresh)
 
     <div class="mt-auto border-t border-[#f0ece4] pt-4 dark:border-[#32312e]">
       <div v-if="error" class="mb-2 text-[12.5px] text-[#c0392b] dark:text-[#e57373]">{{ error }}</div>
+      <div v-if="deleteError" class="mb-2 text-[12.5px] text-[#c0392b] dark:text-[#e57373]">{{ deleteError }}</div>
       <div class="flex items-center justify-end gap-3">
         <span v-if="savedTip" class="text-[13px] text-[#4f9c64] dark:text-[#62c07a]">✓ 已保存</span>
         <Button

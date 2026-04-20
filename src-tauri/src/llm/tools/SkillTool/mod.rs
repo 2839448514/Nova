@@ -215,6 +215,41 @@ fn list_skills(skills: &[SkillEntry]) -> String {
     .to_string()
 }
 
+fn collect_skill_sibling_files(skill_md_path: &Path) -> Vec<(String, PathBuf)> {
+    let Some(skill_dir) = skill_md_path.parent() else {
+        return vec![];
+    };
+
+    let mut result = Vec::new();
+    collect_dir_files_relative(skill_dir, skill_dir, &mut result);
+    // 排除 SKILL.md 自身和许可文件
+    result
+        .into_iter()
+        .filter(|(rel, _)| {
+            let lower = rel.to_ascii_lowercase();
+            lower != "skill.md" && !lower.ends_with("license.txt")
+        })
+        .collect()
+}
+
+fn collect_dir_files_relative(root: &Path, current: &Path, out: &mut Vec<(String, PathBuf)>) {
+    let Ok(entries) = fs::read_dir(current) else { return };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_dir_files_relative(root, &path, out);
+        } else if path.is_file() {
+            let rel = path
+                .strip_prefix(root)
+                .map(|p| p.to_string_lossy().replace('\\', "/"))
+                .unwrap_or_default();
+            if !rel.is_empty() {
+                out.push((rel, path));
+            }
+        }
+    }
+}
+
 fn run_skill(skills: &[SkillEntry], skill_name: &str, args: Option<&str>) -> String {
     let skill_name_norm = normalize_name(skill_name);
 
@@ -228,13 +263,31 @@ fn run_skill(skills: &[SkillEntry], skill_name: &str, args: Option<&str>) -> Str
         });
 
     let Some(skill) = picked else {
-        return format!("Error: Skill '{}' not found. Use action=list to see available skills.", skill_name);
+        return json!({
+            "ok": false,
+            "error": format!("Skill '{}' not found. Use action=list to see available skills.", skill_name)
+        })
+        .to_string();
     };
 
+    let skill_dir = skill
+        .path
+        .parent()
+        .map(|p| p.display().to_string())
+        .unwrap_or_default();
+
+    let sibling_files = collect_skill_sibling_files(&skill.path);
+
     let mut out = String::new();
-    out.push_str(&format!("[Skill Loaded] {}\n", skill.name));
+    out.push_str(&format!("Skill: {}\n", skill.name));
     out.push_str(&format!("Description: {}\n", skill.description));
-    out.push_str(&format!("Source: {}\n", skill.path.display()));
+    out.push_str(&format!("Skill directory: {}\n", skill_dir));
+    if !sibling_files.is_empty() {
+        out.push_str("Additional skill files (use file_read with absolute path to access):\n");
+        for (rel, abs) in &sibling_files {
+            out.push_str(&format!("  {} -> {}\n", rel, abs.display()));
+        }
+    }
     if let Some(a) = args {
         if !a.trim().is_empty() {
             out.push_str(&format!("Args: {}\n", a.trim()));
@@ -243,7 +296,11 @@ fn run_skill(skills: &[SkillEntry], skill_name: &str, args: Option<&str>) -> Str
     out.push_str("\nSkill instructions:\n");
     out.push_str(&truncate_chars(&skill.content, 20_000));
 
-    out
+    json!({
+        "ok": true,
+        "content": out
+    })
+    .to_string()
 }
 
 pub fn execute(_input: Value) -> String {
@@ -273,7 +330,7 @@ pub async fn execute_with_app(app: &AppHandle, input: Value) -> String {
 
     let skill = match input.get("skill").and_then(|v| v.as_str()) {
         Some(v) if !v.trim().is_empty() => v.trim(),
-        _ => return "Error: Missing 'skill' argument for action=run".into(),
+        _ => return json!({ "ok": false, "error": "Missing 'skill' argument for action=run" }).to_string(),
     };
 
     let args = input.get("args").and_then(|v| v.as_str());
