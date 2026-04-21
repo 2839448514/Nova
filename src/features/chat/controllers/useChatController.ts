@@ -67,6 +67,7 @@ type ScheduledTaskTriggerEvent = {
 
 type ChatScreenHandle = {
   scrollToBottom: () => void;
+  scrollLastUserMessageToTop: () => void;
 };
 
 type ModelTextBlock = {
@@ -1058,6 +1059,7 @@ export function useChatController() {
     };
     messages.value.push(userMsg);
     await persistMessage(userMsg, sendingConversationId);
+    chatScreenRef.value?.scrollLastUserMessageToTop();
     isGenerating.value = true;
     assistantResponse.value = "";
     assistantReasoning.value = "";

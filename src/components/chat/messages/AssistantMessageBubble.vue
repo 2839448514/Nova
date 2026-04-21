@@ -20,11 +20,11 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <div class="flex gap-3.5 max-w-[85%]">
+  <div class="flex gap-3.5 w-full max-w-[85%]">
     <div class="w-7 h-7 rounded-full flex items-center justify-center shrink-0 bg-[#f6f3ec] dark:bg-[#333] text-[#6f685a] mt-0.5 border border-[#e7e2d7] dark:border-[#444] text-[11px] font-medium">
       N
     </div>
-    <div class="text-[0.95rem] leading-relaxed break-words text-[#1a1a1a] dark:text-[#ececec]">
+    <div class="min-w-0 flex-1 text-[0.95rem] leading-relaxed break-words text-[#1a1a1a] dark:text-[#ececec]">
       <div class="flex items-center gap-2 mb-1">
         <p class="text-[11px] text-[#9b958a]">Nova</p>
         <span

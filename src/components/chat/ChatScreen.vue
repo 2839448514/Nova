@@ -106,13 +106,25 @@ const scrollToBottom = async () => {
   }
 };
 
+const scrollLastUserMessageToTop = async () => {
+  await nextTick();
+  if (!chatAreaRef.value) return;
+  const rows = chatAreaRef.value.querySelectorAll<HTMLElement>('[data-role="user"]');
+  const last = rows[rows.length - 1];
+  if (last) {
+    last.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  } else {
+    chatAreaRef.value.scrollTop = chatAreaRef.value.scrollHeight;
+  }
+};
+
 onMounted(() => {
   scrollToBottom();
 });
 
 const handleSend = (msg: string) => {
   emit('send', msg);
-  scrollToBottom();
+  scrollLastUserMessageToTop();
 };
 
 const handleUploadFiles = (files: PendingUploadFile[]) => {
@@ -198,7 +210,8 @@ const streamingConversationTokenUsage = (): number => {
 const hasStreamingReasoning = () => !!props.assistantReasoning?.trim();
 
 defineExpose({
-  scrollToBottom
+  scrollToBottom,
+  scrollLastUserMessageToTop,
 });
 </script>
 
@@ -209,6 +222,7 @@ defineExpose({
         <div
           v-for="(msg, index) in messages"
           :key="index"
+          :data-role="msg.role"
           class="flex w-full group"
         >
           <UserMessageBubble
@@ -235,11 +249,11 @@ defineExpose({
         </div>
 
         <div v-if="isGenerating" class="flex w-full justify-start group">
-          <div class="flex gap-3.5 max-w-[85%]">
+          <div class="flex gap-3.5 w-full max-w-[85%]">
             <div class="w-7 h-7 rounded-full flex items-center justify-center shrink-0 bg-[#f6f3ec] dark:bg-[#333] text-[#6f685a] mt-0.5 border border-[#e7e2d7] dark:border-[#444] text-[11px] font-medium">
               N
             </div>
-            <div class="text-[0.95rem] leading-relaxed break-words text-[#1a1a1a] dark:text-[#ececec]">
+            <div class="min-w-0 flex-1 text-[0.95rem] leading-relaxed break-words text-[#1a1a1a] dark:text-[#ececec]">
               <div class="flex items-center gap-2 mb-1">
                 <p class="text-[11px] text-[#9b958a]">Nova</p>
                 <span
