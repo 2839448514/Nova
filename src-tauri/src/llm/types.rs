@@ -21,12 +21,14 @@ pub enum Role {
 // - Agent: 默认智能代理执行
 // - Plan: 规划优先，不直接实现
 // - Auto: 自动迭代，尽量一次完成闭环
+// - Coding: 代码编写模式，专注文件编辑，生成 Code Diff 供用户审阅
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum AgentMode {
     Agent,
     Plan,
     Auto,
+    Coding,
 }
 
 // 消息内容：

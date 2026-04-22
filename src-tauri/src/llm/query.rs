@@ -364,7 +364,7 @@ pub async fn send_chat_message(
 		current_messages.extend(new_messages.clone());
 
 		// 输出调试日志，便于观察每轮消息增长。
-		eprintln!("[loop] new_messages count={},the new messages are: {:?}", new_messages.len(), new_messages);
+		// eprintln!("[loop] new_messages count={},the new messages are: {:?}", new_messages.len(), new_messages);
 
 		// 判断新增消息中是否包含 tool_result 块。
 		let has_tool_result = new_messages.iter().any(|m| {
@@ -381,7 +381,7 @@ pub async fn send_chat_message(
 		});
 
 		// 输出工具结果检测日志。
-		eprintln!("[loop] has_tool_result={}", has_tool_result);
+		// eprintln!("[loop] has_tool_result={}", has_tool_result);
 
 		// 若返回需要用户输入，终止当前回合并告诉前端。
 		if compact::has_needs_user_input(&new_messages) {

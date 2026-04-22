@@ -23,7 +23,11 @@ pub fn execute(input: Value) -> String {
         input.get("path").and_then(|v| v.as_str())
     ) {
         #[cfg(target_os = "windows")]
-        let out = Command::new("powershell").args(["-Command", &format!("Select-String -Path '{}' -Pattern '{}' -Recurse", path, pattern)]).output();
+        let out = {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            Command::new("powershell").args(["-Command", &format!("Select-String -Path '{}' -Pattern '{}' -Recurse", path, pattern)]).creation_flags(CREATE_NO_WINDOW).output()
+        };
 
         #[cfg(not(target_os = "windows"))]
         let out = Command::new("grep").args(["-rni", pattern, path]).output();

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
+import { Card } from '@/components/ui/card';
 import type { ToolExecutionEntry, FlowNodeEntry } from '../../lib/chat-types';
 
 const props = defineProps<{
@@ -405,9 +406,9 @@ const resetView = () => {
 
     <!-- Tool detail overlay -->
     <Transition name="detail-fade">
-      <div
+      <Card
         v-if="selectedEntry || isStartSelected || isOutputSelected || selectedPipelineNode || isLlmSelected"
-        class="absolute bottom-4 left-1/2 -translate-x-1/2 w-[90%] max-w-sm z-10 rounded-xl border border-[#e7e2d7] dark:border-[#333] bg-white/95 dark:bg-[#252525]/95 text-sm overflow-hidden shadow-lg backdrop-blur-sm"
+        class="absolute bottom-4 left-1/2 -translate-x-1/2 w-[90%] max-w-sm z-10 rounded-xl border-[#e7e2d7] dark:border-[#333] bg-white/95 dark:bg-[#252525]/95 text-sm overflow-hidden shadow-lg backdrop-blur-sm gap-0 py-0"
         @mousedown.stop
       >
         <!-- Start node detail -->
@@ -521,18 +522,16 @@ const resetView = () => {
             <p class="text-xs text-[#475569] dark:text-[#94a3b8] whitespace-pre-wrap break-words">{{ cardPreviewText(selectedPipelineNode.pipelineDetail) }}</p>
           </div>
         </template>
-      </div>
+      </Card>
     </Transition>
-
-    <!-- Full-text preview modal -->
     <Transition name="modal-fade">
       <div
         v-if="fullTextModal"
         class="absolute inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-[2px]"
         @mousedown.self="closeFullText"
       >
-        <div
-          class="relative flex flex-col rounded-2xl border border-[#e7e2d7] dark:border-[#444] bg-white dark:bg-[#1e1e1e] shadow-2xl overflow-hidden"
+        <Card
+          class="relative flex flex-col rounded-2xl border-[#e7e2d7] dark:border-[#444] bg-white dark:bg-[#1e1e1e] shadow-2xl overflow-hidden gap-0 py-0"
           :class="compactDiffData ? 'w-[96%] max-w-5xl max-h-[88%]' : 'w-[92%] max-w-2xl max-h-[80%]'"
           @mousedown.stop
         >
@@ -637,7 +636,7 @@ const resetView = () => {
               <span>{{ fullTextModal.content.split('\n').length.toLocaleString() }} 行</span>
             </div>
           </template>
-        </div>
+        </Card>
       </div>
     </Transition>
   </div>

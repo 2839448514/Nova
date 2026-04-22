@@ -12,3 +12,5 @@ pub mod rag;
 pub mod agent_config;
 // 定时任务（Cron）相关命令入口。
 pub mod cron;
+// 文件编辑/撤回相关命令入口。
+pub mod file_edit;

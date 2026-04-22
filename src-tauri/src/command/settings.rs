@@ -145,6 +145,9 @@ pub struct AppSettings {
     #[serde(default = "default_ui_theme")]
     // UI 主题（system/light/dark）。
     pub ui_theme: String,
+    #[serde(default)]
+    // Coding 模式选定的工作区目录（绝对路径）。
+    pub coding_workspace: Option<String>,
 }
 
 impl Default for AppSettings {
@@ -162,6 +165,7 @@ impl Default for AppSettings {
             rag: RagSettings::default(),
             ui_language: default_ui_language(),
             ui_theme: default_ui_theme(),
+            coding_workspace: None,
         }
     }
 }

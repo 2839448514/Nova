@@ -496,6 +496,7 @@ defineExpose({
                 <SelectItem value="agent">Agent 模式</SelectItem>
                 <SelectItem value="plan">Plan 模式</SelectItem>
                 <SelectItem value="auto">自动迭代模式</SelectItem>
+                <SelectItem value="coding">Coding 模式</SelectItem>
               </SelectContent>
             </Select>
           </div>

@@ -31,6 +31,17 @@ const AUTO_MODE_SECTION: &str = r#"
 - Ask for user input only when blocked by missing requirements, permissions, or irreversible decisions.
 "#;
 
+// 代码编写模式附加内容：AI 聚焦文件改动，用户通过 Code Diff 面板审阅并决定保留/撤回。
+const CODING_MODE_SECTION: &str = r#"
+
+## Coding Mode
+- You are currently in coding mode.
+- Focus on precise, minimal file edits. Use `replace_string_in_file` for targeted changes and `write_file` only for new files.
+- The user has a Code Diff panel open to review every file modification. They will manually accept or revert each change.
+- Do not ask for confirmation before writing; just make the change and explain briefly what you did and why.
+- Prefer atomic, reviewable edits: one logical change per tool call where possible.
+"#;
+
 const GLOBAL_MEMORY_SECTION: &str = r#"
 
 ## Global Memory
@@ -83,15 +94,32 @@ pub fn load_system_prompt(app: &AppHandle, agent_mode: AgentMode) -> Result<Stri
     })?;
 
     // 将 workspace 路径注入提示词。
-    let ws = workspace_dir(app);
-    let prompt = prompt.replace("{{NOVA_WORKSPACE}}", &ws.display().to_string());
+    // Coding 模式下优先使用用户选定的工作区目录。
+    let workspace = if agent_mode == AgentMode::Coding {
+        // 尝试从设置中读取 coding_workspace。
+        let settings_path = app
+            .path()
+            .app_data_dir()
+            .map(|d| d.join("settings.json"))
+            .ok();
+        let coding_ws = settings_path
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+            .and_then(|v| v.get("codingWorkspace").and_then(|w| w.as_str()).map(|s| s.to_string()));
+        coding_ws.unwrap_or_else(|| workspace_dir(app).display().to_string())
+    } else {
+        workspace_dir(app).display().to_string()
+    };
+
+    let prompt = prompt.replace("{{NOVA_WORKSPACE}}", &workspace);
 
     let prompt_with_memory = format!("{}{}", prompt, GLOBAL_MEMORY_SECTION);
 
     // 按执行模式拼接附加段。
     match agent_mode {
-        AgentMode::Plan => Ok(format!("{}{}", prompt_with_memory, PLAN_MODE_SECTION)),
-        AgentMode::Auto => Ok(format!("{}{}", prompt_with_memory, AUTO_MODE_SECTION)),
-        AgentMode::Agent => Ok(prompt_with_memory),
+        AgentMode::Plan   => Ok(format!("{}{}", prompt_with_memory, PLAN_MODE_SECTION)),
+        AgentMode::Auto   => Ok(format!("{}{}", prompt_with_memory, AUTO_MODE_SECTION)),
+        AgentMode::Coding => Ok(format!("{}{}", prompt_with_memory, CODING_MODE_SECTION)),
+        AgentMode::Agent  => Ok(prompt_with_memory),
     }
 }

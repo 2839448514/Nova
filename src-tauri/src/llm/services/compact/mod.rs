@@ -647,13 +647,13 @@ pub async fn compact_messages_for_turn(
     // 决策并记录调试信息
     let decision = decide_compact_strategy(messages);
     // 打印调试日志，便于观察何时触发哪种压缩策略
-    eprintln!(
-        "[compact] level={:?} message_count={} estimated_tokens={} has_large_tool_result={}",
-        decision.level,
-        decision.message_count,
-        decision.estimated_tokens,
-        decision.has_large_tool_result
-    );
+    // eprintln!(
+    //     "[compact] level={:?} message_count={} estimated_tokens={} has_large_tool_result={}",
+    //     decision.level,
+    //     decision.message_count,
+    //     decision.estimated_tokens,
+    //     decision.has_large_tool_result
+    // );
 
     // 根据决策执行对应的压缩流程
     match decision.level {

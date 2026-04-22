@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, watch, onMounted } from 'vue';
+import { invoke } from '@tauri-apps/api/core';
 import AgentFlowGraph from './AgentFlowGraph.vue';
+import FileDiffView from './FileDiffView.vue';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import type { ToolExecutionEntry, FlowNodeEntry } from '../../lib/chat-types';
 
-defineProps<{
+const props = defineProps<{
   open: boolean;
   entries: ToolExecutionEntry[];
   flowNodes: FlowNodeEntry[];
@@ -11,20 +14,42 @@ defineProps<{
   hasMessages: boolean;
   lastUserMessage?: string;
   lastAssistantMessage?: string;
+  codingMode?: boolean;
 }>();
 
 const emit = defineEmits<{
   (e: 'close'): void;
 }>();
 
-type TabId = 'agent-flow' | 'diff';
+// ── Coding workspace ─────────────────────────────────────────────────────────
+const codingWorkspace = ref<string | null>(null);
 
-const activeTab = ref<TabId>('agent-flow');
+async function loadCodingWorkspace() {
+  try {
+    const settings = await invoke<{ codingWorkspace?: string }>('get_settings');
+    codingWorkspace.value = settings.codingWorkspace ?? null;
+  } catch { /* ignore */ }
+}
 
-const tabs: { id: TabId; label: string }[] = [
-  { id: 'agent-flow', label: 'Agent 流图' },
-  { id: 'diff', label: 'Code Diff' },
-];
+async function pickWorkspace() {
+  try {
+    const picked = await invoke<string | null>('pick_coding_workspace');
+    if (picked) {
+      codingWorkspace.value = picked;
+      const settings = await invoke<Record<string, unknown>>('get_settings');
+      settings.codingWorkspace = picked;
+      await invoke('save_settings', { settings });
+    }
+  } catch (e) {
+    console.error('Failed to pick workspace:', e);
+  }
+}
+
+onMounted(loadCodingWorkspace);
+watch(() => props.codingMode, (v) => { if (v) loadCodingWorkspace(); });
+
+/** Display name: just the last path segment */
+const workspaceLabel = (path: string) => path.split(/[\\/]/).filter(Boolean).pop() ?? path;
 </script>
 
 <template>
@@ -45,61 +70,90 @@ const tabs: { id: TabId; label: string }[] = [
       style="width: 90%"
     >
       <!-- Panel surface -->
-      <div class="flex flex-col h-full bg-[#faf9f6] dark:bg-[#1e1e1e] border-l border-[#e7e2d7] dark:border-[#333] shadow-2xl">
-        <!-- Header -->
-        <div class="h-14 flex items-center justify-between px-4 border-b border-[#e7e2d7] dark:border-[#333] shrink-0">
-          <!-- Tabs -->
-          <div class="flex items-center gap-1">
+      <div class="flex flex-col h-full bg-[#faf9f6] dark:bg-[#1e1e1e] border-l border-[#e7e2d7] dark:border-[#333] shadow-2xl overflow-hidden">
+        <Tabs default-value="agent-flow" class="flex flex-col h-full gap-0">
+
+          <!-- Header -->
+          <div class="h-14 flex items-center justify-between px-4 border-b border-[#e7e2d7] dark:border-[#333] shrink-0">
+            <!-- shadcn TabsList — transparent background to match current theme -->
+            <TabsList class="bg-transparent p-0 h-auto gap-1 rounded-none">
+              <TabsTrigger
+                value="agent-flow"
+                class="px-3 py-1.5 text-sm font-medium rounded-md transition-colors border-transparent shadow-none h-auto flex-none
+                  data-[state=active]:bg-[#e8e3d8] dark:data-[state=active]:bg-[#333]
+                  data-[state=active]:text-[#1a1a1a] dark:data-[state=active]:text-[#ececec]
+                  data-[state=active]:shadow-none
+                  data-[state=inactive]:text-muted-foreground
+                  data-[state=inactive]:hover:bg-black/5 dark:data-[state=inactive]:hover:bg-white/5"
+              >Agent 流图</TabsTrigger>
+              <TabsTrigger
+                value="diff"
+                class="px-3 py-1.5 text-sm font-medium rounded-md transition-colors border-transparent shadow-none h-auto flex-none
+                  data-[state=active]:bg-[#e8e3d8] dark:data-[state=active]:bg-[#333]
+                  data-[state=active]:text-[#1a1a1a] dark:data-[state=active]:text-[#ececec]
+                  data-[state=active]:shadow-none
+                  data-[state=inactive]:text-muted-foreground
+                  data-[state=inactive]:hover:bg-black/5 dark:data-[state=inactive]:hover:bg-white/5"
+              >Code Diff</TabsTrigger>
+            </TabsList>
+
+            <!-- Close button -->
             <button
-              v-for="tab in tabs"
-              :key="tab.id"
-              :class="[
-                'px-3 py-1.5 rounded-md text-sm font-medium transition-colors',
-                activeTab === tab.id
-                  ? 'bg-[#e8e3d8] dark:bg-[#333] text-[#1a1a1a] dark:text-[#ececec]'
-                  : 'text-muted-foreground hover:bg-black/5 dark:hover:bg-white/5',
-              ]"
-              @click="activeTab = tab.id"
+              class="w-8 h-8 flex items-center justify-center rounded-md text-muted-foreground hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+              @click="emit('close')"
             >
-              {{ tab.label }}
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18"/>
+                <line x1="6" y1="6" x2="18" y2="18"/>
+              </svg>
             </button>
           </div>
 
-          <!-- Close button -->
-          <button
-            class="w-8 h-8 flex items-center justify-center rounded-md text-muted-foreground hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
-            @click="emit('close')"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="18" y1="6" x2="6" y2="18"/>
-              <line x1="6" y1="6" x2="18" y2="18"/>
-            </svg>
-          </button>
-        </div>
+          <!-- Agent Flow tab content -->
+          <TabsContent value="agent-flow" class="min-h-0 overflow-hidden m-0 p-0">
+            <AgentFlowGraph
+              :entries="entries"
+              :flowNodes="flowNodes"
+              :isGenerating="isGenerating"
+              :hasMessages="hasMessages"
+              :lastUserMessage="lastUserMessage"
+              :lastAssistantMessage="lastAssistantMessage"
+              class="w-full h-full"
+            />
+          </TabsContent>
 
-        <!-- Tab content -->
-        <div class="flex-1 overflow-hidden min-h-0">
-          <!-- Agent Flow tab -->
-          <AgentFlowGraph
-            v-if="activeTab === 'agent-flow'"
-            :entries="entries"
-            :flowNodes="flowNodes"
-            :isGenerating="isGenerating"
-            :hasMessages="hasMessages"
-            :lastUserMessage="lastUserMessage"
-            :lastAssistantMessage="lastAssistantMessage"
-            class="w-full h-full"
-          />
+          <!-- Code Diff tab content -->
+          <TabsContent value="diff" class="min-h-0 overflow-hidden m-0 p-0 flex flex-col">
 
-          <!-- Code Diff tab -->
-          <div v-else-if="activeTab === 'diff'" class="h-full flex flex-col items-center justify-center text-muted-foreground gap-3">
-            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="opacity-40">
-              <polyline points="16 18 22 12 16 6"/>
-              <polyline points="8 6 2 12 8 18"/>
-            </svg>
-            <p class="text-sm">Code Diff 将在此显示</p>
-          </div>
-        </div>
+            <!-- Coding workspace selector bar (coding mode only) -->
+            <div
+              v-if="props.codingMode"
+              class="flex items-center gap-2 px-4 py-2 border-b border-[#e7e2d7] dark:border-[#333] shrink-0 bg-[#faf9f6] dark:bg-[#1a1a1a]"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="shrink-0 text-muted-foreground">
+                <path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z"/>
+              </svg>
+              <span
+                v-if="codingWorkspace"
+                class="text-xs font-medium text-[#1a1a1a] dark:text-[#ececec] truncate flex-1 min-w-0"
+                :title="codingWorkspace"
+              >{{ workspaceLabel(codingWorkspace) }}</span>
+              <span v-else class="text-xs text-muted-foreground italic flex-1">未选择工作区</span>
+              <button
+                class="shrink-0 text-[11px] px-2 py-0.5 rounded border border-[#e7e2d7] dark:border-[#333] text-muted-foreground hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+                @click="pickWorkspace"
+              >{{ codingWorkspace ? '更换' : '选择工作区' }}</button>
+            </div>
+
+            <FileDiffView
+              :entries="entries"
+              :codingMode="codingMode"
+              :workspaceReady="codingMode ? !!codingWorkspace : true"
+              class="w-full flex-1 min-h-0"
+            />
+          </TabsContent>
+
+        </Tabs>
       </div>
     </div>
   </Transition>

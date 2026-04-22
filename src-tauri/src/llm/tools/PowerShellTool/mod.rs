@@ -24,8 +24,13 @@ pub fn execute(input: Value) -> String {
 
     #[cfg(target_os = "windows")]
     {
+        use std::os::windows::process::CommandExt;
+        // CREATE_NO_WINDOW (0x08000000) prevents the console window from flashing
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+
         let out = Command::new("powershell")
             .args(["-NoProfile", "-Command", cmd])
+            .creation_flags(CREATE_NO_WINDOW)
             .output();
 
         return match out {

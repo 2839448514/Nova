@@ -5,7 +5,7 @@ export interface TurnCost {
   toolDurationMs: number;
 }
 
-export type AgentMode = "agent" | "plan" | "auto";
+export type AgentMode = "agent" | "plan" | "auto" | "coding";
 
 export type AttachmentKind = "document" | "image";
 

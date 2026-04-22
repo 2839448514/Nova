@@ -29,6 +29,7 @@ const {
   pendingQuestion,
   agentMode,
   planMode,
+  codingMode,
   mainView,
   isSidebarOpen,
   chatScreenRef,
@@ -185,6 +186,7 @@ const lastAssistantMessage = computed<string>(() => {
         :hasMessages="messages.length > 0"
         :lastUserMessage="lastUserMessage"
         :lastAssistantMessage="lastAssistantMessage"
+        :codingMode="codingMode"
         @close="isDrawerOpen = false"
       />
     </main>

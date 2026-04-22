@@ -132,6 +132,7 @@ export function useChatController() {
   const currentOutputTokens = ref(0);
   const agentMode = ref<AgentMode>("agent");
   const planMode = ref(false);
+  const codingMode = ref(false);
   const isCreatingNewChat = ref(false);
   const isSidebarOpen = ref(true);
   const toolExecutionLogs = ref<ToolExecutionEntry[]>([]);
@@ -590,6 +591,7 @@ export function useChatController() {
   function handleAgentModeChange(mode: AgentMode) {
     agentMode.value = mode;
     planMode.value = mode === "plan";
+    codingMode.value = mode === "coding";
   }
 
   function estimateInputTokensForTurn(userText: string, attachmentNames: string[]): number {
@@ -809,6 +811,7 @@ export function useChatController() {
 
     activeConversationId.value = targetConversationId;
     planMode.value = agentMode.value === "plan";
+    codingMode.value = agentMode.value === "coding";
     pendingUploads.value = [];
     try {
       const saved = await loadConversationHistory(targetConversationId);
@@ -1853,6 +1856,7 @@ export function useChatController() {
     conversationFiles,
     agentMode,
     planMode,
+    codingMode,
     mainView,
     isSidebarOpen,
     chatScreenRef,

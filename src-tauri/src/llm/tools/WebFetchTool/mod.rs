@@ -36,16 +36,21 @@ pub fn execute(input: Value) -> String {
     };
 
     #[cfg(target_os = "windows")]
-    let out = Command::new("powershell")
-        .args([
-            "-NoProfile",
-            "-Command",
-            &format!(
-                "(Invoke-WebRequest -UseBasicParsing -Uri '{}' -TimeoutSec 20).Content",
-                url.replace('"', "")
-            ),
-        ])
-        .output();
+    let out = {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-Command",
+                &format!(
+                    "(Invoke-WebRequest -UseBasicParsing -Uri '{}' -TimeoutSec 20).Content",
+                    url.replace('"', "")
+                ),
+            ])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+    };
 
     #[cfg(not(target_os = "windows"))]
     let out = Command::new("curl")
