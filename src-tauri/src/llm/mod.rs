@@ -5,6 +5,7 @@ pub mod client;
 pub mod query_engine;
 pub mod query;
 pub mod cancellation;
+pub mod flow_trace;
 pub mod services;
 pub mod tools;
 pub mod utils;

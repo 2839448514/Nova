@@ -196,6 +196,133 @@ pub fn estimate_tokens_for_messages(messages: &[Message]) -> i64 {
     estimate_message_tokens(messages)
 }
 
+/// 返回人类可读的压缩决策描述，用于流图节点详情展示。
+/// 包括：策略等级、触发原因、消息数量、估算 token 数、大工具结果情况。
+pub fn describe_compact_plan(messages: &[Message]) -> String {
+    let d = decide_compact_strategy(messages);
+    let level_name = match d.level {
+        CompactLevel::None => "无压缩",
+        CompactLevel::Micro => "Micro 压缩（局部截断工具结果）",
+        CompactLevel::Full => "Full 压缩（远端摘要 + 历史折叠）",
+    };
+    let mut reasons: Vec<&str> = Vec::new();
+    if d.message_count >= FULL_COMPACT_MESSAGE_THRESHOLD {
+        reasons.push("消息数达到 Full 阈值");
+    } else if d.message_count >= MICRO_COMPACT_MESSAGE_THRESHOLD {
+        reasons.push("消息数达到 Micro 阈值");
+    }
+    if d.estimated_tokens >= FULL_COMPACT_TOKEN_THRESHOLD {
+        reasons.push("tokens 达到 Full 阈值");
+    } else if d.estimated_tokens >= MICRO_COMPACT_TOKEN_THRESHOLD {
+        reasons.push("tokens 达到 Micro 阈值");
+    }
+    if d.has_large_tool_result {
+        reasons.push("存在超大工具结果（≥2800 字符）");
+    }
+    let reason_str = if reasons.is_empty() {
+        "未达任何阈值".to_string()
+    } else {
+        reasons.join("、")
+    };
+    format!(
+        "策略：{}\n触发原因：{}\n消息数：{}（Micro≥24 / Full≥42）\n估算 tokens：{}（Micro≥3200 / Full≥5600）\n大工具结果：{}",
+        level_name,
+        reason_str,
+        d.message_count,
+        d.estimated_tokens,
+        if d.has_large_tool_result { "是" } else { "否" },
+    )
+}
+
+/// 比较压缩前后消息列表，生成人类可读的差异报告。
+/// - Micro 压缩：条数不变，统计哪些消息的工具结果被截断了
+/// - Full 压缩：条数减少，列出被丢弃消息的角色+内容摘要
+pub fn describe_compact_diff(before: &[Message], after: &[Message]) -> String {
+    if before.len() == after.len() {
+        // Micro：内容截断，不删消息
+        let mut truncated_indices: Vec<usize> = Vec::new();
+        for (i, (b, a)) in before.iter().zip(after.iter()).enumerate() {
+            let before_len = message_text_len(b);
+            let after_len = message_text_len(a);
+            if before_len > after_len {
+                truncated_indices.push(i);
+            }
+        }
+        if truncated_indices.is_empty() {
+            return "Micro 压缩：无内容变化".to_string();
+        }
+        let mut lines = vec![format!("Micro 压缩：截断了 {} 条消息的工具结果内容", truncated_indices.len())];
+        for &idx in truncated_indices.iter().take(8) {
+            let b = &before[idx];
+            let a = &after[idx];
+            let role_label = match b.role { Role::User => "用户", Role::Assistant => "助手" };
+            lines.push(format!("  第{}条 [{}]：{} → {} 字符", idx + 1, role_label, message_text_len(b), message_text_len(a)));
+        }
+        lines.join("\n")
+    } else if after.len() < before.len() {
+        // Full：丢弃旧消息
+        let dropped = before.len().saturating_sub(after.len().saturating_sub(1)); // -1 for compact summary msg
+        let mut lines = vec![format!(
+            "Full 压缩：丢弃 {} 条旧消息，保留最近 {} 条，已插入历史摘要",
+            dropped,
+            after.len().saturating_sub(1)
+        )];
+        // 显示被丢弃消息（不含摘要块）的预览
+        let kept_start = before.len().saturating_sub(after.len().saturating_sub(1));
+        let dropped_msgs = &before[..kept_start.min(before.len())];
+        if !dropped_msgs.is_empty() {
+            lines.push("丢弃的消息：".to_string());
+            for (i, m) in dropped_msgs.iter().enumerate().take(6) {
+                let role_label = match m.role { Role::User => "用户", Role::Assistant => "助手" };
+                let preview = message_text_preview(m, 60);
+                lines.push(format!("  第{}条 [{}] {}", i + 1, role_label, preview));
+            }
+            if dropped_msgs.len() > 6 {
+                lines.push(format!("  … 另有 {} 条未展示", dropped_msgs.len() - 6));
+            }
+        }
+        lines.join("\n")
+    } else {
+        "压缩后消息数增加（未知情况）".to_string()
+    }
+}
+
+fn message_text_len(m: &Message) -> usize {
+    match &m.content {
+        Content::Text(t) => t.len(),
+        Content::Blocks(blocks) => blocks.iter().map(|b| match b {
+            ContentBlock::Text { text } => text.len(),
+            ContentBlock::ToolResult { content, .. } => content.iter().map(|cb| {
+                if let ContentBlock::Text { text } = cb { text.len() } else { 0 }
+            }).sum(),
+            _ => 0,
+        }).sum(),
+    }
+}
+
+fn message_text_preview(m: &Message, max_chars: usize) -> String {
+    let raw: String = match &m.content {
+        Content::Text(t) => t.chars().take(max_chars).collect(),
+        Content::Blocks(blocks) => {
+            let mut parts: Vec<String> = Vec::new();
+            for b in blocks {
+                match b {
+                    ContentBlock::Text { text } => {
+                        let s: String = text.chars().take(max_chars).collect();
+                        parts.push(if text.chars().count() > max_chars { format!("{}…", s) } else { s });
+                    }
+                    ContentBlock::ToolUse { name, .. } => parts.push(format!("[工具调用:{}]", name)),
+                    ContentBlock::ToolResult { tool_use_id, .. } => parts.push(format!("[工具结果:{}]", tool_use_id)),
+                    _ => {}
+                }
+            }
+            parts.join(" ")
+        }
+    };
+    let chars: String = raw.chars().take(max_chars).collect();
+    if raw.chars().count() > max_chars { format!("{}…", chars) } else { chars }
+}
+
 fn max_tool_result_text_chars(messages: &[Message]) -> usize {
     // 计算 messages 中所有 ToolResult 内文本块的最大字符数
     messages

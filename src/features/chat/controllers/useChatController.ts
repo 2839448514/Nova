@@ -38,6 +38,7 @@ import type {
   ChatMessageEvent,
   ConversationMemory,
   ConversationMeta,
+  FlowNodeEntry,
   NeedsUserInputPayload,
   PendingUploadFile,
   ToolExecutionEntry,
@@ -134,6 +135,10 @@ export function useChatController() {
   const isCreatingNewChat = ref(false);
   const isSidebarOpen = ref(true);
   const toolExecutionLogs = ref<ToolExecutionEntry[]>([]);
+
+  // flowNodes: 从 localStorage 恢复，以便刷新后保留上次回合的流水线节点
+  const _savedFlowNodes = localStorage.getItem("nova:flowNodes");
+  const flowNodes = ref<FlowNodeEntry[]>(_savedFlowNodes ? (JSON.parse(_savedFlowNodes) as FlowNodeEntry[]) : []);
   const chatScreenRef = ref<ChatScreenHandle | null>(null);
   const toolInputById = new Map<string, string>();
   const toolNameById = new Map<string, string>();
@@ -142,6 +147,7 @@ export function useChatController() {
   let unlistenChatStream: UnlistenFn | null = null;
   let unlistenBackendError: UnlistenFn | null = null;
   let unlistenScheduledTaskTrigger: UnlistenFn | null = null;
+  let unlistenFlowNode: UnlistenFn | null = null;
 
   function createEmptyRuntimeState(): ConversationTurnRuntimeState {
     return {
@@ -237,6 +243,8 @@ export function useChatController() {
     currentInputTokens.value = 0;
     currentOutputTokens.value = 0;
     toolExecutionLogs.value = [];
+    // flowNodes 不在此处清空：刷新后需从 localStorage 恢复。
+    // 仅在新消息发送前和新建聊天时显式清空（见下方两处）。
     toolInputById.clear();
     toolNameById.clear();
   }
@@ -1069,6 +1077,8 @@ export function useChatController() {
     currentToolCalls.value = 0;
     currentToolDurationMs.value = 0;
     currentOutputTokens.value = 0;
+    flowNodes.value = [];
+    localStorage.removeItem("nova:flowNodes");
     currentInputTokens.value = estimateInputTokensForTurn(
       modelUserText,
       uploadedAttachmentNames,
@@ -1304,6 +1314,7 @@ export function useChatController() {
     assistantTurnCost.value = undefined;
     pendingUploads.value = [];
     toolExecutionLogs.value = [];
+    flowNodes.value = [];
     conversationFiles.value = [];
     conversationMemory.value = null;
     messages.value = [];
@@ -1767,6 +1778,33 @@ export function useChatController() {
     }
 
     try {
+      unlistenFlowNode = await listen<{
+        node_id: string;
+        label: string;
+        status: string;
+        detail?: string;
+        conversation_id?: string;
+      }>("flow-node", (event) => {
+        const p = event.payload;
+        const entry: FlowNodeEntry = {
+          nodeId: p.node_id,
+          label: p.label,
+          status: p.status as FlowNodeEntry["status"],
+          detail: p.detail,
+          conversationId: p.conversation_id,
+          timestamp: Date.now(),
+        };
+        // 更新已有节点（同 nodeId 的 running→completed/skipped/error）
+        const idx = flowNodes.value.findIndex((n) => n.nodeId === entry.nodeId);
+        if (idx !== -1) {
+          flowNodes.value[idx] = entry;
+        } else {
+          flowNodes.value.push(entry);
+        }
+        // 持久化到 localStorage，刷新后可恢复
+        localStorage.setItem("nova:flowNodes", JSON.stringify(flowNodes.value));
+      });
+
       unlistenScheduledTaskTrigger = await listen<ScheduledTaskTriggerEvent>(
         "scheduled-task-trigger",
         (event) => {
@@ -1795,6 +1833,7 @@ export function useChatController() {
     if (unlistenChatStream) unlistenChatStream();
     if (unlistenBackendError) unlistenBackendError();
     if (unlistenScheduledTaskTrigger) unlistenScheduledTaskTrigger();
+    if (unlistenFlowNode) unlistenFlowNode();
     window.removeEventListener("history-cleared", handleHistoryCleared as EventListener);
   });
 
@@ -1806,6 +1845,7 @@ export function useChatController() {
     assistantTokenUsage,
     assistantTurnCost,
     toolExecutionLogs,
+    flowNodes,
     conversations,
     activeConversationId,
     pendingQuestion,

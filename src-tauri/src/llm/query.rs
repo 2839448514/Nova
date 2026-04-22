@@ -1,5 +1,6 @@
 use tauri::{AppHandle, Emitter};
 
+use crate::llm::flow_trace::FlowTracer;
 use crate::llm::providers::LlmProvider;
 use crate::llm::query_engine::ChatMessageEvent;
 use crate::llm::services::compact;
@@ -166,25 +167,46 @@ pub async fn send_chat_message(
 	let session_start_turn = is_session_start_turn(&messages);
 	let mut turn_messages = messages;
 
+	let tracer = FlowTracer::new(&app, conversation_id.as_deref());
+
+	// ── 阶段 1: 提示提交 hook ────────────────────────────────────────────────
+	tracer.emit("hook_prompt_submit", "提示提交 Hook", "running", None);
 	let prompt_submit_hook = crate::llm::services::hooks::run_user_prompt_submit_hooks(
 		&app,
 		conversation_id.as_deref(),
 	);
+	let hook_detail = if prompt_submit_hook.additional_messages.is_empty() {
+		Some("无附加消息".into())
+	} else {
+		Some(format!("注入 {} 条消息", prompt_submit_hook.additional_messages.len()))
+	};
+	tracer.emit("hook_prompt_submit", "提示提交 Hook", "completed", hook_detail);
 	if !prompt_submit_hook.additional_messages.is_empty() {
 		turn_messages.extend(prompt_submit_hook.additional_messages);
 	}
 
 	if session_start_turn {
+		// ── 阶段 2: 会话启动 hook (首轮) ──────────────────────────────────────
+		tracer.emit("hook_session_start", "会话启动 Hook", "running", None);
 		let session_start_hook = crate::llm::services::hooks::run_session_start_hooks(
 			&app,
 			conversation_id.as_deref(),
 		);
+		let hook_detail = if session_start_hook.additional_messages.is_empty() {
+			Some("无附加消息".into())
+		} else {
+			Some(format!("注入 {} 条消息", session_start_hook.additional_messages.len()))
+		};
+		tracer.emit("hook_session_start", "会话启动 Hook", "completed", hook_detail);
 		if !session_start_hook.additional_messages.is_empty() {
 			turn_messages.extend(session_start_hook.additional_messages);
 		}
+	} else {
+		tracer.emit("hook_session_start", "会话启动 Hook", "skipped", Some("非首轮".into()));
 	}
 
-	// 1. 先组装上下文（会话恢复等），再执行压缩。
+	// ── 阶段 3: 上下文组装 ────────────────────────────────────────────────────
+	tracer.emit("context_assemble", "上下文组装", "running", None);
 	let mut assembled_messages = context_assembler::assemble_messages_for_turn(
 		&app,
 		conversation_id.as_deref(),
@@ -192,27 +214,53 @@ pub async fn send_chat_message(
 		AssembleOptions::default(),
 	)
 	.await;
+	tracer.emit("context_assemble", "上下文组装", "completed", Some(FlowTracer::context_assemble_detail(&assembled_messages)));
 
+	// ── 阶段 4: 压缩前 hook ───────────────────────────────────────────────────
+	tracer.emit("hook_pre_compact", "压缩前 Hook", "running", None);
 	let pre_compact_hook = crate::llm::services::hooks::run_pre_compact_hooks(
 		&app,
 		conversation_id.as_deref(),
 	);
+	let hook_detail = if pre_compact_hook.additional_messages.is_empty() {
+		Some("无附加消息".into())
+	} else {
+		Some(format!("注入 {} 条消息", pre_compact_hook.additional_messages.len()))
+	};
+	tracer.emit("hook_pre_compact", "压缩前 Hook", "completed", hook_detail);
 	if !pre_compact_hook.additional_messages.is_empty() {
 		assembled_messages.extend(pre_compact_hook.additional_messages);
 	}
 
+	// ── 阶段 5: 历史压缩 ─────────────────────────────────────────────────────
+	tracer.emit("compact", "历史压缩", "running", None);
+	let before_tokens = compact::estimate_tokens_for_messages(&assembled_messages);
+	let compact_plan = compact::describe_compact_plan(&assembled_messages);
 	let mut current_messages = compact::compact_messages_for_turn(
 		&app,
 		conversation_id.as_deref(),
 		&assembled_messages,
 	)
 	.await;
+	let after_tokens = compact::estimate_tokens_for_messages(&current_messages);
+	let diff_report = compact::describe_compact_diff(&assembled_messages, &current_messages);
+	tracer.emit("compact", "历史压缩", "completed", Some(FlowTracer::compact_detail(
+		&assembled_messages, &current_messages, before_tokens, after_tokens, &compact_plan, &diff_report,
+	)));
 
+	// ── 阶段 6: Session RAG 检索 ─────────────────────────────────────────────
 	if let Some(query_text) = rag_query.as_deref() {
+		tracer.emit("rag", "Session RAG 检索", "running", Some(format!("query: {}", &query_text[..query_text.len().min(60)])));
 		match build_session_rag_context_message(&app, conversation_id.as_deref(), query_text) {
-			Ok(Some(rag_context)) => current_messages.push(rag_context),
-			Ok(None) => {}
+			Ok(Some(rag_context)) => {
+				tracer.emit("rag", "Session RAG 检索", "completed", Some("已注入检索结果".into()));
+				current_messages.push(rag_context);
+			}
+			Ok(None) => {
+				tracer.emit("rag", "Session RAG 检索", "skipped", Some("无匹配文档".into()));
+			}
 			Err(e) => {
+				tracer.emit("rag", "Session RAG 检索", "error", Some(e.clone()));
 				emit_backend_error(
 					&app,
 					"llm.query.session_rag_context",
@@ -221,6 +269,8 @@ pub async fn send_chat_message(
 				);
 			}
 		}
+	} else {
+		tracer.emit("rag", "Session RAG 检索", "skipped", Some("无用户文本".into()));
 	}
 
 	// 2. 根据设置选择模型提供方（Anthropic/OpenAI）。
@@ -248,6 +298,10 @@ pub async fn send_chat_message(
 		}
 
 		// 发起 provider 请求并等待结果。
+		// ── 最终上下文节点：展示发送给 AI 的每条完整消息 ────────────────────
+		tracer.emit("context_final", "最终上下文", "completed", Some(FlowTracer::context_final_detail(&current_messages)));
+		// ── LLM 请求节点：在调用前 emit 含 system prompt 完整内容 ─────────
+		tracer.emit("llm", "Nova 推理", "running", Some(tracer.llm_detail(&current_messages, agent_mode)));
 		let provider_result = match provider
 			.send_request(&app, &current_messages, agent_mode, conversation_id.as_deref())
 			.await
@@ -347,13 +401,17 @@ pub async fn send_chat_message(
 		// 若本轮没有工具结果，说明回合结束。
 		if !has_tool_result {
 			// 在回合结束前执行 stop hooks。
+			tracer.emit("hook_stop", "Stop Hook", "running", None);
 			let stop_hook_result =
 				crate::llm::services::hooks::run_stop_hooks(&app, &current_messages, conversation_id.as_deref());
 			// 判断 stop hooks 是否注入了附加上下文。
 			let stop_hook_added_context = !stop_hook_result.additional_messages.is_empty();
 			if stop_hook_added_context {
+				tracer.emit("hook_stop", "Stop Hook", "completed", Some(format!("注入 {} 条消息", stop_hook_result.additional_messages.len())));
 				// 将 stop hooks 注入的上下文并入当前消息。
 				current_messages.extend(stop_hook_result.additional_messages);
+			} else {
+				tracer.emit("hook_stop", "Stop Hook", "completed", Some("无附加消息".into()));
 			}
 
 			// stop hooks 要求阻断续跑时立即结束。
@@ -385,6 +443,7 @@ pub async fn send_chat_message(
 		&final_outcome.stop_reason,
 		conversation_id.as_deref(),
 	);
+	tracer.emit("hook_session_end", "会话结束 Hook", "completed", Some(format!("stop_reason={}", &final_outcome.stop_reason)));
 	if let Some(hooked_reason) = session_end_hook.stop_reason {
 		final_outcome.stop_reason = hooked_reason;
 	}
