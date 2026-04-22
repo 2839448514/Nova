@@ -48,8 +48,7 @@ async function pickWorkspace() {
 onMounted(loadCodingWorkspace);
 watch(() => props.codingMode, (v) => { if (v) loadCodingWorkspace(); });
 
-/** Display name: just the last path segment */
-const workspaceLabel = (path: string) => path.split(/[\\/]/).filter(Boolean).pop() ?? path;
+/** Display full workspace path */
 </script>
 
 <template>
@@ -126,23 +125,36 @@ const workspaceLabel = (path: string) => path.split(/[\\/]/).filter(Boolean).pop
           <TabsContent value="diff" class="min-h-0 overflow-hidden m-0 p-0 flex flex-col">
 
             <!-- Coding workspace selector bar (coding mode only) -->
-            <div
-              v-if="props.codingMode"
-              class="flex items-center gap-2 px-4 py-2 border-b border-[#e7e2d7] dark:border-[#333] shrink-0 bg-[#faf9f6] dark:bg-[#1a1a1a]"
-            >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="shrink-0 text-muted-foreground">
-                <path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z"/>
-              </svg>
-              <span
-                v-if="codingWorkspace"
-                class="text-xs font-medium text-[#1a1a1a] dark:text-[#ececec] truncate flex-1 min-w-0"
-                :title="codingWorkspace"
-              >{{ workspaceLabel(codingWorkspace) }}</span>
-              <span v-else class="text-xs text-muted-foreground italic flex-1">未选择工作区</span>
-              <button
-                class="shrink-0 text-[11px] px-2 py-0.5 rounded border border-[#e7e2d7] dark:border-[#333] text-muted-foreground hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
-                @click="pickWorkspace"
-              >{{ codingWorkspace ? '更换' : '选择工作区' }}</button>
+            <div v-if="props.codingMode">
+              <!-- No workspace selected: empty-state card -->
+              <div
+                v-if="!codingWorkspace"
+                class="mx-4 my-3 flex items-center justify-between gap-3 px-4 py-3 rounded-xl border border-[#e7e2d7] dark:border-[#333] bg-[#faf9f6] dark:bg-[#1e1e1e]"
+              >
+                <div class="min-w-0">
+                  <p class="text-sm font-medium text-[#1a1a1a] dark:text-[#ececec] leading-tight">当前工作目录缺失</p>
+                  <p class="text-xs text-muted-foreground mt-0.5">此对话的工作目录已不存在</p>
+                </div>
+                <button
+                  class="shrink-0 text-[11px] px-3 py-1 rounded-lg border border-[#e7e2d7] dark:border-[#444] text-muted-foreground hover:bg-black/5 dark:hover:bg-white/5 transition-colors whitespace-nowrap"
+                  @click="pickWorkspace"
+                >选择工作区</button>
+              </div>
+
+              <!-- Workspace selected: path bar -->
+              <div
+                v-else
+                class="flex items-center gap-2 px-4 py-2 border-b border-[#e7e2d7] dark:border-[#333] shrink-0 bg-[#faf9f6] dark:bg-[#1a1a1a]"
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="shrink-0 text-muted-foreground">
+                  <path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z"/>
+                </svg>
+                <span class="text-xs font-medium text-[#1a1a1a] dark:text-[#ececec] break-all flex-1 min-w-0">{{ codingWorkspace }}</span>
+                <button
+                  class="shrink-0 text-[11px] px-2 py-0.5 rounded border border-[#e7e2d7] dark:border-[#333] text-muted-foreground hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+                  @click="pickWorkspace"
+                >选择工作区</button>
+              </div>
             </div>
 
             <FileDiffView

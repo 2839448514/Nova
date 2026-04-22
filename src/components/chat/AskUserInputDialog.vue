@@ -39,6 +39,9 @@ const emit = defineEmits<{
 
 const selectedAnswers = reactive<Record<string, string[]>>({});
 const activePreview = reactive<Record<string, string>>({});
+/** 每题独立保存的 freeform 文本，key = question.question */
+const freeformAnswers = reactive<Record<string, string>>({});
+/** 当前题的 freeform 输入框双向绑定 */
 const freeform = ref('');
 const currentIndex = ref(0);
 
@@ -59,11 +62,24 @@ function optionAnswerValue(option: AskUserOption): string {
   return (option.value?.trim() || option.label).trim();
 }
 
+/** 将当前 freeform 存入 per-question map */
+function saveCurrentFreeform() {
+  const key = currentQuestion.value?.question;
+  if (key !== undefined) freeformAnswers[key] = freeform.value;
+}
+
+/** 切换到指定题时从 map 恢复 freeform */
+function restoreFreeform(index: number) {
+  const key = questions.value[index]?.question;
+  freeform.value = key !== undefined ? (freeformAnswers[key] ?? '') : '';
+}
+
 watch(
   () => props.request,
   () => {
     Object.keys(selectedAnswers).forEach((key) => delete selectedAnswers[key]);
     Object.keys(activePreview).forEach((key) => delete activePreview[key]);
+    Object.keys(freeformAnswers).forEach((key) => delete freeformAnswers[key]);
     freeform.value = '';
     currentIndex.value = 0;
   },
@@ -94,31 +110,53 @@ const canSubmit = computed(() => {
   const question = currentQuestion.value;
   if (!question) return false;
   const answers = selectedAnswers[question.question] ?? [];
-  return answers.length > 0;
+  // 选了选项 或 写了自由文本，任意一个满足即可提交
+  return answers.length > 0 || freeform.value.trim().length > 0;
 });
 
 function buildSubmission(): AskUserAnswerSubmission {
+  // 先保存最后一题的 freeform
+  saveCurrentFreeform();
+
   const answers: Record<string, string | string[]> = {};
 
   for (const question of questions.value) {
     const values = selectedAnswers[question.question] ?? [];
-    answers[question.question] = question.multi_select ? values : values[0] ?? '';
+    const qFreeform = (freeformAnswers[question.question] ?? '').trim();
+    if (question.multi_select) {
+      // 有选项用选项，否则把 freeform 作为唯一选项传入
+      answers[question.question] = values.length > 0 ? values : (qFreeform ? [qFreeform] : []);
+    } else {
+      answers[question.question] = values[0] ?? qFreeform ?? '';
+    }
   }
+
+  // 将所有有内容的 per-question freeform 合并为全局 freeform 字段
+  const freeformParts = questions.value
+    .map((q) => {
+      const f = (freeformAnswers[q.question] ?? '').trim();
+      return f ? `${q.header}: ${f}` : '';
+    })
+    .filter(Boolean);
 
   return {
     answers,
-    freeform: freeform.value.trim() || undefined,
+    freeform: freeformParts.join('\n') || undefined,
   };
 }
 
 function goNext() {
   if (!canSubmit.value || isLastQuestion.value) return;
+  saveCurrentFreeform();
   currentIndex.value += 1;
+  restoreFreeform(currentIndex.value);
 }
 
 function goPrevious() {
   if (currentIndex.value <= 0) return;
+  saveCurrentFreeform();
   currentIndex.value -= 1;
+  restoreFreeform(currentIndex.value);
 }
 
 function submitAnswers() {
@@ -128,7 +166,7 @@ function submitAnswers() {
     return;
   }
 
-  if (!(selectedAnswers[currentQuestion.value.question] ?? []).length) return;
+  if (!canSubmit.value) return;
   emit('submit', buildSubmission());
 }
 </script>

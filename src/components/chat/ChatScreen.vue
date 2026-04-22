@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { nextTick, onMounted, ref } from 'vue';
+import { nextTick, onMounted, ref, watch } from 'vue';
+import { invoke } from '@tauri-apps/api/core';
 import type {
   AgentMode,
   AskUserAnswerSubmission,
@@ -42,6 +43,32 @@ const chatAreaRef = ref<HTMLElement | null>(null);
 const reactionMap = ref<Record<number, 'up' | 'down' | undefined>>({});
 const copiedMap = ref<Record<string, boolean>>({});
 const copyTimers: Record<string, ReturnType<typeof setTimeout> | undefined> = {};
+
+// ── Coding workspace ──────────────────────────────────────────────────────────
+const codingWorkspace = ref<string | null>(null);
+
+async function loadCodingWorkspace() {
+  try {
+    const settings = await invoke<{ codingWorkspace?: string }>('get_settings');
+    codingWorkspace.value = settings.codingWorkspace ?? null;
+  } catch { /* ignore */ }
+}
+
+async function pickWorkspace() {
+  try {
+    const picked = await invoke<string | null>('pick_coding_workspace');
+    if (picked) {
+      codingWorkspace.value = picked;
+      const settings = await invoke<Record<string, unknown>>('get_settings');
+      settings.codingWorkspace = picked;
+      await invoke('save_settings', { settings });
+    }
+  } catch { /* ignore */ }
+}
+
+watch(() => props.agentMode, (mode) => {
+  if (mode === 'coding') loadCodingWorkspace();
+}, { immediate: true });
 
 const toolStartPattern = /^(?:>\s*)?Using tool:\s*(.+?)\.{0,3}\s*$/i;
 const toolInfoPattern = /^(?:>\s*)?Tool info:\s*(.+?)\s*$/i;
@@ -287,6 +314,40 @@ defineExpose({
 
     <div class="w-full bg-transparent px-4 pt-4 pb-6">
       <div class="w-full max-w-[760px] mx-auto">
+
+        <!-- Coding workspace bar -->
+        <template v-if="props.agentMode === 'coding'">
+          <!-- No workspace -->
+          <div
+            v-if="!codingWorkspace"
+            class="mb-3 flex items-center justify-between gap-3 px-4 py-3 rounded-xl border border-[#e7e2d7] dark:border-[#333] bg-[#faf9f6] dark:bg-[#1e1e1e]"
+          >
+            <div class="min-w-0">
+              <p class="text-sm font-medium text-[#1a1a1a] dark:text-[#ececec] leading-tight">当前工作目录缺失</p>
+              <p class="text-xs text-muted-foreground mt-0.5">此对话的工作目录已不存在</p>
+            </div>
+            <button
+              class="shrink-0 text-[11px] px-3 py-1 rounded-lg border border-[#e7e2d7] dark:border-[#444] text-muted-foreground hover:bg-black/5 dark:hover:bg-white/5 transition-colors whitespace-nowrap"
+              @click="pickWorkspace"
+            >选择工作区</button>
+          </div>
+
+          <!-- Has workspace -->
+          <div
+            v-else
+            class="mb-3 flex items-center gap-2 px-4 py-2.5 rounded-xl border border-[#e7e2d7] dark:border-[#333] bg-[#faf9f6] dark:bg-[#1e1e1e]"
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="shrink-0 text-muted-foreground">
+              <path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z"/>
+            </svg>
+            <span class="text-xs font-medium text-[#1a1a1a] dark:text-[#ececec] break-all flex-1 min-w-0">{{ codingWorkspace }}</span>
+            <button
+              class="shrink-0 text-[11px] px-2 py-0.5 rounded border border-[#e7e2d7] dark:border-[#333] text-muted-foreground hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+              @click="pickWorkspace"
+            >选择工作区</button>
+          </div>
+        </template>
+
         <AskUserInputDialog
           v-if="pendingQuestion"
           :request="pendingQuestion"
