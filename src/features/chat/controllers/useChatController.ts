@@ -4,43 +4,30 @@ import { emitToast } from "../../../lib/toast";
 import {
   buildPendingQuestionReply,
   extractPermissionActionFromAnswers,
-  parseNeedsUserInput,
-  parsePlanModeChange,
-  renderToolResult,
 } from "../../../lib/chat-payloads";
 import {
   estimateTokens,
-  extractSessionMemory,
 } from "../utils/session-memory";
-import { summarizeToolInfo } from "../utils/tool-info";
+import { createConversationActions } from "./chat-conversation-actions";
 import { createFlowNodeStore } from "./chat-flow-nodes";
 import {
   createConversationRuntimeRegistry,
   type ConversationTurnRuntimeState,
 } from "./chat-runtime-state";
+import { createChatStreamHandlers } from "./chat-stream-handlers";
 import {
-  appendToolExecutionInput,
   completeToolExecutionTrace,
-  latestRunningToolExecutionIdByName,
   markRunningToolExecutions,
-  startToolExecutionTrace,
 } from "./chat-tool-trace";
 import {
-  appendConversationMessage,
   cancelChatMessage,
-  createConversation,
   deleteConversation,
-  getConversationMemory,
-  loadConversationToolLogs,
   listConversationRagDocuments,
-  listConversations,
-  loadConversationHistory,
   sendChatMessage,
   submitPermissionDecision,
   type RagDocumentMeta,
   upsertConversationRagDocuments,
   upsertConversationToolLog,
-  upsertConversationMemory,
 } from "../services/chat-api";
 import type {
   AgentMode,
@@ -101,8 +88,6 @@ type ModelMessage = {
   role: "user" | "assistant";
   content: string | Array<ModelTextBlock | ModelImageBlock>;
 };
-
-const SCHEDULED_CONVERSATION_TITLE_PREFIX = "Scheduled [";
 
 export function useChatController() {
   const messages = ref<ChatMessage[]>([]);
@@ -435,121 +420,29 @@ export function useChatController() {
     };
   }
 
-  async function loadConversationMemory(conversationId: string) {
-    try {
-      const mem = await getConversationMemory(conversationId);
-      conversationMemory.value = mem;
-    } catch (err) {
-      console.error("Failed to load conversation memory:", err);
-      conversationMemory.value = null;
-    }
-  }
-
-  async function persistConversationMemory(conversationId: string) {
-    const { summary, keyFacts } = extractSessionMemory(messages.value);
-    if (!summary.trim()) return;
-    try {
-      await upsertConversationMemory(conversationId, summary, keyFacts);
-      conversationMemory.value = {
-        summary,
-        keyFacts,
-        updatedAt: Date.now(),
-      };
-    } catch (err) {
-      console.error("Failed to persist conversation memory:", err);
-    }
-  }
-
-  async function refreshConversations() {
-    try {
-      const items = await listConversations();
-      conversations.value = (items || []).filter(
-        (item) => !item.title.startsWith(SCHEDULED_CONVERSATION_TITLE_PREFIX),
-      );
-    } catch (err) {
-      console.error("Failed to list conversations:", err);
-    }
-  }
-
-  async function createNewConversation(seedTitle?: string): Promise<string | null> {
-    try {
-      const conv = await createConversation(seedTitle);
-      await refreshConversations();
-      return conv.id;
-    } catch (err) {
-      console.error("Failed to create conversation:", err);
-      return null;
-    }
-  }
-
-  async function loadConversation(id: string) {
-    const targetConversationId = id.trim();
-    if (!targetConversationId) {
-      return;
-    }
-
-    const previousConversationId = activeConversationId.value;
-    if (previousConversationId && previousConversationId !== targetConversationId) {
-      stashRuntimeState(previousConversationId);
-    }
-
-    activeConversationId.value = targetConversationId;
-    planMode.value = agentMode.value === "plan";
-    codingMode.value = agentMode.value === "coding";
-    pendingUploads.value = [];
-    try {
-      const saved = await loadConversationHistory(targetConversationId);
-      const savedToolLogs = await loadConversationToolLogs(targetConversationId);
-      messages.value = (saved || [])
-        .filter(
-          (m) =>
-            (m.role === "user" || m.role === "assistant") &&
-            (!!m.content || !!m.reasoning || (m.attachments?.length ?? 0) > 0),
-        )
-        .map((m) => ({
-          role: m.role as "user" | "assistant",
-          content: m.content,
-          reasoning: m.reasoning,
-          attachments: m.attachments,
-          tokenUsage: m.tokenUsage,
-          cost: m.cost,
-        }));
-
-      const restored = restoreRuntimeState(targetConversationId);
-      if (!restored) {
-        toolExecutionLogs.value = savedToolLogs;
-      } else if (toolExecutionLogs.value.length === 0) {
-        toolExecutionLogs.value = savedToolLogs;
-      }
-
-      await loadConversationMemory(targetConversationId);
-      await refreshConversationFiles(targetConversationId);
-    } catch (err) {
-      console.error("Failed to load conversation messages:", err);
-      messages.value = [];
-      clearActiveRuntimeState();
-      conversationFiles.value = [];
-    }
-  }
-
-  async function persistMessage(msg: ChatMessage, conversationId = activeConversationId.value) {
-    if (!conversationId) return;
-    try {
-      await appendConversationMessage(conversationId, msg);
-      await refreshConversations();
-    } catch (err) {
-      console.error("Failed to persist message:", err);
-    }
-  }
-
-  function buildAssistantCostForState(state: ConversationTurnRuntimeState): TurnCost {
-    return {
-      inputTokens: state.currentInputTokens,
-      outputTokens: state.currentOutputTokens,
-      toolCalls: state.currentToolCalls,
-      toolDurationMs: state.currentToolDurationMs,
-    };
-  }
+  const {
+    buildAssistantCostForState,
+    createNewConversation,
+    loadConversation,
+    persistConversationMemory,
+    persistMessage,
+    refreshConversations,
+  } = createConversationActions({
+    activeConversationId,
+    agentMode,
+    codingMode,
+    conversationFiles,
+    conversationMemory,
+    conversations,
+    messages,
+    pendingUploads,
+    planMode,
+    toolExecutionLogs,
+    clearActiveRuntimeState,
+    refreshConversationFiles,
+    restoreRuntimeState,
+    stashRuntimeState,
+  });
 
   function shouldPreservePendingPromptOnStop(turnState: string, stopReason: string): boolean {
     return (
@@ -648,6 +541,42 @@ export function useChatController() {
     }
     chatScreenRef.value?.scrollToBottom();
   }
+
+  const { handleChatStreamEvent } = createChatStreamHandlers({
+    activeConversationId,
+    agentMode,
+    assistantReasoning,
+    assistantResponse,
+    assistantTokenUsage,
+    assistantTurnCost,
+    currentOutputTokens,
+    currentToolCalls,
+    currentToolDurationMs,
+    currentToolStartedAt,
+    isGenerating,
+    pendingPermissionRequestId,
+    pendingQuestion,
+    planMode,
+    toolExecutionLogs,
+    toolInputById,
+    toolNameById,
+    cleanupRuntimeStateIfIdle,
+    completeActiveToolExecutionTrace,
+    completeStateToolExecutionTrace,
+    deleteRuntimeState,
+    ensureRuntimeState,
+    finalizeBackgroundTurn,
+    finalizeOrStopTurn,
+    markActiveRunningToolExecutions,
+    markStateRunningToolExecutions,
+    resetPendingPromptState,
+    resetToolTrackingState,
+    resetTurnRuntimeState,
+    scrollChatToBottom: () => {
+      chatScreenRef.value?.scrollToBottom();
+    },
+    shouldPreservePendingPromptOnStop,
+  });
 
   async function handleSendMessage(userText: string) {
     if (isGenerating.value) return;
@@ -1019,221 +948,6 @@ export function useChatController() {
     await loadConversation(conversations.value[0].id);
   };
 
-  async function handleBackgroundChatStreamEvent(
-    conversationId: string,
-    payload: ChatMessageEvent,
-  ) {
-    const state = ensureRuntimeState(conversationId);
-
-    if (payload.type === "text" && payload.text) {
-      state.isGenerating = true;
-      state.assistantResponse += payload.text;
-      return;
-    }
-
-    if (payload.type === "reasoning" && payload.text) {
-      state.isGenerating = true;
-      state.assistantReasoning += payload.text;
-      return;
-    }
-
-    if (payload.type === "tool-use-start") {
-      state.isGenerating = true;
-      state.currentToolCalls += 1;
-      state.currentToolStartedAt = Date.now();
-
-      const toolName = (payload.tool_use_name ?? "unknown").trim() || "unknown";
-      const rawToolId = (payload.tool_use_id ?? "").trim();
-      const toolId = rawToolId || `tool-${Date.now()}-${state.currentToolCalls}`;
-      state.toolNameById.set(toolId, toolName);
-      if (!state.toolInputById.has(toolId)) {
-        state.toolInputById.set(toolId, "");
-      }
-      startToolExecutionTrace(state.toolExecutionLogs, toolId, toolName);
-      return;
-    }
-
-    if (payload.type === "tool-json-delta") {
-      const toolId = (payload.tool_use_id ?? "").trim();
-      if (toolId && payload.tool_use_input) {
-        const prev = state.toolInputById.get(toolId) ?? "";
-        state.toolInputById.set(toolId, prev + payload.tool_use_input);
-        appendToolExecutionInput(state.toolExecutionLogs, toolId, payload.tool_use_input);
-      }
-      return;
-    }
-
-    if (payload.type === "permission-request") {
-      const requestId = (payload.tool_use_id ?? "").trim();
-      const promptPayload = (payload.text ?? "").trim();
-      const parsed = parseNeedsUserInput(promptPayload);
-      if (!requestId || !parsed) {
-        emitToast({
-          variant: "error",
-          source: "permission-request",
-          message: `会话 ${conversationId} 收到异常权限请求，已自动拒绝。`,
-        });
-        if (requestId) {
-          void submitPermissionDecision(conversationId, requestId, "deny_session").catch((err) => {
-            emitToast({
-              variant: "error",
-              source: "permission-request",
-              message: `会话 ${conversationId} 自动拒绝权限请求失败: ${String(err)}`,
-            });
-          });
-        }
-        return;
-      }
-
-      state.pendingPermissionRequestId = requestId;
-      state.pendingQuestion = parsed;
-      state.isGenerating = false;
-      emitToast({
-        variant: "info",
-        source: "permission-request",
-        message: `会话 ${conversationId} 需要权限确认，请切回该会话处理。`,
-      });
-      return;
-    }
-
-    if (payload.type === "tool-result") {
-      if (state.currentToolStartedAt) {
-        state.currentToolDurationMs += Math.max(0, Date.now() - state.currentToolStartedAt);
-        state.currentToolStartedAt = null;
-      }
-
-      const rawToolId = (payload.tool_use_id ?? "").trim();
-      const fallbackToolName = (payload.tool_use_name ?? "").trim();
-      const toolName =
-        fallbackToolName ||
-        (rawToolId ? state.toolNameById.get(rawToolId) : undefined) ||
-        "unknown";
-      const toolId =
-        rawToolId ||
-        latestRunningToolExecutionIdByName(state.toolExecutionLogs, toolName) ||
-        "";
-      const streamedInput = toolId ? state.toolInputById.get(toolId) ?? "" : "";
-      const fallbackInput = (payload.tool_use_input ?? "").trim();
-      const rawInput = streamedInput.trim().length > 0 ? streamedInput : fallbackInput;
-      const result = (payload.tool_result ?? "").trim();
-      completeStateToolExecutionTrace(
-        conversationId,
-        state,
-        toolId || null,
-        toolName,
-        result,
-        "completed",
-        rawInput,
-      );
-
-      if (toolId) {
-        state.toolInputById.delete(toolId);
-        state.toolNameById.delete(toolId);
-      }
-
-      if (result) {
-        const needsUserInput = parseNeedsUserInput(result);
-        if (needsUserInput) {
-          state.pendingPermissionRequestId = null;
-          state.pendingQuestion = needsUserInput;
-          state.isGenerating = false;
-          const rendered = renderToolResult(result);
-          const preview =
-            rendered.length > 1200 ? `${rendered.slice(0, 1200)}\n...(truncated)` : rendered;
-          state.assistantResponse += `\n${preview}\n`;
-          emitToast({
-            variant: "info",
-            source: "permission-request",
-            message: `会话 ${conversationId} 需要继续输入，请切回该会话。`,
-          });
-        }
-      }
-      return;
-    }
-
-    if (payload.type === "token-usage") {
-      state.assistantTokenUsage = payload.token_usage;
-      state.currentOutputTokens = payload.token_usage ?? state.currentOutputTokens;
-      return;
-    }
-
-    if (payload.type !== "stop") {
-      return;
-    }
-
-    const stopReason = payload.stop_reason ?? "";
-    const turnState = payload.turn_state ?? "";
-
-    if (turnState === "cancelled" || stopReason === "cancelled") {
-      markStateRunningToolExecutions(conversationId, state, "cancelled");
-      state.isGenerating = false;
-      state.assistantResponse = "";
-      state.assistantReasoning = "";
-      state.assistantTokenUsage = undefined;
-      state.assistantTurnCost = undefined;
-      state.pendingPermissionRequestId = null;
-      state.pendingQuestion = null;
-      state.currentToolStartedAt = null;
-      state.currentToolCalls = 0;
-      state.currentToolDurationMs = 0;
-      state.currentInputTokens = 0;
-      state.currentOutputTokens = 0;
-      state.toolInputById.clear();
-      state.toolNameById.clear();
-      cleanupRuntimeStateIfIdle(conversationId);
-      return;
-    }
-
-    if (turnState === "error") {
-      markStateRunningToolExecutions(conversationId, state, "error");
-      state.isGenerating = false;
-      state.assistantResponse = "";
-      state.assistantReasoning = "";
-      state.assistantTokenUsage = undefined;
-      state.assistantTurnCost = undefined;
-      state.pendingPermissionRequestId = null;
-      state.pendingQuestion = null;
-      state.currentToolStartedAt = null;
-      state.currentToolCalls = 0;
-      state.currentToolDurationMs = 0;
-      state.currentInputTokens = 0;
-      state.currentOutputTokens = 0;
-      state.toolInputById.clear();
-      state.toolNameById.clear();
-      cleanupRuntimeStateIfIdle(conversationId);
-
-      const detail = (payload.text ?? "").trim();
-      emitToast({
-        variant: "error",
-        source: "chat-stream",
-        message: detail || `会话 ${conversationId} 回复失败: ${stopReason || "unknown"}`,
-      });
-      return;
-    }
-
-    const shouldFinalize =
-      turnState === "completed" ||
-      turnState === "awaiting_user_input" ||
-      turnState === "needs_user_input" ||
-      turnState === "stop_hook_prevented" ||
-      stopReason === "stop_hook_prevented" ||
-      stopReason === "needs_user_input";
-
-    if (shouldFinalize) {
-      const preservePendingPrompt =
-        shouldPreservePendingPromptOnStop(turnState, stopReason) ||
-        !!state.pendingPermissionRequestId ||
-        !!state.pendingQuestion;
-      markStateRunningToolExecutions(conversationId, state, "completed");
-      await finalizeBackgroundTurn(
-        conversationId,
-        state,
-        payload.token_usage,
-        preservePendingPrompt,
-      );
-    }
-  }
-
   onMounted(async () => {
     await refreshConversations();
     if (conversations.value.length === 0) {
@@ -1247,203 +961,7 @@ export function useChatController() {
 
     try {
       unlistenChatStream = await listen<ChatMessageEvent>("chat-stream", (event) => {
-        const payload = event.payload;
-        const payloadConversationId = (payload.conversation_id ?? "").trim();
-        const targetConversationId = payloadConversationId || activeConversationId.value;
-        if (!targetConversationId) {
-          return;
-        }
-
-        if (targetConversationId !== activeConversationId.value) {
-          void handleBackgroundChatStreamEvent(targetConversationId, payload);
-          return;
-        }
-
-        if (payload.type === "text" && payload.text) {
-          assistantResponse.value += payload.text;
-          chatScreenRef.value?.scrollToBottom();
-        } else if (payload.type === "reasoning" && payload.text) {
-          assistantReasoning.value += payload.text;
-          chatScreenRef.value?.scrollToBottom();
-        } else if (payload.type === "tool-use-start") {
-          currentToolCalls.value += 1;
-          currentToolStartedAt.value = Date.now();
-          const toolName = (payload.tool_use_name ?? "unknown").trim() || "unknown";
-          const rawToolId = (payload.tool_use_id ?? "").trim();
-          const toolId = rawToolId || `tool-${Date.now()}-${currentToolCalls.value}`;
-
-          toolNameById.set(toolId, toolName);
-          if (!toolInputById.has(toolId)) {
-            toolInputById.set(toolId, "");
-          }
-
-          startToolExecutionTrace(toolExecutionLogs.value, toolId, toolName);
-          assistantResponse.value += `\n> Using tool: ${toolName}...\n`;
-          chatScreenRef.value?.scrollToBottom();
-        } else if (payload.type === "tool-json-delta") {
-          const toolId = (payload.tool_use_id ?? "").trim();
-          if (toolId && payload.tool_use_input) {
-            const prev = toolInputById.get(toolId) ?? "";
-            toolInputById.set(toolId, prev + payload.tool_use_input);
-            appendToolExecutionInput(toolExecutionLogs.value, toolId, payload.tool_use_input);
-          }
-        } else if (payload.type === "permission-request") {
-          const requestId = (payload.tool_use_id ?? "").trim();
-          const promptPayload = (payload.text ?? "").trim();
-          const parsed = parseNeedsUserInput(promptPayload);
-
-          if (!requestId) {
-            emitToast({
-              variant: "error",
-              source: "permission-request",
-              message: "收到权限请求但缺少 request_id，已尝试取消当前回合。",
-            });
-            void cancelChatMessage(activeConversationId.value || null).catch((err) => {
-              emitToast({
-                variant: "error",
-                source: "permission-request",
-                message: `取消异常权限请求失败: ${String(err)}`,
-              });
-            });
-            resetPendingPromptState();
-            return;
-          }
-
-          if (!parsed) {
-            emitToast({
-              variant: "error",
-              source: "permission-request",
-              message: "收到权限请求但参数无效，已自动拒绝该请求。",
-            });
-            void submitPermissionDecision(
-              activeConversationId.value || null,
-              requestId,
-              "deny_session",
-            ).catch((err) => {
-              emitToast({
-                variant: "error",
-                source: "permission-request",
-                message: `自动拒绝权限请求失败: ${String(err)}`,
-              });
-            });
-            resetPendingPromptState();
-            return;
-          }
-
-          pendingPermissionRequestId.value = requestId;
-          pendingQuestion.value = parsed;
-          chatScreenRef.value?.scrollToBottom();
-        } else if (payload.type === "tool-result") {
-          if (currentToolStartedAt.value) {
-            currentToolDurationMs.value += Math.max(0, Date.now() - currentToolStartedAt.value);
-            currentToolStartedAt.value = null;
-          }
-          const rawToolId = (payload.tool_use_id ?? "").trim();
-          const fallbackToolName = (payload.tool_use_name ?? "").trim();
-          const toolName =
-            fallbackToolName ||
-            (rawToolId ? toolNameById.get(rawToolId) : undefined) ||
-            "unknown";
-          const toolId =
-            rawToolId || latestRunningToolExecutionIdByName(toolExecutionLogs.value, toolName) || "";
-          const streamedInput = toolId ? toolInputById.get(toolId) ?? "" : "";
-          const fallbackInput = (payload.tool_use_input ?? "").trim();
-          const rawInput = streamedInput.trim().length > 0 ? streamedInput : fallbackInput;
-          const info = summarizeToolInfo(toolName, rawInput);
-          if (info) {
-            assistantResponse.value += `\n> Tool info: ${info}\n`;
-          }
-          assistantResponse.value += `\n> Tool done: ${toolName}\n`;
-          const result = (payload.tool_result ?? "").trim();
-          completeActiveToolExecutionTrace(toolId || null, toolName, result, "completed", rawInput);
-
-          if (toolId) {
-            toolInputById.delete(toolId);
-            toolNameById.delete(toolId);
-          }
-
-          if (result) {
-            const planModeChange = parsePlanModeChange(result);
-            if (planModeChange) {
-              const isPlan = planModeChange.mode === "plan";
-              planMode.value = isPlan;
-              agentMode.value = isPlan ? "plan" : "agent";
-            }
-            const needsUserInput = parseNeedsUserInput(result);
-            if (needsUserInput) {
-              pendingPermissionRequestId.value = null;
-              pendingQuestion.value = needsUserInput;
-              isGenerating.value = false;
-              const rendered = renderToolResult(result);
-              const preview =
-                rendered.length > 1200 ? `${rendered.slice(0, 1200)}\n...(truncated)` : rendered;
-              assistantResponse.value += `\n${preview}\n`;
-            }
-          }
-          chatScreenRef.value?.scrollToBottom();
-        } else if (payload.type === "token-usage") {
-          assistantTokenUsage.value = payload.token_usage;
-          currentOutputTokens.value = payload.token_usage ?? currentOutputTokens.value;
-        } else if (payload.type === "stop") {
-          const stopReason = payload.stop_reason ?? "";
-          const turnState = payload.turn_state ?? "";
-
-          if (turnState === "cancelled" || stopReason === "cancelled") {
-            markActiveRunningToolExecutions("cancelled");
-            finalizeOrStopTurn(payload.token_usage);
-            resetTurnRuntimeState();
-            if (activeConversationId.value) {
-              deleteRuntimeState(activeConversationId.value);
-            }
-            return;
-          }
-
-          if (turnState === "error") {
-            markActiveRunningToolExecutions("error");
-            isGenerating.value = false;
-            assistantResponse.value = "";
-            assistantReasoning.value = "";
-            assistantTokenUsage.value = undefined;
-            assistantTurnCost.value = undefined;
-            resetTurnRuntimeState();
-            if (activeConversationId.value) {
-              deleteRuntimeState(activeConversationId.value);
-            }
-            const detail = (payload.text ?? "").trim();
-            emitToast({
-              variant: "error",
-              source: "chat-stream",
-              message: detail || `Provider error: ${stopReason || "unknown"}`,
-            });
-            return;
-          }
-          const shouldFinalize =
-            turnState === "completed" ||
-            turnState === "awaiting_user_input" ||
-            turnState === "needs_user_input" ||
-            turnState === "stop_hook_prevented" ||
-            stopReason === "stop_hook_prevented" ||
-            stopReason === "needs_user_input";
-
-          if (shouldFinalize) {
-            const preservePendingPrompt =
-              shouldPreservePendingPromptOnStop(turnState, stopReason) ||
-              !!pendingPermissionRequestId.value ||
-              !!pendingQuestion.value;
-            markActiveRunningToolExecutions("completed");
-            finalizeOrStopTurn(payload.token_usage);
-
-            if (!preservePendingPrompt) {
-              resetTurnRuntimeState();
-            } else {
-              resetToolTrackingState();
-            }
-
-            if (activeConversationId.value && !preservePendingPrompt) {
-              deleteRuntimeState(activeConversationId.value);
-            }
-          }
-        }
+        void handleChatStreamEvent(event.payload);
       });
     } catch (err) {
       console.error("Failed to setup listener:", err);
