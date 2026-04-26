@@ -13,6 +13,18 @@ import {
   extractSessionMemory,
 } from "../utils/session-memory";
 import { summarizeToolInfo } from "../utils/tool-info";
+import { createFlowNodeStore } from "./chat-flow-nodes";
+import {
+  createConversationRuntimeRegistry,
+  type ConversationTurnRuntimeState,
+} from "./chat-runtime-state";
+import {
+  appendToolExecutionInput,
+  completeToolExecutionTrace,
+  latestRunningToolExecutionIdByName,
+  markRunningToolExecutions,
+  startToolExecutionTrace,
+} from "./chat-tool-trace";
 import {
   appendConversationMessage,
   cancelChatMessage,
@@ -92,24 +104,6 @@ type ModelMessage = {
 
 const SCHEDULED_CONVERSATION_TITLE_PREFIX = "Scheduled [";
 
-type ConversationTurnRuntimeState = {
-  isGenerating: boolean;
-  assistantResponse: string;
-  assistantReasoning: string;
-  assistantTokenUsage?: number;
-  assistantTurnCost?: TurnCost;
-  pendingQuestion: NeedsUserInputPayload | null;
-  pendingPermissionRequestId: string | null;
-  currentToolStartedAt: number | null;
-  currentToolCalls: number;
-  currentToolDurationMs: number;
-  currentInputTokens: number;
-  currentOutputTokens: number;
-  toolExecutionLogs: ToolExecutionEntry[];
-  toolInputById: Map<string, string>;
-  toolNameById: Map<string, string>;
-};
-
 export function useChatController() {
   const messages = ref<ChatMessage[]>([]);
   const isGenerating = ref(false);
@@ -136,188 +130,43 @@ export function useChatController() {
   const isCreatingNewChat = ref(false);
   const isSidebarOpen = ref(true);
   const toolExecutionLogs = ref<ToolExecutionEntry[]>([]);
-
-  // flowNodes: 从 localStorage 恢复，以便刷新后保留上次回合的流水线节点
-  const _savedFlowNodes = localStorage.getItem("nova:flowNodes");
-  const flowNodes = ref<FlowNodeEntry[]>(_savedFlowNodes ? (JSON.parse(_savedFlowNodes) as FlowNodeEntry[]) : []);
   const chatScreenRef = ref<ChatScreenHandle | null>(null);
   const toolInputById = new Map<string, string>();
   const toolNameById = new Map<string, string>();
-  const runtimeStateByConversation = new Map<string, ConversationTurnRuntimeState>();
+  const { flowNodes, clearFlowNodes, upsertFlowNode } = createFlowNodeStore();
+  const {
+    clearActiveRuntimeState,
+    cleanupRuntimeStateIfIdle,
+    clearRuntimeStates,
+    deleteRuntimeState,
+    ensureRuntimeState,
+    hasAnyGeneratingConversations,
+    isSpecificConversationGenerating,
+    restoreRuntimeState,
+    stashRuntimeState,
+  } = createConversationRuntimeRegistry({
+    activeConversationId,
+    isGenerating,
+    assistantResponse,
+    assistantReasoning,
+    assistantTokenUsage,
+    assistantTurnCost,
+    pendingQuestion,
+    pendingPermissionRequestId,
+    currentToolStartedAt,
+    currentToolCalls,
+    currentToolDurationMs,
+    currentInputTokens,
+    currentOutputTokens,
+    toolExecutionLogs,
+    toolInputById,
+    toolNameById,
+  });
 
   let unlistenChatStream: UnlistenFn | null = null;
   let unlistenBackendError: UnlistenFn | null = null;
   let unlistenScheduledTaskTrigger: UnlistenFn | null = null;
   let unlistenFlowNode: UnlistenFn | null = null;
-
-  function createEmptyRuntimeState(): ConversationTurnRuntimeState {
-    return {
-      isGenerating: false,
-      assistantResponse: "",
-      assistantReasoning: "",
-      assistantTokenUsage: undefined,
-      assistantTurnCost: undefined,
-      pendingQuestion: null,
-      pendingPermissionRequestId: null,
-      currentToolStartedAt: null,
-      currentToolCalls: 0,
-      currentToolDurationMs: 0,
-      currentInputTokens: 0,
-      currentOutputTokens: 0,
-      toolExecutionLogs: [],
-      toolInputById: new Map<string, string>(),
-      toolNameById: new Map<string, string>(),
-    };
-  }
-
-  function normalizeConversationId(conversationId?: string | null): string {
-    const normalized = (conversationId ?? "").trim();
-    return normalized || "__default__";
-  }
-
-  function cloneRuntimeState(state: ConversationTurnRuntimeState): ConversationTurnRuntimeState {
-    return {
-      ...state,
-      toolExecutionLogs: state.toolExecutionLogs.map((entry) => ({ ...entry })),
-      toolInputById: new Map(state.toolInputById),
-      toolNameById: new Map(state.toolNameById),
-    };
-  }
-
-  function snapshotActiveRuntimeState(): ConversationTurnRuntimeState {
-    return {
-      isGenerating: isGenerating.value,
-      assistantResponse: assistantResponse.value,
-      assistantReasoning: assistantReasoning.value,
-      assistantTokenUsage: assistantTokenUsage.value,
-      assistantTurnCost: assistantTurnCost.value,
-      pendingQuestion: pendingQuestion.value,
-      pendingPermissionRequestId: pendingPermissionRequestId.value,
-      currentToolStartedAt: currentToolStartedAt.value,
-      currentToolCalls: currentToolCalls.value,
-      currentToolDurationMs: currentToolDurationMs.value,
-      currentInputTokens: currentInputTokens.value,
-      currentOutputTokens: currentOutputTokens.value,
-      toolExecutionLogs: toolExecutionLogs.value.map((entry) => ({ ...entry })),
-      toolInputById: new Map(toolInputById),
-      toolNameById: new Map(toolNameById),
-    };
-  }
-
-  function applyRuntimeStateToActive(state: ConversationTurnRuntimeState) {
-    isGenerating.value = state.isGenerating;
-    assistantResponse.value = state.assistantResponse;
-    assistantReasoning.value = state.assistantReasoning;
-    assistantTokenUsage.value = state.assistantTokenUsage;
-    assistantTurnCost.value = state.assistantTurnCost;
-    pendingQuestion.value = state.pendingQuestion;
-    pendingPermissionRequestId.value = state.pendingPermissionRequestId;
-    currentToolStartedAt.value = state.currentToolStartedAt;
-    currentToolCalls.value = state.currentToolCalls;
-    currentToolDurationMs.value = state.currentToolDurationMs;
-    currentInputTokens.value = state.currentInputTokens;
-    currentOutputTokens.value = state.currentOutputTokens;
-    toolExecutionLogs.value = state.toolExecutionLogs.map((entry) => ({ ...entry }));
-
-    toolInputById.clear();
-    for (const [id, input] of state.toolInputById.entries()) {
-      toolInputById.set(id, input);
-    }
-
-    toolNameById.clear();
-    for (const [id, name] of state.toolNameById.entries()) {
-      toolNameById.set(id, name);
-    }
-  }
-
-  function clearActiveRuntimeState() {
-    isGenerating.value = false;
-    assistantResponse.value = "";
-    assistantReasoning.value = "";
-    assistantTokenUsage.value = undefined;
-    assistantTurnCost.value = undefined;
-    pendingQuestion.value = null;
-    pendingPermissionRequestId.value = null;
-    currentToolStartedAt.value = null;
-    currentToolCalls.value = 0;
-    currentToolDurationMs.value = 0;
-    currentInputTokens.value = 0;
-    currentOutputTokens.value = 0;
-    toolExecutionLogs.value = [];
-    // flowNodes 不在此处清空：刷新后需从 localStorage 恢复。
-    // 仅在新消息发送前和新建聊天时显式清空（见下方两处）。
-    toolInputById.clear();
-    toolNameById.clear();
-  }
-
-  function cleanupRuntimeStateIfIdle(conversationId: string) {
-    const key = normalizeConversationId(conversationId);
-    const state = runtimeStateByConversation.get(key);
-    if (!state) {
-      return;
-    }
-
-    const hasRenderableResponse = state.assistantResponse.trim().length > 0;
-    const hasReasoning = state.assistantReasoning.trim().length > 0;
-    const hasPendingPrompt = !!state.pendingPermissionRequestId || !!state.pendingQuestion;
-    const hasRunningTool = state.toolExecutionLogs.some((entry) => entry.status === "running");
-    if (!state.isGenerating && !hasRenderableResponse && !hasReasoning && !hasPendingPrompt && !hasRunningTool) {
-      runtimeStateByConversation.delete(key);
-    }
-  }
-
-  function stashRuntimeState(conversationId: string) {
-    const key = normalizeConversationId(conversationId);
-    runtimeStateByConversation.set(key, snapshotActiveRuntimeState());
-    cleanupRuntimeStateIfIdle(key);
-  }
-
-  function restoreRuntimeState(conversationId: string): boolean {
-    const key = normalizeConversationId(conversationId);
-    const state = runtimeStateByConversation.get(key);
-    if (!state) {
-      clearActiveRuntimeState();
-      return false;
-    }
-
-    applyRuntimeStateToActive(cloneRuntimeState(state));
-    cleanupRuntimeStateIfIdle(key);
-    return true;
-  }
-
-  function ensureRuntimeState(conversationId: string): ConversationTurnRuntimeState {
-    const key = normalizeConversationId(conversationId);
-    const existing = runtimeStateByConversation.get(key);
-    if (existing) {
-      return existing;
-    }
-
-    const created = createEmptyRuntimeState();
-    runtimeStateByConversation.set(key, created);
-    return created;
-  }
-
-  function hasAnyGeneratingConversations(): boolean {
-    if (isGenerating.value) {
-      return true;
-    }
-
-    for (const state of runtimeStateByConversation.values()) {
-      if (state.isGenerating) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  function isSpecificConversationGenerating(conversationId: string): boolean {
-    if (conversationId === activeConversationId.value) {
-      return isGenerating.value;
-    }
-
-    const state = runtimeStateByConversation.get(normalizeConversationId(conversationId));
-    return state?.isGenerating ?? false;
-  }
 
   function resetToolTrackingState() {
     currentToolStartedAt.value = null;
@@ -335,231 +184,6 @@ export function useChatController() {
     resetPendingPromptState();
   }
 
-  function findToolExecutionIndexById(toolId: string): number {
-    return toolExecutionLogs.value.findIndex((entry) => entry.id === toolId);
-  }
-
-  function latestRunningToolExecutionIdByName(toolName: string): string | null {
-    for (let i = toolExecutionLogs.value.length - 1; i >= 0; i -= 1) {
-      const entry = toolExecutionLogs.value[i];
-      if (entry.toolName === toolName && entry.status === "running") {
-        return entry.id;
-      }
-    }
-    return null;
-  }
-
-  function startToolExecutionTrace(toolId: string, toolName: string) {
-    const idx = findToolExecutionIndexById(toolId);
-    if (idx >= 0) {
-      toolExecutionLogs.value[idx] = {
-        ...toolExecutionLogs.value[idx],
-        toolName,
-        status: "running",
-        startedAt: Date.now(),
-        finishedAt: undefined,
-      };
-      return;
-    }
-
-    toolExecutionLogs.value.push({
-      id: toolId,
-      toolName,
-      input: "",
-      result: "",
-      status: "running",
-      startedAt: Date.now(),
-      finishedAt: undefined,
-    });
-  }
-
-  function appendToolExecutionInput(toolId: string, inputDelta: string) {
-    const idx = findToolExecutionIndexById(toolId);
-    if (idx < 0) {
-      return;
-    }
-
-    const entry = toolExecutionLogs.value[idx];
-    toolExecutionLogs.value[idx] = {
-      ...entry,
-      input: `${entry.input}${inputDelta}`,
-    };
-  }
-
-  function completeToolExecutionTrace(
-    toolId: string | null,
-    toolName: string,
-    result: string,
-    status: ToolExecutionEntry["status"],
-    inputFallback?: string,
-  ) {
-    const resolvedId = toolId || latestRunningToolExecutionIdByName(toolName);
-    if (!resolvedId) {
-      return;
-    }
-
-    const idx = findToolExecutionIndexById(resolvedId);
-    if (idx < 0) {
-      return;
-    }
-
-    const entry = toolExecutionLogs.value[idx];
-    const normalizedFallback = (inputFallback ?? "").trim();
-    const resolvedInput = entry.input.trim().length > 0 ? entry.input : normalizedFallback;
-    const updatedEntry: ToolExecutionEntry = {
-      ...entry,
-      toolName,
-      input: resolvedInput,
-      result,
-      status,
-      finishedAt: Date.now(),
-    };
-    toolExecutionLogs.value[idx] = updatedEntry;
-    persistToolExecutionLog(updatedEntry);
-  }
-
-  function markRunningToolExecutions(status: "completed" | "error" | "cancelled") {
-    const now = Date.now();
-    const finalizedEntries: ToolExecutionEntry[] = [];
-    toolExecutionLogs.value = toolExecutionLogs.value.map((entry) => {
-      if (entry.status !== "running") {
-        return entry;
-      }
-
-      const updatedEntry: ToolExecutionEntry = {
-        ...entry,
-        status,
-        finishedAt: now,
-      };
-      finalizedEntries.push(updatedEntry);
-      return updatedEntry;
-    });
-
-    for (const entry of finalizedEntries) {
-      persistToolExecutionLog(entry);
-    }
-  }
-
-  function findToolExecutionIndexByIdInLogs(entries: ToolExecutionEntry[], toolId: string): number {
-    return entries.findIndex((entry) => entry.id === toolId);
-  }
-
-  function latestRunningToolExecutionIdByNameInLogs(
-    entries: ToolExecutionEntry[],
-    toolName: string,
-  ): string | null {
-    for (let i = entries.length - 1; i >= 0; i -= 1) {
-      const entry = entries[i];
-      if (entry.toolName === toolName && entry.status === "running") {
-        return entry.id;
-      }
-    }
-    return null;
-  }
-
-  function startToolExecutionTraceInState(
-    state: ConversationTurnRuntimeState,
-    toolId: string,
-    toolName: string,
-  ) {
-    const idx = findToolExecutionIndexByIdInLogs(state.toolExecutionLogs, toolId);
-    if (idx >= 0) {
-      state.toolExecutionLogs[idx] = {
-        ...state.toolExecutionLogs[idx],
-        toolName,
-        status: "running",
-        startedAt: Date.now(),
-        finishedAt: undefined,
-      };
-      return;
-    }
-
-    state.toolExecutionLogs.push({
-      id: toolId,
-      toolName,
-      input: "",
-      result: "",
-      status: "running",
-      startedAt: Date.now(),
-      finishedAt: undefined,
-    });
-  }
-
-  function appendToolExecutionInputInState(
-    state: ConversationTurnRuntimeState,
-    toolId: string,
-    inputDelta: string,
-  ) {
-    const idx = findToolExecutionIndexByIdInLogs(state.toolExecutionLogs, toolId);
-    if (idx < 0) {
-      return;
-    }
-
-    const entry = state.toolExecutionLogs[idx];
-    state.toolExecutionLogs[idx] = {
-      ...entry,
-      input: `${entry.input}${inputDelta}`,
-    };
-  }
-
-  function completeToolExecutionTraceInState(
-    conversationId: string,
-    state: ConversationTurnRuntimeState,
-    toolId: string | null,
-    toolName: string,
-    result: string,
-    status: ToolExecutionEntry["status"],
-    inputFallback?: string,
-  ) {
-    const resolvedId =
-      toolId || latestRunningToolExecutionIdByNameInLogs(state.toolExecutionLogs, toolName);
-    if (!resolvedId) {
-      return;
-    }
-
-    const idx = findToolExecutionIndexByIdInLogs(state.toolExecutionLogs, resolvedId);
-    if (idx < 0) {
-      return;
-    }
-
-    const entry = state.toolExecutionLogs[idx];
-    const normalizedFallback = (inputFallback ?? "").trim();
-    const resolvedInput = entry.input.trim().length > 0 ? entry.input : normalizedFallback;
-    const updatedEntry: ToolExecutionEntry = {
-      ...entry,
-      toolName,
-      input: resolvedInput,
-      result,
-      status,
-      finishedAt: Date.now(),
-    };
-
-    state.toolExecutionLogs[idx] = updatedEntry;
-    persistToolExecutionLog(updatedEntry, conversationId);
-  }
-
-  function markRunningToolExecutionsInState(
-    conversationId: string,
-    state: ConversationTurnRuntimeState,
-    status: "completed" | "error" | "cancelled",
-  ) {
-    const now = Date.now();
-    for (let i = 0; i < state.toolExecutionLogs.length; i += 1) {
-      const entry = state.toolExecutionLogs[i];
-      if (entry.status !== "running") {
-        continue;
-      }
-
-      const updatedEntry: ToolExecutionEntry = {
-        ...entry,
-        status,
-        finishedAt: now,
-      };
-      state.toolExecutionLogs[i] = updatedEntry;
-      persistToolExecutionLog(updatedEntry, conversationId);
-    }
-  }
-
   function persistToolExecutionLog(entry: ToolExecutionEntry, conversationId = activeConversationId.value) {
     if (!conversationId || entry.status === "running") {
       return;
@@ -568,6 +192,66 @@ export function useChatController() {
     void upsertConversationToolLog(conversationId, entry).catch((err) => {
       console.error("Failed to persist tool execution log:", err);
     });
+  }
+
+  function completeActiveToolExecutionTrace(
+    toolId: string | null,
+    toolName: string,
+    result: string,
+    status: ToolExecutionEntry["status"],
+    inputFallback?: string,
+  ) {
+    const updatedEntry = completeToolExecutionTrace(
+      toolExecutionLogs.value,
+      toolId,
+      toolName,
+      result,
+      status,
+      inputFallback,
+    );
+    if (updatedEntry) {
+      persistToolExecutionLog(updatedEntry);
+    }
+  }
+
+  function markActiveRunningToolExecutions(status: "completed" | "error" | "cancelled") {
+    const finalizedEntries = markRunningToolExecutions(toolExecutionLogs.value, status);
+    for (const entry of finalizedEntries) {
+      persistToolExecutionLog(entry);
+    }
+  }
+
+  function completeStateToolExecutionTrace(
+    conversationId: string,
+    state: ConversationTurnRuntimeState,
+    toolId: string | null,
+    toolName: string,
+    result: string,
+    status: ToolExecutionEntry["status"],
+    inputFallback?: string,
+  ) {
+    const updatedEntry = completeToolExecutionTrace(
+      state.toolExecutionLogs,
+      toolId,
+      toolName,
+      result,
+      status,
+      inputFallback,
+    );
+    if (updatedEntry) {
+      persistToolExecutionLog(updatedEntry, conversationId);
+    }
+  }
+
+  function markStateRunningToolExecutions(
+    conversationId: string,
+    state: ConversationTurnRuntimeState,
+    status: "completed" | "error" | "cancelled",
+  ) {
+    const finalizedEntries = markRunningToolExecutions(state.toolExecutionLogs, status);
+    for (const entry of finalizedEntries) {
+      persistToolExecutionLog(entry, conversationId);
+    }
   }
 
   function finalizeOrStopTurn(tokenUsage?: number) {
@@ -960,7 +644,7 @@ export function useChatController() {
     assistantTokenUsage.value = undefined;
     isGenerating.value = false;
     if (activeConversationId.value) {
-      runtimeStateByConversation.delete(normalizeConversationId(activeConversationId.value));
+      deleteRuntimeState(activeConversationId.value);
     }
     chatScreenRef.value?.scrollToBottom();
   }
@@ -1080,8 +764,7 @@ export function useChatController() {
     currentToolCalls.value = 0;
     currentToolDurationMs.value = 0;
     currentOutputTokens.value = 0;
-    flowNodes.value = [];
-    localStorage.removeItem("nova:flowNodes");
+    clearFlowNodes();
     currentInputTokens.value = estimateInputTokensForTurn(
       modelUserText,
       uploadedAttachmentNames,
@@ -1117,7 +800,7 @@ export function useChatController() {
         assistantTurnCost.value = undefined;
         isGenerating.value = false;
         resetTurnRuntimeState();
-        runtimeStateByConversation.delete(normalizeConversationId(sendingConversationId));
+        deleteRuntimeState(sendingConversationId);
       } else {
         const backgroundState = ensureRuntimeState(sendingConversationId);
         backgroundState.assistantResponse = "";
@@ -1270,7 +953,7 @@ export function useChatController() {
       return;
     }
 
-    runtimeStateByConversation.delete(normalizeConversationId(id));
+    deleteRuntimeState(id);
     try {
       await deleteConversation(id);
       await refreshConversations();
@@ -1309,7 +992,7 @@ export function useChatController() {
       return;
     }
 
-    runtimeStateByConversation.clear();
+    clearRuntimeStates();
     resetTurnRuntimeState();
     assistantResponse.value = "";
     assistantReasoning.value = "";
@@ -1317,7 +1000,7 @@ export function useChatController() {
     assistantTurnCost.value = undefined;
     pendingUploads.value = [];
     toolExecutionLogs.value = [];
-    flowNodes.value = [];
+    clearFlowNodes();
     conversationFiles.value = [];
     conversationMemory.value = null;
     messages.value = [];
@@ -1366,7 +1049,7 @@ export function useChatController() {
       if (!state.toolInputById.has(toolId)) {
         state.toolInputById.set(toolId, "");
       }
-      startToolExecutionTraceInState(state, toolId, toolName);
+      startToolExecutionTrace(state.toolExecutionLogs, toolId, toolName);
       return;
     }
 
@@ -1375,7 +1058,7 @@ export function useChatController() {
       if (toolId && payload.tool_use_input) {
         const prev = state.toolInputById.get(toolId) ?? "";
         state.toolInputById.set(toolId, prev + payload.tool_use_input);
-        appendToolExecutionInputInState(state, toolId, payload.tool_use_input);
+        appendToolExecutionInput(state.toolExecutionLogs, toolId, payload.tool_use_input);
       }
       return;
     }
@@ -1427,13 +1110,13 @@ export function useChatController() {
         "unknown";
       const toolId =
         rawToolId ||
-        latestRunningToolExecutionIdByNameInLogs(state.toolExecutionLogs, toolName) ||
+        latestRunningToolExecutionIdByName(state.toolExecutionLogs, toolName) ||
         "";
       const streamedInput = toolId ? state.toolInputById.get(toolId) ?? "" : "";
       const fallbackInput = (payload.tool_use_input ?? "").trim();
       const rawInput = streamedInput.trim().length > 0 ? streamedInput : fallbackInput;
       const result = (payload.tool_result ?? "").trim();
-      completeToolExecutionTraceInState(
+      completeStateToolExecutionTrace(
         conversationId,
         state,
         toolId || null,
@@ -1482,7 +1165,7 @@ export function useChatController() {
     const turnState = payload.turn_state ?? "";
 
     if (turnState === "cancelled" || stopReason === "cancelled") {
-      markRunningToolExecutionsInState(conversationId, state, "cancelled");
+      markStateRunningToolExecutions(conversationId, state, "cancelled");
       state.isGenerating = false;
       state.assistantResponse = "";
       state.assistantReasoning = "";
@@ -1502,7 +1185,7 @@ export function useChatController() {
     }
 
     if (turnState === "error") {
-      markRunningToolExecutionsInState(conversationId, state, "error");
+      markStateRunningToolExecutions(conversationId, state, "error");
       state.isGenerating = false;
       state.assistantResponse = "";
       state.assistantReasoning = "";
@@ -1541,7 +1224,7 @@ export function useChatController() {
         shouldPreservePendingPromptOnStop(turnState, stopReason) ||
         !!state.pendingPermissionRequestId ||
         !!state.pendingQuestion;
-      markRunningToolExecutionsInState(conversationId, state, "completed");
+      markStateRunningToolExecutions(conversationId, state, "completed");
       await finalizeBackgroundTurn(
         conversationId,
         state,
@@ -1594,7 +1277,7 @@ export function useChatController() {
             toolInputById.set(toolId, "");
           }
 
-          startToolExecutionTrace(toolId, toolName);
+          startToolExecutionTrace(toolExecutionLogs.value, toolId, toolName);
           assistantResponse.value += `\n> Using tool: ${toolName}...\n`;
           chatScreenRef.value?.scrollToBottom();
         } else if (payload.type === "tool-json-delta") {
@@ -1602,7 +1285,7 @@ export function useChatController() {
           if (toolId && payload.tool_use_input) {
             const prev = toolInputById.get(toolId) ?? "";
             toolInputById.set(toolId, prev + payload.tool_use_input);
-            appendToolExecutionInput(toolId, payload.tool_use_input);
+            appendToolExecutionInput(toolExecutionLogs.value, toolId, payload.tool_use_input);
           }
         } else if (payload.type === "permission-request") {
           const requestId = (payload.tool_use_id ?? "").trim();
@@ -1661,7 +1344,8 @@ export function useChatController() {
             fallbackToolName ||
             (rawToolId ? toolNameById.get(rawToolId) : undefined) ||
             "unknown";
-          const toolId = rawToolId || latestRunningToolExecutionIdByName(toolName) || "";
+          const toolId =
+            rawToolId || latestRunningToolExecutionIdByName(toolExecutionLogs.value, toolName) || "";
           const streamedInput = toolId ? toolInputById.get(toolId) ?? "" : "";
           const fallbackInput = (payload.tool_use_input ?? "").trim();
           const rawInput = streamedInput.trim().length > 0 ? streamedInput : fallbackInput;
@@ -1671,7 +1355,7 @@ export function useChatController() {
           }
           assistantResponse.value += `\n> Tool done: ${toolName}\n`;
           const result = (payload.tool_result ?? "").trim();
-          completeToolExecutionTrace(toolId || null, toolName, result, "completed", rawInput);
+          completeActiveToolExecutionTrace(toolId || null, toolName, result, "completed", rawInput);
 
           if (toolId) {
             toolInputById.delete(toolId);
@@ -1705,17 +1389,17 @@ export function useChatController() {
           const turnState = payload.turn_state ?? "";
 
           if (turnState === "cancelled" || stopReason === "cancelled") {
-            markRunningToolExecutions("cancelled");
+            markActiveRunningToolExecutions("cancelled");
             finalizeOrStopTurn(payload.token_usage);
             resetTurnRuntimeState();
             if (activeConversationId.value) {
-              runtimeStateByConversation.delete(normalizeConversationId(activeConversationId.value));
+              deleteRuntimeState(activeConversationId.value);
             }
             return;
           }
 
           if (turnState === "error") {
-            markRunningToolExecutions("error");
+            markActiveRunningToolExecutions("error");
             isGenerating.value = false;
             assistantResponse.value = "";
             assistantReasoning.value = "";
@@ -1723,7 +1407,7 @@ export function useChatController() {
             assistantTurnCost.value = undefined;
             resetTurnRuntimeState();
             if (activeConversationId.value) {
-              runtimeStateByConversation.delete(normalizeConversationId(activeConversationId.value));
+              deleteRuntimeState(activeConversationId.value);
             }
             const detail = (payload.text ?? "").trim();
             emitToast({
@@ -1746,7 +1430,7 @@ export function useChatController() {
               shouldPreservePendingPromptOnStop(turnState, stopReason) ||
               !!pendingPermissionRequestId.value ||
               !!pendingQuestion.value;
-            markRunningToolExecutions("completed");
+            markActiveRunningToolExecutions("completed");
             finalizeOrStopTurn(payload.token_usage);
 
             if (!preservePendingPrompt) {
@@ -1756,7 +1440,7 @@ export function useChatController() {
             }
 
             if (activeConversationId.value && !preservePendingPrompt) {
-              runtimeStateByConversation.delete(normalizeConversationId(activeConversationId.value));
+              deleteRuntimeState(activeConversationId.value);
             }
           }
         }
@@ -1798,14 +1482,7 @@ export function useChatController() {
           timestamp: Date.now(),
         };
         // 更新已有节点（同 nodeId 的 running→completed/skipped/error）
-        const idx = flowNodes.value.findIndex((n) => n.nodeId === entry.nodeId);
-        if (idx !== -1) {
-          flowNodes.value[idx] = entry;
-        } else {
-          flowNodes.value.push(entry);
-        }
-        // 持久化到 localStorage，刷新后可恢复
-        localStorage.setItem("nova:flowNodes", JSON.stringify(flowNodes.value));
+        upsertFlowNode(entry);
       });
 
       unlistenScheduledTaskTrigger = await listen<ScheduledTaskTriggerEvent>(
