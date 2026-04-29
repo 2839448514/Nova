@@ -66,7 +66,7 @@ export function summarizeToolInfo(toolName: string, rawInput: string): string | 
     return path ? `path=${truncateText(path, 64)}` : "file operation";
   }
 
-  if (lower.startsWith("mcp/")) {
+  if (lower.startsWith("mcp__")) {
     const url = readStringField(parsed, ["url", "uri"]);
     if (url) return `mcp site=${truncateText(url, 64)}`;
     if (parsed) {

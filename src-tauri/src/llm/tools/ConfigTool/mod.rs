@@ -20,7 +20,7 @@ pub(crate) fn registration() -> ToolRegistration {
 pub fn tool() -> Tool {
     Tool {
         name: "config_tool".into(),
-        description: "Read or update Nova runtime config (model/provider/base_url/api_key) in settings.json.".into(),
+        description: "Read or update Nova runtime config in settings.json.".into(),
         input_schema: json!({
             "type": "object",
             "properties": {
@@ -31,7 +31,7 @@ pub fn tool() -> Tool {
                 },
                 "key": {
                     "type": "string",
-                    "description": "Config key, e.g. model, provider, baseUrl, apiKey"
+                    "description": "Config key, e.g. provider, providerProfiles, hookEnv"
                 },
                 "value": {
                     "description": "Value used by set action"
@@ -55,10 +55,15 @@ fn read_settings_json(path: &PathBuf) -> Result<Value, String> {
             fs::create_dir_all(parent).map_err(|e| format!("Failed to create config dir: {}", e))?;
         }
         let init = json!({
-            "apiKey": "",
-            "baseUrl": "https://api.anthropic.com/v1",
-            "model": "claude-3-5-sonnet-20241022",
-            "provider": "anthropic"
+            "provider": "anthropic",
+            "providerProfiles": {
+                "anthropic": {
+                    "apiKey": "",
+                    "baseUrl": "https://api.anthropic.com/v1",
+                    "model": "claude-3-5-sonnet-20241022"
+                }
+            },
+            "hookEnv": {}
         });
         fs::write(path, serde_json::to_string_pretty(&init).unwrap_or_else(|_| "{}".into()))
             .map_err(|e| format!("Failed to init settings file: {}", e))?;

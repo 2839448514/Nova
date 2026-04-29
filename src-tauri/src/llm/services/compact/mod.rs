@@ -30,7 +30,6 @@ const TOOL_RESULT_TEXT_TRUNCATE_LIMIT: usize = 1200;
 const TOOL_RESULT_JSON_MAX_DEPTH: usize = 3;
 const TOOL_RESULT_JSON_MAX_ITEMS: usize = 12;
 const SESSION_RESTORE_MARKER: &str = "[Session Restore Context]";
-const REACTIVE_FULL_COMPACT_TOKEN_BUDGET: i64 = 1400;
 const REACTIVE_FULL_COMPACT_RECENT_LIMIT: i64 = 6;
 const REACTIVE_FALLBACK_KEEP_MESSAGES: usize = 8;
 const AUTO_COMPACT_SUMMARY_PREFIX: &str = "[Auto Compact Summary]";
@@ -469,14 +468,7 @@ async fn apply_full_compact(
     conversation_id: Option<&str>,
     messages: &[Message],
 ) -> Vec<Message> {
-    apply_full_compact_with_limits(
-        app,
-        conversation_id,
-        messages,
-        2200,
-        10,
-    )
-    .await
+    apply_full_compact_with_limits(app, conversation_id, messages, 10).await
 }
 
 async fn try_model_driven_full_compact(
@@ -546,7 +538,6 @@ async fn apply_full_compact_with_limits(
     app: &AppHandle,
     conversation_id: Option<&str>,
     messages: &[Message],
-    token_budget: i64,
     recent_limit: i64,
 ) -> Vec<Message> {
     // 若 conversation_id 为空或仅空白则不做 Full 压缩，直接返回原消息
@@ -567,75 +558,14 @@ async fn apply_full_compact_with_limits(
                     "[compact] model-driven auto compact failed consecutive_failures={} error={}",
                     failures, error
                 );
+                return messages.to_vec();
             }
         }
     } else {
         eprintln!("[compact] model-driven auto compact skipped because circuit breaker is open");
+        return messages.to_vec();
     }
-
-    // 获取 compact 上下文（历史摘要），使用较大的 token 限制与条目限制
-    let compact = match crate::command::history::get_conversation_compact_context(
-        app.clone(),
-        conversation_id.to_string(),
-        Some(token_budget),
-        Some(recent_limit),
-    )
-    .await
-    {
-        Ok(v) => v,
-        // 获取失败时回退为不压缩
-        Err(_) => return messages.to_vec(),
-    };
-
-    // 尝试获取 handover 信息（用于记录新的 compact boundary）
-    let handover = crate::command::history::get_conversation_handover(
-        app.clone(),
-        conversation_id.to_string(),
-        Some(compact.recent_limit),
-    )
-    .await
-    .ok();
-
-    // 若存在 handover，则尝试记录新的 compact boundary（忽略返回值）
-    if let Some(handover) = handover {
-        let _ = crate::command::history::record_compact_boundary(
-            app.clone(),
-            &compact,
-            &handover.summary,
-            &handover.key_facts,
-        )
-        .await;
-    }
-
-    // 优先提取会话恢复消息，保证 Full compact 后仍保持恢复消息在最前。
-    let (session_restore_message, messages_without_restore) =
-        split_session_restore_message(messages);
-
-    // keep_count: 保留最近消息的数量，受 compact.recent_limit 限制并在 [6,30] 范围内
-    let keep_count = compact.recent_limit.clamp(6, 30) as usize;
-    // recent_messages: 若消息数大于保留数则截取末尾窗口，否则保留全部
-    let recent_messages = if messages_without_restore.len() > keep_count {
-        messages_without_restore[messages_without_restore.len() - keep_count..].to_vec()
-    } else {
-        messages_without_restore
-    };
-
-    // 将 compact 的 context_text 放到最前面作为一条 User 消息
-    let compact_message = Message {
-        role: Role::User,
-        content: Content::Text(compact.context_text),
-    };
-
-    // prepared: 预构建消息向量，预留容量以减少 realloc
-    let mut prepared = Vec::with_capacity(
-        recent_messages.len() + 1 + usize::from(session_restore_message.is_some()),
-    );
-    if let Some(restore) = session_restore_message {
-        prepared.push(restore);
-    }
-    prepared.push(compact_message);
-    prepared.extend(recent_messages);
-    prepared
+    messages.to_vec()
 }
 
 fn same_messages(left: &[Message], right: &[Message]) -> bool {
@@ -691,7 +621,6 @@ pub async fn reactive_compact_messages_for_retry(
         app,
         conversation_id,
         messages,
-        REACTIVE_FULL_COMPACT_TOKEN_BUDGET,
         REACTIVE_FULL_COMPACT_RECENT_LIMIT,
     )
     .await;

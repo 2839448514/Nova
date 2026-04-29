@@ -31,13 +31,9 @@ declare_builtin_tools! {
     task_get_tool => "TaskGetTool/mod.rs",
     task_output_tool => "TaskOutputTool/mod.rs",
     task_stop_tool => "TaskStopTool/mod.rs",
-    task_create_compat_tool => "TaskCreateCompatTool/mod.rs",
-    task_list_compat_tool => "TaskListCompatTool/mod.rs",
-    task_update_compat_tool => "TaskUpdateCompatTool/mod.rs",
     skill_tool => "SkillTool/mod.rs",
     todo_write_tool => "TodoWriteTool/mod.rs",
     tool_search_tool => "ToolSearchTool/mod.rs",
-    mcp_tool => "MCPTool/mod.rs",
     list_mcp_resources_tool => "ListMcpResourcesTool/mod.rs",
     read_mcp_resource_tool => "ReadMcpResourceTool/mod.rs",
     mcp_auth_tool => "McpAuthTool/mod.rs",
@@ -60,10 +56,6 @@ declare_builtin_tools! {
 }
 
 pub mod shared;
-
-// Placeholder migration modules stay out of `registered_tools()` until their
-// runtime bridge is complete. This avoids exposing Claude-style folders as if
-// they were fully migrated Nova tools.
 
 use crate::llm::types::{Message, Tool};
 use std::collections::{BTreeMap, VecDeque};
@@ -326,7 +318,7 @@ pub(crate) fn is_read_only_tool(name: &str) -> bool {
         return entry.read_only;
     }
 
-    if let Some(read_only) = mcp_tool::dynamic_tool_read_only(name) {
+    if let Some(read_only) = crate::llm::services::mcp_tools::dynamic_tool_read_only(name) {
         return read_only;
     }
 
@@ -660,10 +652,6 @@ pub(crate) fn permission_descriptor_for_tool(
     name: &str,
     input: &Value,
 ) -> Option<ToolPermissionDescriptor> {
-    if let Some(permission) = mcp_tool::dynamic_tool_permission_descriptor(name, input) {
-        return Some(permission);
-    }
-
     find_registered_tool(name)
         .and_then(|entry| entry.permission.and_then(|permission| permission(input)))
 }
@@ -722,7 +710,9 @@ pub async fn execute_tool_with_app(
         }
     }
 
-    if let Some(output) = mcp_tool::execute_dynamic_with_app(app, name, input.clone()).await {
+    if let Some(output) =
+        crate::llm::services::mcp_tools::execute_dynamic_with_app(app, name, input.clone()).await
+    {
         return output;
     }
 

@@ -19,7 +19,6 @@ type ProviderProfile = {
 }
 
 type AppSettings = {
-  apiKey?: string
   providerProfiles?: Record<string, ProviderProfile>
   [key: string]: unknown
 }
@@ -158,10 +157,6 @@ const clearApiKeys = async () => {
     const settings = ((await invoke('get_settings')) || {}) as AppSettings
     let cleared = 0
 
-    if (typeof settings.apiKey === 'string' && settings.apiKey.trim()) {
-      cleared += 1
-    }
-
     const profiles = settings.providerProfiles && typeof settings.providerProfiles === 'object'
       ? settings.providerProfiles
       : {}
@@ -179,7 +174,6 @@ const clearApiKeys = async () => {
 
     const nextSettings: AppSettings = {
       ...settings,
-      apiKey: '',
       providerProfiles: nextProfiles,
     }
 

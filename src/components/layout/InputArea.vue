@@ -98,9 +98,9 @@ const ensureActiveProfile = () => {
   }
   if (!settings.value.providerProfiles[provider]) {
     settings.value.providerProfiles[provider] = {
-      apiKey: settings.value.apiKey || '',
-      baseUrl: settings.value.baseUrl || '',
-      model: settings.value.model || '',
+      apiKey: '',
+      baseUrl: '',
+      model: '',
     };
   }
   return settings.value.providerProfiles[provider];
@@ -114,13 +114,12 @@ const availableModels = computed(() => {
 const currentModel = computed({
   get: () => {
     const profile = ensureActiveProfile();
-    return profile?.model || settings.value?.model || '';
+    return profile?.model || '';
   },
   set: (value: string) => {
     const profile = ensureActiveProfile();
     if (!profile) return;
     profile.model = value;
-    settings.value.model = value;
   },
 });
 

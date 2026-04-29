@@ -355,6 +355,22 @@ fn operation_from_input(tool_name: &str, input: &Value) -> Option<ProtectedOpera
         });
     }
 
+    if let Some((server, tool)) = crate::llm::services::mcp_tools::parse_mcp_tool_name(tool_name) {
+        let risk = check_mcp_operation(&server, &tool, input).err();
+
+        return Some(ProtectedOperation {
+            signature: format!(
+                "{}:{}:{}",
+                tool_name,
+                server.to_ascii_lowercase(),
+                normalize_command_for_match(&input.to_string())
+            ),
+            preview: format!("{} {}", tool_name, truncate_chars(&input.to_string(), 160)),
+            warning: risk.clone(),
+            needs_approval: risk.is_some(),
+        });
+    }
+
     match tool_name {
         "execute_bash" | "execute_powershell" => {
             let command = input
@@ -410,56 +426,6 @@ fn operation_from_input(tool_name: &str, input: &Value) -> Option<ProtectedOpera
             Some(ProtectedOperation {
                 signature: format!("{}:{}", tool_name, normalized),
                 preview: format!("文件写入（{}）：{}", tool_name, truncate_chars(path, 200)),
-                warning: risk.clone(),
-                needs_approval: risk.is_some(),
-            })
-        }
-        "mcp_tool" => {
-            let server = input
-                .get("server")
-                .and_then(|v| v.as_str())
-                .unwrap_or_default()
-                .trim();
-            // server: mcp_tool 的 server 名称。
-            let tool = input
-                .get("tool")
-                .and_then(|v| v.as_str())
-                .unwrap_or_default()
-                .trim();
-            // tool: mcp_tool 的具体工具名。
-            let arguments = input
-                .get("arguments")
-                .cloned()
-                // 缺省为空对象，避免后续字段提取分支处理 Option。
-                .unwrap_or_else(|| json!({}));
-            // arguments: MCP 工具参数对象。
-
-            if server.is_empty() || tool.is_empty() {
-                return Some(ProtectedOperation {
-                    signature: "mcp_tool:<empty>".to_string(),
-                    preview: "mcp_tool: server/tool 为空".to_string(),
-                    warning: Some("mcp_tool 缺少 server 或 tool，无法执行。".to_string()),
-                    needs_approval: false,
-                });
-            }
-
-            let risk = check_mcp_operation(server, tool, &arguments).err();
-            // risk: 该 MCP 操作的风险提示文本。
-
-            Some(ProtectedOperation {
-                signature: format!(
-                    "mcp_tool:{}:{}:{}",
-                    server.to_ascii_lowercase(),
-                    tool.to_ascii_lowercase(),
-                    // arguments 序列化后再归一化，作为近似去重签名。
-                    normalize_command_for_match(&arguments.to_string())
-                ),
-                preview: format!(
-                    "mcp_tool {}::{} {}",
-                    server,
-                    tool,
-                    truncate_chars(&arguments.to_string(), 160)
-                ),
                 warning: risk.clone(),
                 needs_approval: risk.is_some(),
             })

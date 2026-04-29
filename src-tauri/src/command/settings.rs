@@ -117,12 +117,6 @@ impl Default for RagSettings {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
-    // 兼容旧字段：当前 API key。
-    pub api_key: String,
-    // 兼容旧字段：当前 base_url。
-    pub base_url: String,
-    // 兼容旧字段：当前 model。
-    pub model: String,
     // 当前 provider 标识。
     pub provider: String,
     #[serde(default = "default_custom_models")]
@@ -134,7 +128,7 @@ pub struct AppSettings {
     #[serde(default)]
     // 被禁用的技能列表。
     pub disabled_skills: Vec<String>,
-    #[serde(default = "default_hook_env", alias = "hook_env")]
+    #[serde(default = "default_hook_env")]
     // 钩子环境变量配置。
     pub hook_env: HashMap<String, String>,
     #[serde(default = "default_rag_settings")]
@@ -152,9 +146,6 @@ impl Default for AppSettings {
     fn default() -> Self {
         // 应用设置默认值。
         Self {
-            api_key: "".to_string(),
-            base_url: "".to_string(),
-            model: "".to_string(),
             provider: "anthropic".to_string(),
             custom_models: HashMap::new(),
             provider_profiles: HashMap::new(),
@@ -176,32 +167,7 @@ impl AppSettings {
     pub fn active_provider_profile(&self) -> ProviderProfile {
         // 计算当前 provider key。
         let key = self.active_provider_key();
-        // 若存在 provider 专属配置，优先使用并与旧字段合并。
-        if let Some(profile) = self.provider_profiles.get(&key) {
-            // 克隆 provider profile 作为可变副本。
-            let mut merged = profile.clone();
-            // 专属 api_key 为空时回退旧字段。
-            if merged.api_key.is_empty() {
-                merged.api_key = self.api_key.clone();
-            }
-            // 专属 base_url 为空时回退旧字段。
-            if merged.base_url.is_empty() {
-                merged.base_url = self.base_url.clone();
-            }
-            // 专属 model 为空时回退旧字段。
-            if merged.model.is_empty() {
-                merged.model = self.model.clone();
-            }
-            // 返回合并后的 profile。
-            return merged;
-        }
-
-        // 不存在专属配置时，直接由旧字段构造 profile。
-        ProviderProfile {
-            api_key: self.api_key.clone(),
-            base_url: self.base_url.clone(),
-            model: self.model.clone(),
-        }
+        self.provider_profiles.get(&key).cloned().unwrap_or_default()
     }
 
     pub fn normalize_for_runtime(&mut self) {
@@ -209,33 +175,7 @@ impl AppSettings {
         let key = self.active_provider_key();
         // 将 provider 字段回写为规范化值。
         self.provider = key.clone();
-
-        // 检查旧字段是否有值。
-        let has_legacy = !self.api_key.is_empty() || !self.base_url.is_empty() || !self.model.is_empty();
-        // 若存在旧字段且缺失专属 profile，则自动迁入 provider_profiles。
-        if has_legacy && !self.provider_profiles.contains_key(&key) {
-            self.provider_profiles.insert(
-                key.clone(),
-                ProviderProfile {
-                    api_key: self.api_key.clone(),
-                    base_url: self.base_url.clone(),
-                    model: self.model.clone(),
-                },
-            );
-        }
-
-        // 用当前 provider 的专属配置覆盖旧字段展示值。
-        if let Some(active) = self.provider_profiles.get(&key) {
-            if !active.api_key.is_empty() {
-                self.api_key = active.api_key.clone();
-            }
-            if !active.base_url.is_empty() {
-                self.base_url = active.base_url.clone();
-            }
-            if !active.model.is_empty() {
-                self.model = active.model.clone();
-            }
-        }
+        self.provider_profiles.entry(key).or_default();
 
         // 规范化 RAG 配置。
         self.rag.embedding_model = self.rag.embedding_model.trim().to_string();

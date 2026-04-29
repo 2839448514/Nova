@@ -1,4 +1,5 @@
 use crate::llm::query_engine::ChatMessageEvent;
+use crate::llm::services::mcp_tools::build_mcp_tool_name;
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter};
 
@@ -87,17 +88,13 @@ pub async fn call_mcp_tool_with_nested_permission(
     tool_name: String,
     arguments: Value,
 ) -> String {
-    let nested_payload = json!({
-        "server": server_name,
-        "tool": tool_name,
-        "arguments": arguments,
-    });
+    let resolved_tool_name = build_mcp_tool_name(&server_name, &tool_name);
 
     match crate::llm::utils::permissions::enforce_tool_permission(
         app,
         conversation_id,
-        "mcp_tool",
-        &nested_payload,
+        &resolved_tool_name,
+        &arguments,
     ) {
         crate::llm::utils::permissions::PermissionEnforcement::Allow => {}
         crate::llm::utils::permissions::PermissionEnforcement::Deny(e) => {
@@ -110,8 +107,8 @@ pub async fn call_mcp_tool_with_nested_permission(
             if let Err(e) = await_permission_and_recheck(
                 app,
                 conversation_id,
-                "mcp_tool",
-                &nested_payload,
+                &resolved_tool_name,
+                &arguments,
                 request_id,
                 payload,
             )
@@ -122,22 +119,7 @@ pub async fn call_mcp_tool_with_nested_permission(
         }
     }
 
-    let server = nested_payload
-        .get("server")
-        .and_then(|v| v.as_str())
-        .unwrap_or_default()
-        .to_string();
-    let tool = nested_payload
-        .get("tool")
-        .and_then(|v| v.as_str())
-        .unwrap_or_default()
-        .to_string();
-    let args = nested_payload
-        .get("arguments")
-        .cloned()
-        .unwrap_or_else(|| json!({}));
-
-    match crate::command::mcp::call_mcp_tool(app.clone(), server, tool, args).await {
+    match crate::command::mcp::call_mcp_tool(app.clone(), server_name, tool_name, arguments).await {
         Ok(v) => v.to_string(),
         Err(e) => json!({ "ok": false, "error": e }).to_string(),
     }

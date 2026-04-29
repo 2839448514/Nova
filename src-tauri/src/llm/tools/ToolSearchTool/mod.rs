@@ -48,7 +48,6 @@ pub fn execute(input: Value) -> String {
         "TaskStop",
         "Skill",
         "todo_write",
-        "mcp_tool",
         "list_mcp_resources",
         "read_mcp_resource",
         "ask_user_question",

@@ -67,16 +67,10 @@ function isTruthy(value: unknown): boolean {
 }
 
 function extractHookEnv(settings: Record<string, unknown>): Record<string, string> {
-  const fromCamel = settings.hookEnv;
-  if (fromCamel && typeof fromCamel === "object") {
-    return fromCamel as Record<string, string>;
+  const hookEnv = settings.hookEnv;
+  if (hookEnv && typeof hookEnv === "object") {
+    return hookEnv as Record<string, string>;
   }
-
-  const fromSnake = settings.hook_env;
-  if (fromSnake && typeof fromSnake === "object") {
-    return fromSnake as Record<string, string>;
-  }
-
   return {};
 }
 

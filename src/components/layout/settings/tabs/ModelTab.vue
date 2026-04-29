@@ -38,15 +38,15 @@ const defaultBaseUrl = (provider: string) => {
   return ''
 }
 
-const ensureProfile = (provider: string, fallback?: Partial<ProviderProfile>): ProviderProfile => {
+const ensureProfile = (provider: string): ProviderProfile => {
   const key = normalizeProviderKey(provider)
   const existing = providerProfiles.value[key]
   if (existing) return existing
 
   const profile: ProviderProfile = {
-    apiKey: fallback?.apiKey ?? '',
-    baseUrl: fallback?.baseUrl ?? defaultBaseUrl(key),
-    model: fallback?.model ?? '',
+    apiKey: '',
+    baseUrl: defaultBaseUrl(key),
+    model: '',
   }
   providerProfiles.value[key] = profile
   return profile
@@ -84,19 +84,9 @@ onMounted(async () => {
       if (settings.providerProfiles && typeof settings.providerProfiles === 'object') {
         providerProfiles.value = settings.providerProfiles
       }
-      if (settings.provider) {
-        selectedProvider.value = settings.provider
-      } else {
-        selectedProvider.value = settings.baseUrl?.includes('dashscope.aliyuncs.com/apps/anthropic')
-          ? 'dashscope-anthropic'
-          : 'anthropic'
-      }
+      selectedProvider.value = settings.provider || 'anthropic'
 
-      ensureProfile(selectedProvider.value, {
-        apiKey: settings.apiKey || '',
-        baseUrl: settings.baseUrl || defaultBaseUrl(selectedProvider.value),
-        model: settings.model || '',
-      })
+      ensureProfile(selectedProvider.value)
       
       if (!customModels.value[selectedProvider.value]) {
         customModels.value[selectedProvider.value] = []
@@ -132,12 +122,8 @@ const save = async () => {
   try {
     writeProviderInputs(selectedProvider.value)
     const prevSettings: any = (await invoke('get_settings')) || {}
-    const active = ensureProfile(selectedProvider.value)
     const settings = {
       ...prevSettings,
-      apiKey: active.apiKey,
-      baseUrl: active.baseUrl,
-      model: active.model || prevSettings.model || '',
       provider: selectedProvider.value,
       customModels: customModels.value,
       providerProfiles: providerProfiles.value,
