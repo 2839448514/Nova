@@ -6,7 +6,7 @@ import type {
 } from "../../../lib/chat-types";
 import type { ConversationTurnRuntimeState } from "./chat-controller-types";
 
-type ActiveRuntimeRefs = {
+export type ActiveRuntimeRefs = {
   isGenerating: Ref<boolean>;
   assistantResponse: Ref<string>;
   assistantReasoning: Ref<string>;
@@ -23,6 +23,107 @@ type ActiveRuntimeRefs = {
   toolInputById: Map<string, string>;
   toolNameById: Map<string, string>;
 };
+
+export function bindActiveRuntimeState(active: ActiveRuntimeRefs): ConversationTurnRuntimeState {
+  return {
+    get isGenerating() {
+      return active.isGenerating.value;
+    },
+    set isGenerating(value: boolean) {
+      active.isGenerating.value = value;
+    },
+    get assistantResponse() {
+      return active.assistantResponse.value;
+    },
+    set assistantResponse(value: string) {
+      active.assistantResponse.value = value;
+    },
+    get assistantReasoning() {
+      return active.assistantReasoning.value;
+    },
+    set assistantReasoning(value: string) {
+      active.assistantReasoning.value = value;
+    },
+    get assistantTokenUsage() {
+      return active.assistantTokenUsage.value;
+    },
+    set assistantTokenUsage(value: number | undefined) {
+      active.assistantTokenUsage.value = value;
+    },
+    get assistantTurnCost() {
+      return active.assistantTurnCost.value;
+    },
+    set assistantTurnCost(value: TurnCost | undefined) {
+      active.assistantTurnCost.value = value;
+    },
+    get pendingQuestion() {
+      return active.pendingQuestion.value;
+    },
+    set pendingQuestion(value: NeedsUserInputPayload | null) {
+      active.pendingQuestion.value = value;
+    },
+    get pendingPermissionRequestId() {
+      return active.pendingPermissionRequestId.value;
+    },
+    set pendingPermissionRequestId(value: string | null) {
+      active.pendingPermissionRequestId.value = value;
+    },
+    get currentToolStartedAt() {
+      return active.currentToolStartedAt.value;
+    },
+    set currentToolStartedAt(value: number | null) {
+      active.currentToolStartedAt.value = value;
+    },
+    get currentToolCalls() {
+      return active.currentToolCalls.value;
+    },
+    set currentToolCalls(value: number) {
+      active.currentToolCalls.value = value;
+    },
+    get currentToolDurationMs() {
+      return active.currentToolDurationMs.value;
+    },
+    set currentToolDurationMs(value: number) {
+      active.currentToolDurationMs.value = value;
+    },
+    get currentInputTokens() {
+      return active.currentInputTokens.value;
+    },
+    set currentInputTokens(value: number) {
+      active.currentInputTokens.value = value;
+    },
+    get currentOutputTokens() {
+      return active.currentOutputTokens.value;
+    },
+    set currentOutputTokens(value: number) {
+      active.currentOutputTokens.value = value;
+    },
+    get toolExecutionLogs() {
+      return active.toolExecutionLogs.value;
+    },
+    set toolExecutionLogs(value: ToolExecutionEntry[]) {
+      active.toolExecutionLogs.value = value;
+    },
+    get toolInputById() {
+      return active.toolInputById;
+    },
+    set toolInputById(value: Map<string, string>) {
+      active.toolInputById.clear();
+      for (const [id, input] of value.entries()) {
+        active.toolInputById.set(id, input);
+      }
+    },
+    get toolNameById() {
+      return active.toolNameById;
+    },
+    set toolNameById(value: Map<string, string>) {
+      active.toolNameById.clear();
+      for (const [id, name] of value.entries()) {
+        active.toolNameById.set(id, name);
+      }
+    },
+  };
+}
 
 export function createEmptyRuntimeState(): ConversationTurnRuntimeState {
   return {

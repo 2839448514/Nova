@@ -62,6 +62,7 @@ import {
   type ScheduledTaskTriggerEvent,
 } from "./chat-controller-types";
 import {
+  bindActiveRuntimeState,
   cleanupRuntimeStateIfIdle,
   clearActiveRuntimeState,
   ensureRuntimeState,
@@ -75,14 +76,10 @@ import {
   stashRuntimeState,
 } from "./chat-runtime-state";
 import {
-  appendToolExecutionInput,
   appendToolExecutionInputInState,
-  completeToolExecutionTrace,
   completeToolExecutionTraceInState,
   latestRunningToolExecutionIdByName,
-  markRunningToolExecutions,
   markRunningToolExecutionsInState,
-  startToolExecutionTrace,
   startToolExecutionTraceInState,
 } from "./chat-tool-execution";
 
@@ -132,6 +129,7 @@ export function useChatController() {
     toolInputById,
     toolNameById,
   };
+  const activeRuntimeState = bindActiveRuntimeState(activeRuntimeRefs);
 
   let unlistenChatStream: UnlistenFn | null = null;
   let unlistenBackendError: UnlistenFn | null = null;
@@ -551,21 +549,7 @@ export function useChatController() {
           runtimeStateByConversation,
           sendingConversationId,
         );
-        backgroundState.assistantResponse = "";
-        backgroundState.assistantReasoning = "";
-        backgroundState.assistantTokenUsage = undefined;
-        backgroundState.assistantTurnCost = undefined;
-        backgroundState.isGenerating = false;
-        backgroundState.pendingQuestion = null;
-        backgroundState.pendingPermissionRequestId = null;
-        backgroundState.currentToolStartedAt = null;
-        backgroundState.currentToolCalls = 0;
-        backgroundState.currentToolDurationMs = 0;
-        backgroundState.currentInputTokens = 0;
-        backgroundState.currentOutputTokens = 0;
-        backgroundState.toolInputById.clear();
-        backgroundState.toolNameById.clear();
-        cleanupRuntimeStateIfIdle(runtimeStateByConversation, sendingConversationId);
+        resetBackgroundRuntimeState(sendingConversationId, backgroundState);
       }
     }
   }
@@ -773,21 +757,58 @@ export function useChatController() {
     await loadConversation(conversations.value[0].id);
   };
 
-  async function handleBackgroundChatStreamEvent(
+  function resetBackgroundRuntimeState(
+    conversationId: string,
+    state: ConversationTurnRuntimeState,
+    preservePendingPrompt = false,
+  ) {
+    state.isGenerating = false;
+    state.assistantResponse = "";
+    state.assistantReasoning = "";
+    state.assistantTokenUsage = undefined;
+    state.assistantTurnCost = undefined;
+    if (!preservePendingPrompt) {
+      state.pendingPermissionRequestId = null;
+      state.pendingQuestion = null;
+    }
+    state.currentToolStartedAt = null;
+    state.currentToolCalls = 0;
+    state.currentToolDurationMs = 0;
+    state.currentInputTokens = 0;
+    state.currentOutputTokens = 0;
+    state.toolInputById.clear();
+    state.toolNameById.clear();
+
+    if (!preservePendingPrompt) {
+      cleanupRuntimeStateIfIdle(runtimeStateByConversation, conversationId);
+    }
+  }
+
+  async function handleChatStreamEvent(
     conversationId: string,
     payload: ChatMessageEvent,
+    mode: "active" | "background",
   ) {
-    const state = ensureRuntimeState(runtimeStateByConversation, conversationId);
+    const isActive = mode === "active";
+    const state = isActive
+      ? activeRuntimeState
+      : ensureRuntimeState(runtimeStateByConversation, conversationId);
 
     if (payload.type === "text" && payload.text) {
       state.isGenerating = true;
       state.assistantResponse += payload.text;
+      if (isActive) {
+        chatScreenRef.value?.scrollToBottom();
+      }
       return;
     }
 
     if (payload.type === "reasoning" && payload.text) {
       state.isGenerating = true;
       state.assistantReasoning += payload.text;
+      if (isActive) {
+        chatScreenRef.value?.scrollToBottom();
+      }
       return;
     }
 
@@ -799,11 +820,18 @@ export function useChatController() {
       const toolName = (payload.tool_use_name ?? "unknown").trim() || "unknown";
       const rawToolId = (payload.tool_use_id ?? "").trim();
       const toolId = rawToolId || `tool-${Date.now()}-${state.currentToolCalls}`;
+
       state.toolNameById.set(toolId, toolName);
       if (!state.toolInputById.has(toolId)) {
         state.toolInputById.set(toolId, "");
       }
+
       startToolExecutionTraceInState(state, toolId, toolName);
+
+      if (isActive) {
+        state.assistantResponse += `\n> Using tool: ${toolName}...\n`;
+        chatScreenRef.value?.scrollToBottom();
+      }
       return;
     }
 
@@ -821,32 +849,68 @@ export function useChatController() {
       const requestId = (payload.tool_use_id ?? "").trim();
       const promptPayload = (payload.text ?? "").trim();
       const parsed = parseNeedsUserInput(promptPayload);
-      if (!requestId || !parsed) {
+
+      if (!requestId) {
         emitToast({
           variant: "error",
           source: "permission-request",
-          message: `会话 ${conversationId} 收到异常权限请求，已自动拒绝。`,
+          message: isActive
+            ? "收到权限请求但缺少 request_id，已尝试取消当前回合。"
+            : `会话 ${conversationId} 收到异常权限请求，无法继续处理。`,
         });
-        if (requestId) {
-          void submitPermissionDecision(conversationId, requestId, "deny_session").catch((err) => {
+
+        if (isActive) {
+          void cancelChatMessage(activeConversationId.value || null).catch((err) => {
             emitToast({
               variant: "error",
               source: "permission-request",
-              message: `会话 ${conversationId} 自动拒绝权限请求失败: ${String(err)}`,
+              message: `取消异常权限请求失败: ${String(err)}`,
             });
           });
+          resetPendingPromptState(activeRuntimeRefs);
+        }
+        return;
+      }
+
+      if (!parsed) {
+        emitToast({
+          variant: "error",
+          source: "permission-request",
+          message: isActive
+            ? "收到权限请求但参数无效，已自动拒绝该请求。"
+            : `会话 ${conversationId} 收到异常权限请求，已自动拒绝。`,
+        });
+        void submitPermissionDecision(
+          isActive ? activeConversationId.value || null : conversationId,
+          requestId,
+          "deny_session",
+        ).catch((err) => {
+          emitToast({
+            variant: "error",
+            source: "permission-request",
+            message: isActive
+              ? `自动拒绝权限请求失败: ${String(err)}`
+              : `会话 ${conversationId} 自动拒绝权限请求失败: ${String(err)}`,
+          });
+        });
+        if (isActive) {
+          resetPendingPromptState(activeRuntimeRefs);
         }
         return;
       }
 
       state.pendingPermissionRequestId = requestId;
       state.pendingQuestion = parsed;
-      state.isGenerating = false;
-      emitToast({
-        variant: "info",
-        source: "permission-request",
-        message: `会话 ${conversationId} 需要权限确认，请切回该会话处理。`,
-      });
+      if (!isActive) {
+        state.isGenerating = false;
+        emitToast({
+          variant: "info",
+          source: "permission-request",
+          message: `会话 ${conversationId} 需要权限确认，请切回该会话处理。`,
+        });
+      } else {
+        chatScreenRef.value?.scrollToBottom();
+      }
       return;
     }
 
@@ -870,6 +934,15 @@ export function useChatController() {
       const fallbackInput = (payload.tool_use_input ?? "").trim();
       const rawInput = streamedInput.trim().length > 0 ? streamedInput : fallbackInput;
       const result = (payload.tool_result ?? "").trim();
+
+      if (isActive) {
+        const info = summarizeToolInfo(toolName, rawInput);
+        if (info) {
+          state.assistantResponse += `\n> Tool info: ${info}\n`;
+        }
+        state.assistantResponse += `\n> Tool done: ${toolName}\n`;
+      }
+
       completeToolExecutionTraceInState(
         conversationId,
         state,
@@ -887,6 +960,15 @@ export function useChatController() {
       }
 
       if (result) {
+        if (isActive) {
+          const planModeChange = parsePlanModeChange(result);
+          if (planModeChange) {
+            const nextIsPlanMode = planModeChange.mode === "plan";
+            planMode.value = nextIsPlanMode;
+            agentMode.value = nextIsPlanMode ? "plan" : "agent";
+          }
+        }
+
         const needsUserInput = parseNeedsUserInput(result);
         if (needsUserInput) {
           state.pendingPermissionRequestId = null;
@@ -896,12 +978,19 @@ export function useChatController() {
           const preview =
             rendered.length > 1200 ? `${rendered.slice(0, 1200)}\n...(truncated)` : rendered;
           state.assistantResponse += `\n${preview}\n`;
-          emitToast({
-            variant: "info",
-            source: "permission-request",
-            message: `会话 ${conversationId} 需要继续输入，请切回该会话。`,
-          });
+
+          if (!isActive) {
+            emitToast({
+              variant: "info",
+              source: "permission-request",
+              message: `会话 ${conversationId} 需要继续输入，请切回该会话。`,
+            });
+          }
         }
+      }
+
+      if (isActive) {
+        chatScreenRef.value?.scrollToBottom();
       }
       return;
     }
@@ -926,21 +1015,16 @@ export function useChatController() {
         "cancelled",
         persistToolExecutionLog,
       );
-      state.isGenerating = false;
-      state.assistantResponse = "";
-      state.assistantReasoning = "";
-      state.assistantTokenUsage = undefined;
-      state.assistantTurnCost = undefined;
-      state.pendingPermissionRequestId = null;
-      state.pendingQuestion = null;
-      state.currentToolStartedAt = null;
-      state.currentToolCalls = 0;
-      state.currentToolDurationMs = 0;
-      state.currentInputTokens = 0;
-      state.currentOutputTokens = 0;
-      state.toolInputById.clear();
-      state.toolNameById.clear();
-      cleanupRuntimeStateIfIdle(runtimeStateByConversation, conversationId);
+
+      if (isActive) {
+        finalizeOrStopTurn(payload.token_usage);
+        resetTurnRuntimeState(activeRuntimeRefs);
+        if (activeConversationId.value) {
+          runtimeStateByConversation.delete(normalizeConversationId(activeConversationId.value));
+        }
+      } else {
+        resetBackgroundRuntimeState(conversationId, state);
+      }
       return;
     }
 
@@ -951,27 +1035,28 @@ export function useChatController() {
         "error",
         persistToolExecutionLog,
       );
-      state.isGenerating = false;
-      state.assistantResponse = "";
-      state.assistantReasoning = "";
-      state.assistantTokenUsage = undefined;
-      state.assistantTurnCost = undefined;
-      state.pendingPermissionRequestId = null;
-      state.pendingQuestion = null;
-      state.currentToolStartedAt = null;
-      state.currentToolCalls = 0;
-      state.currentToolDurationMs = 0;
-      state.currentInputTokens = 0;
-      state.currentOutputTokens = 0;
-      state.toolInputById.clear();
-      state.toolNameById.clear();
-      cleanupRuntimeStateIfIdle(runtimeStateByConversation, conversationId);
+
+      if (isActive) {
+        state.isGenerating = false;
+        state.assistantResponse = "";
+        state.assistantReasoning = "";
+        state.assistantTokenUsage = undefined;
+        state.assistantTurnCost = undefined;
+        resetTurnRuntimeState(activeRuntimeRefs);
+        if (activeConversationId.value) {
+          runtimeStateByConversation.delete(normalizeConversationId(activeConversationId.value));
+        }
+      } else {
+        resetBackgroundRuntimeState(conversationId, state);
+      }
 
       const detail = (payload.text ?? "").trim();
       emitToast({
         variant: "error",
         source: "chat-stream",
-        message: detail || `会话 ${conversationId} 回复失败: ${stopReason || "unknown"}`,
+        message: detail || (isActive
+          ? `Provider error: ${stopReason || "unknown"}`
+          : `会话 ${conversationId} 回复失败: ${stopReason || "unknown"}`),
       });
       return;
     }
@@ -984,24 +1069,42 @@ export function useChatController() {
       stopReason === "stop_hook_prevented" ||
       stopReason === "needs_user_input";
 
-    if (shouldFinalize) {
-      const preservePendingPrompt =
-        shouldPreservePendingPromptOnStop(turnState, stopReason) ||
-        !!state.pendingPermissionRequestId ||
-        !!state.pendingQuestion;
-      markRunningToolExecutionsInState(
-        conversationId,
-        state,
-        "completed",
-        persistToolExecutionLog,
-      );
-      await finalizeBackgroundTurn(
-        conversationId,
-        state,
-        payload.token_usage,
-        preservePendingPrompt,
-      );
+    if (!shouldFinalize) {
+      return;
     }
+
+    const preservePendingPrompt =
+      shouldPreservePendingPromptOnStop(turnState, stopReason) ||
+      !!state.pendingPermissionRequestId ||
+      !!state.pendingQuestion;
+    markRunningToolExecutionsInState(
+      conversationId,
+      state,
+      "completed",
+      persistToolExecutionLog,
+    );
+
+    if (isActive) {
+      finalizeOrStopTurn(payload.token_usage);
+
+      if (!preservePendingPrompt) {
+        resetTurnRuntimeState(activeRuntimeRefs);
+      } else {
+        resetToolTrackingState(activeRuntimeRefs);
+      }
+
+      if (activeConversationId.value && !preservePendingPrompt) {
+        runtimeStateByConversation.delete(normalizeConversationId(activeConversationId.value));
+      }
+      return;
+    }
+
+    await finalizeBackgroundTurn(
+      conversationId,
+      state,
+      payload.token_usage,
+      preservePendingPrompt,
+    );
   }
 
   onMounted(async () => {
@@ -1025,217 +1128,10 @@ export function useChatController() {
         }
 
         if (targetConversationId !== activeConversationId.value) {
-          void handleBackgroundChatStreamEvent(targetConversationId, payload);
+          void handleChatStreamEvent(targetConversationId, payload, "background");
           return;
         }
-
-        if (payload.type === "text" && payload.text) {
-          assistantResponse.value += payload.text;
-          chatScreenRef.value?.scrollToBottom();
-        } else if (payload.type === "reasoning" && payload.text) {
-          assistantReasoning.value += payload.text;
-          chatScreenRef.value?.scrollToBottom();
-        } else if (payload.type === "tool-use-start") {
-          currentToolCalls.value += 1;
-          currentToolStartedAt.value = Date.now();
-          const toolName = (payload.tool_use_name ?? "unknown").trim() || "unknown";
-          const rawToolId = (payload.tool_use_id ?? "").trim();
-          const toolId = rawToolId || `tool-${Date.now()}-${currentToolCalls.value}`;
-
-          toolNameById.set(toolId, toolName);
-          if (!toolInputById.has(toolId)) {
-            toolInputById.set(toolId, "");
-          }
-
-          startToolExecutionTrace(toolExecutionLogs, toolId, toolName);
-          assistantResponse.value += `\n> Using tool: ${toolName}...\n`;
-          chatScreenRef.value?.scrollToBottom();
-        } else if (payload.type === "tool-json-delta") {
-          const toolId = (payload.tool_use_id ?? "").trim();
-          if (toolId && payload.tool_use_input) {
-            const prev = toolInputById.get(toolId) ?? "";
-            toolInputById.set(toolId, prev + payload.tool_use_input);
-            appendToolExecutionInput(toolExecutionLogs, toolId, payload.tool_use_input);
-          }
-        } else if (payload.type === "permission-request") {
-          const requestId = (payload.tool_use_id ?? "").trim();
-          const promptPayload = (payload.text ?? "").trim();
-          const parsed = parseNeedsUserInput(promptPayload);
-
-          if (!requestId) {
-            emitToast({
-              variant: "error",
-              source: "permission-request",
-              message: "收到权限请求但缺少 request_id，已尝试取消当前回合。",
-            });
-            void cancelChatMessage(activeConversationId.value || null).catch((err) => {
-              emitToast({
-                variant: "error",
-                source: "permission-request",
-                message: `取消异常权限请求失败: ${String(err)}`,
-              });
-            });
-            resetPendingPromptState(activeRuntimeRefs);
-            return;
-          }
-
-          if (!parsed) {
-            emitToast({
-              variant: "error",
-              source: "permission-request",
-              message: "收到权限请求但参数无效，已自动拒绝该请求。",
-            });
-            void submitPermissionDecision(
-              activeConversationId.value || null,
-              requestId,
-              "deny_session",
-            ).catch((err) => {
-              emitToast({
-                variant: "error",
-                source: "permission-request",
-                message: `自动拒绝权限请求失败: ${String(err)}`,
-              });
-            });
-            resetPendingPromptState(activeRuntimeRefs);
-            return;
-          }
-
-          pendingPermissionRequestId.value = requestId;
-          pendingQuestion.value = parsed;
-          chatScreenRef.value?.scrollToBottom();
-        } else if (payload.type === "tool-result") {
-          if (currentToolStartedAt.value) {
-            currentToolDurationMs.value += Math.max(0, Date.now() - currentToolStartedAt.value);
-            currentToolStartedAt.value = null;
-          }
-          const rawToolId = (payload.tool_use_id ?? "").trim();
-          const fallbackToolName = (payload.tool_use_name ?? "").trim();
-          const toolName =
-            fallbackToolName ||
-            (rawToolId ? toolNameById.get(rawToolId) : undefined) ||
-            "unknown";
-          const toolId =
-            rawToolId ||
-            latestRunningToolExecutionIdByName(toolExecutionLogs.value, toolName) ||
-            "";
-          const streamedInput = toolId ? toolInputById.get(toolId) ?? "" : "";
-          const fallbackInput = (payload.tool_use_input ?? "").trim();
-          const rawInput = streamedInput.trim().length > 0 ? streamedInput : fallbackInput;
-          const info = summarizeToolInfo(toolName, rawInput);
-          if (info) {
-            assistantResponse.value += `\n> Tool info: ${info}\n`;
-          }
-          assistantResponse.value += `\n> Tool done: ${toolName}\n`;
-          const result = (payload.tool_result ?? "").trim();
-          completeToolExecutionTrace(
-            toolExecutionLogs,
-            toolId || null,
-            toolName,
-            result,
-            "completed",
-            persistToolExecutionLog,
-            rawInput,
-          );
-
-          if (toolId) {
-            toolInputById.delete(toolId);
-            toolNameById.delete(toolId);
-          }
-
-          if (result) {
-            const planModeChange = parsePlanModeChange(result);
-            if (planModeChange) {
-              const isPlan = planModeChange.mode === "plan";
-              planMode.value = isPlan;
-              agentMode.value = isPlan ? "plan" : "agent";
-            }
-            const needsUserInput = parseNeedsUserInput(result);
-            if (needsUserInput) {
-              pendingPermissionRequestId.value = null;
-              pendingQuestion.value = needsUserInput;
-              isGenerating.value = false;
-              const rendered = renderToolResult(result);
-              const preview =
-                rendered.length > 1200 ? `${rendered.slice(0, 1200)}\n...(truncated)` : rendered;
-              assistantResponse.value += `\n${preview}\n`;
-            }
-          }
-          chatScreenRef.value?.scrollToBottom();
-        } else if (payload.type === "token-usage") {
-          assistantTokenUsage.value = payload.token_usage;
-          currentOutputTokens.value = payload.token_usage ?? currentOutputTokens.value;
-        } else if (payload.type === "stop") {
-          const stopReason = payload.stop_reason ?? "";
-          const turnState = payload.turn_state ?? "";
-
-          if (turnState === "cancelled" || stopReason === "cancelled") {
-            markRunningToolExecutions(
-              toolExecutionLogs,
-              "cancelled",
-              persistToolExecutionLog,
-            );
-            finalizeOrStopTurn(payload.token_usage);
-            resetTurnRuntimeState(activeRuntimeRefs);
-            if (activeConversationId.value) {
-              runtimeStateByConversation.delete(normalizeConversationId(activeConversationId.value));
-            }
-            return;
-          }
-
-          if (turnState === "error") {
-            markRunningToolExecutions(
-              toolExecutionLogs,
-              "error",
-              persistToolExecutionLog,
-            );
-            isGenerating.value = false;
-            assistantResponse.value = "";
-            assistantReasoning.value = "";
-            assistantTokenUsage.value = undefined;
-            assistantTurnCost.value = undefined;
-            resetTurnRuntimeState(activeRuntimeRefs);
-            if (activeConversationId.value) {
-              runtimeStateByConversation.delete(normalizeConversationId(activeConversationId.value));
-            }
-            const detail = (payload.text ?? "").trim();
-            emitToast({
-              variant: "error",
-              source: "chat-stream",
-              message: detail || `Provider error: ${stopReason || "unknown"}`,
-            });
-            return;
-          }
-          const shouldFinalize =
-            turnState === "completed" ||
-            turnState === "awaiting_user_input" ||
-            turnState === "needs_user_input" ||
-            turnState === "stop_hook_prevented" ||
-            stopReason === "stop_hook_prevented" ||
-            stopReason === "needs_user_input";
-
-          if (shouldFinalize) {
-            const preservePendingPrompt =
-              shouldPreservePendingPromptOnStop(turnState, stopReason) ||
-              !!pendingPermissionRequestId.value ||
-              !!pendingQuestion.value;
-            markRunningToolExecutions(
-              toolExecutionLogs,
-              "completed",
-              persistToolExecutionLog,
-            );
-            finalizeOrStopTurn(payload.token_usage);
-
-            if (!preservePendingPrompt) {
-              resetTurnRuntimeState(activeRuntimeRefs);
-            } else {
-              resetToolTrackingState(activeRuntimeRefs);
-            }
-
-            if (activeConversationId.value && !preservePendingPrompt) {
-              runtimeStateByConversation.delete(normalizeConversationId(activeConversationId.value));
-            }
-          }
-        }
+        void handleChatStreamEvent(targetConversationId, payload, "active");
       });
     } catch (err) {
       console.error("Failed to setup listener:", err);
