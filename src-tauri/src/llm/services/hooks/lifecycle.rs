@@ -7,6 +7,7 @@ use super::types::HookOutcome;
 const SESSION_START_HOOK_CONTEXT_KEY: &str = "NOVA_SESSION_START_HOOK_CONTEXT";
 const USER_PROMPT_SUBMIT_HOOK_CONTEXT_KEY: &str = "NOVA_USER_PROMPT_SUBMIT_HOOK_CONTEXT";
 const PRE_COMPACT_HOOK_CONTEXT_KEY: &str = "NOVA_PRE_COMPACT_HOOK_CONTEXT";
+const POST_COMPACT_HOOK_CONTEXT_KEY: &str = "NOVA_POST_COMPACT_HOOK_CONTEXT";
 const SUBAGENT_START_HOOK_CONTEXT_KEY: &str = "NOVA_SUBAGENT_START_HOOK_CONTEXT";
 const SUBAGENT_STOP_HOOK_CONTEXT_KEY: &str = "NOVA_SUBAGENT_STOP_HOOK_CONTEXT";
 const SESSION_END_HOOK_CONTEXT_KEY: &str = "NOVA_SESSION_END_HOOK_CONTEXT";
@@ -50,6 +51,18 @@ pub fn run_pre_compact_hooks(app: &AppHandle, _conversation_id: Option<&str>) ->
         &config,
         PRE_COMPACT_HOOK_CONTEXT_KEY,
         "[PreCompact]",
+    );
+    out
+}
+
+pub fn run_post_compact_hooks(app: &AppHandle, _conversation_id: Option<&str>) -> HookOutcome {
+    let config = HookConfig::from_app(app);
+    let mut out = HookOutcome::default();
+    append_context_hook_message(
+        &mut out,
+        &config,
+        POST_COMPACT_HOOK_CONTEXT_KEY,
+        "[PostCompact]",
     );
     out
 }

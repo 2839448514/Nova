@@ -116,6 +116,20 @@ fn is_session_start_turn(messages: &[Message]) -> bool {
 	assistant_count == 0 && user_count <= 1
 }
 
+fn apply_post_compact_hook(
+	app: &AppHandle,
+	conversation_id: Option<&str>,
+	messages: &mut Vec<Message>,
+) {
+	let post_compact_hook = crate::llm::services::hooks::run_post_compact_hooks(
+		app,
+		conversation_id,
+	);
+	if !post_compact_hook.additional_messages.is_empty() {
+		messages.extend(post_compact_hook.additional_messages);
+	}
+}
+
 // 入口函数：发送用户聊天消息，驱动整轮 LLM 编排。
 // 它负责：
 // 1) 在真正请求模型前准备上下文（hooks / session restore / compact / session RAG）
@@ -201,12 +215,17 @@ pub async fn send_chat_message(
 		assembled_messages.extend(pre_compact_hook.additional_messages);
 	}
 
-	let mut current_messages = compact::compact_messages_for_turn(
+	let compact_outcome = compact::compact_messages_for_turn_with_report(
 		&app,
 		conversation_id.as_deref(),
 		&assembled_messages,
 	)
 	.await;
+	let did_compact = compact_outcome.did_compact();
+	let mut current_messages = compact_outcome.messages;
+	if did_compact {
+		apply_post_compact_hook(&app, conversation_id.as_deref(), &mut current_messages);
+	}
 
 	if let Some(query_text) = rag_query.as_deref() {
 		match build_session_rag_context_message(&app, conversation_id.as_deref(), query_text) {
@@ -230,6 +249,7 @@ pub async fn send_chat_message(
 	// 3. 主循环：调用 provider.send_request（流式），并根据 tool 执行情况决定是否继续下一步。
 	//    - 如果发生工具调用，结果会被“注入”到 current_messages 继续下一轮。
 	//    - 如果 provider 返回 needs_user_input / 无工具结果，则结束。
+	let mut has_attempted_reactive_compact = false;
 	let mut final_outcome = loop {
 		// 若收到取消请求，则立即以 cancelled 结束。
 		if crate::llm::cancellation::is_cancelled(conversation_id.as_deref()) {
@@ -255,6 +275,21 @@ pub async fn send_chat_message(
 			// 请求成功时拿到结果对象。
 			Ok(v) => v,
 			Err(e) => {
+				if !has_attempted_reactive_compact && compact::is_prompt_too_long_error(&e) {
+					if let Some(recovered_messages) = compact::reactive_compact_messages_for_retry(
+						&app,
+						conversation_id.as_deref(),
+						&current_messages,
+					)
+					.await
+					{
+						current_messages = recovered_messages;
+						apply_post_compact_hook(&app, conversation_id.as_deref(), &mut current_messages);
+						has_attempted_reactive_compact = true;
+						continue;
+					}
+				}
+
 				let error_hook = crate::llm::services::hooks::run_error_hooks(
 					&app,
 					&e,

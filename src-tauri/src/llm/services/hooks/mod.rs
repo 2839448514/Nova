@@ -7,6 +7,7 @@ mod types;
 
 pub use lifecycle::{
     run_error_hooks,
+    run_post_compact_hooks,
     run_pre_compact_hooks,
     run_session_end_hooks,
     run_session_start_hooks,

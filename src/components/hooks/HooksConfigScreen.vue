@@ -23,6 +23,7 @@ const form = reactive({
   sessionStartContext: "",
   userPromptSubmitContext: "",
   preCompactContext: "",
+  postCompactContext: "",
   preToolDenyTools: "",
   preToolContext: "",
   postToolContext: "",
@@ -83,6 +84,7 @@ function applyHookEnvToForm(hookEnv: Record<string, string>) {
   form.sessionStartContext = hookEnv.NOVA_SESSION_START_HOOK_CONTEXT ?? "";
   form.userPromptSubmitContext = hookEnv.NOVA_USER_PROMPT_SUBMIT_HOOK_CONTEXT ?? "";
   form.preCompactContext = hookEnv.NOVA_PRE_COMPACT_HOOK_CONTEXT ?? "";
+  form.postCompactContext = hookEnv.NOVA_POST_COMPACT_HOOK_CONTEXT ?? "";
   form.preToolDenyTools = hookEnv.NOVA_PRE_TOOL_DENY_TOOLS ?? "";
   form.preToolContext = hookEnv.NOVA_PRE_TOOL_CONTEXT ?? "";
   form.postToolContext = hookEnv.NOVA_POST_TOOL_CONTEXT ?? "";
@@ -112,6 +114,7 @@ function buildHookEnvFromForm(): Record<string, string> {
   put("NOVA_SESSION_START_HOOK_CONTEXT", form.sessionStartContext);
   put("NOVA_USER_PROMPT_SUBMIT_HOOK_CONTEXT", form.userPromptSubmitContext);
   put("NOVA_PRE_COMPACT_HOOK_CONTEXT", form.preCompactContext);
+  put("NOVA_POST_COMPACT_HOOK_CONTEXT", form.postCompactContext);
   put("NOVA_PRE_TOOL_DENY_TOOLS", form.preToolDenyTools);
   put("NOVA_PRE_TOOL_CONTEXT", form.preToolContext);
   put("NOVA_POST_TOOL_CONTEXT", form.postToolContext);
@@ -219,7 +222,7 @@ onMounted(() => {
     <header class="flex flex-wrap items-start justify-between gap-3">
       <div class="space-y-1">
         <h2 class="text-base font-semibold text-[#2f2a24] dark:text-[#ece8de]">挂钩配置</h2>
-        <p class="text-sm text-[#8a8174] dark:text-[#b5ada0]">管理会话、提示提交、预压缩、工具前后、子智能体、停止与错误等全流程 Hook。</p>
+        <p class="text-sm text-[#8a8174] dark:text-[#b5ada0]">管理会话、提示提交、压缩前后、工具前后、子智能体、停止与错误等全流程 Hook。</p>
       </div>
       <div class="flex flex-wrap items-center gap-2">
         <Button
@@ -285,6 +288,17 @@ onMounted(() => {
           <Label :class="labelClass">上下文注入</Label>
           <Textarea v-model="form.preCompactContext" :class="fieldClass" rows="3" placeholder="压缩上下文前追加的提示" />
           <p :class="hintClass">对应 NOVA_PRE_COMPACT_HOOK_CONTEXT。</p>
+        </CardContent>
+      </Card>
+
+      <Card class="gap-4 border-[#eadfcd] bg-[#fffdf8] py-4 shadow-sm dark:border-[#4a4237] dark:bg-[#292621]">
+        <CardHeader class="px-4 pb-0">
+          <CardTitle class="text-sm text-[#5b5347] dark:text-[#ddd5c7]">后压缩</CardTitle>
+        </CardHeader>
+        <CardContent class="space-y-2 px-4">
+          <Label :class="labelClass">上下文注入</Label>
+          <Textarea v-model="form.postCompactContext" :class="fieldClass" rows="3" placeholder="压缩完成后追加的提示" />
+          <p :class="hintClass">对应 NOVA_POST_COMPACT_HOOK_CONTEXT。</p>
         </CardContent>
       </Card>
 

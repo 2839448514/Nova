@@ -26,6 +26,9 @@ const TOOL_RESULT_TEXT_TRUNCATE_LIMIT: usize = 1200;
 const TOOL_RESULT_JSON_MAX_DEPTH: usize = 3;
 const TOOL_RESULT_JSON_MAX_ITEMS: usize = 12;
 const SESSION_RESTORE_MARKER: &str = "[Session Restore Context]";
+const REACTIVE_FULL_COMPACT_TOKEN_BUDGET: i64 = 1400;
+const REACTIVE_FULL_COMPACT_RECENT_LIMIT: i64 = 6;
+const REACTIVE_FALLBACK_KEEP_MESSAGES: usize = 8;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CompactLevel {
@@ -40,6 +43,18 @@ struct CompactDecision {
     estimated_tokens: i64,
     message_count: usize,
     has_large_tool_result: bool,
+}
+
+pub struct CompactionOutcome {
+    pub messages: Vec<Message>,
+    pub estimated_tokens: i64,
+    pub level: &'static str,
+}
+
+impl CompactionOutcome {
+    pub fn did_compact(&self) -> bool {
+        self.level != "none"
+    }
 }
 
 // 判断字符是否属于中日韩Unicode块。此处通过字节范围直接判断，避免调用 heavy regex。
@@ -438,6 +453,23 @@ async fn apply_full_compact(
     conversation_id: Option<&str>,
     messages: &[Message],
 ) -> Vec<Message> {
+    apply_full_compact_with_limits(
+        app,
+        conversation_id,
+        messages,
+        2200,
+        10,
+    )
+    .await
+}
+
+async fn apply_full_compact_with_limits(
+    app: &AppHandle,
+    conversation_id: Option<&str>,
+    messages: &[Message],
+    token_budget: i64,
+    recent_limit: i64,
+) -> Vec<Message> {
     // 若 conversation_id 为空或仅空白则不做 Full 压缩，直接返回原消息
     let Some(conversation_id) = conversation_id.filter(|id| !id.trim().is_empty()) else {
         return messages.to_vec();
@@ -447,8 +479,8 @@ async fn apply_full_compact(
     let compact = match crate::command::history::get_conversation_compact_context(
         app.clone(),
         conversation_id.to_string(),
-        Some(2200),
-        Some(10),
+        Some(token_budget),
+        Some(recent_limit),
     )
     .await
     {
@@ -508,15 +540,84 @@ async fn apply_full_compact(
     prepared
 }
 
+fn same_messages(left: &[Message], right: &[Message]) -> bool {
+    serde_json::to_string(left).ok() == serde_json::to_string(right).ok()
+}
+
+fn truncate_oldest_messages_for_retry(messages: &[Message], keep_recent: usize) -> Vec<Message> {
+    let (session_restore_message, messages_without_restore) =
+        split_session_restore_message(messages);
+
+    if messages_without_restore.len() <= keep_recent {
+        return messages.to_vec();
+    }
+
+    let mut start = messages_without_restore.len().saturating_sub(keep_recent);
+    while start > 0 && messages_without_restore[start].role == Role::Assistant {
+        start -= 1;
+    }
+
+    let mut prepared = Vec::with_capacity(
+        messages_without_restore.len().saturating_sub(start)
+            + usize::from(session_restore_message.is_some()),
+    );
+    if let Some(restore) = session_restore_message {
+        prepared.push(restore);
+    }
+    prepared.extend(messages_without_restore[start..].iter().cloned());
+    prepared
+}
+
+pub fn is_prompt_too_long_error(error: &str) -> bool {
+    let normalized = error.to_ascii_lowercase();
+    [
+        "prompt_too_long",
+        "prompt too long",
+        "context length",
+        "context too long",
+        "maximum context length",
+        "context window",
+        "too many tokens",
+        "token limit exceeded",
+    ]
+    .iter()
+    .any(|needle| normalized.contains(needle))
+}
+
+pub async fn reactive_compact_messages_for_retry(
+    app: &AppHandle,
+    conversation_id: Option<&str>,
+    messages: &[Message],
+) -> Option<Vec<Message>> {
+    let force_full = apply_full_compact_with_limits(
+        app,
+        conversation_id,
+        messages,
+        REACTIVE_FULL_COMPACT_TOKEN_BUDGET,
+        REACTIVE_FULL_COMPACT_RECENT_LIMIT,
+    )
+    .await;
+    if !same_messages(&force_full, messages) {
+        return Some(force_full);
+    }
+
+    let truncated = truncate_oldest_messages_for_retry(messages, REACTIVE_FALLBACK_KEEP_MESSAGES);
+    if !same_messages(&truncated, messages) {
+        return Some(truncated);
+    }
+
+    None
+}
+
 // 入口：按层级执行 compact（纯压缩，不负责组装额外上下文）。
 // - None: 不压缩
 // - Micro: 仅本地清洗 tool_result（尤其长 JSON/长文本）
 // - Full: 先做 Micro，再拼接 compact 历史上下文 + 最近窗口
-pub async fn compact_messages_for_turn(
+pub async fn compact_messages_for_turn_with_report(
     app: &AppHandle,
     conversation_id: Option<&str>,
     messages: &[Message],
-) -> Vec<Message> {
+) -> CompactionOutcome {
     // 决策并记录调试信息
     let decision = decide_compact_strategy(messages);
     // 打印调试日志，便于观察何时触发哪种压缩策略
@@ -529,7 +630,13 @@ pub async fn compact_messages_for_turn(
     );
 
     // 根据决策执行对应的压缩流程
-    match decision.level {
+    let level = match decision.level {
+        CompactLevel::None => "none",
+        CompactLevel::Micro => "micro",
+        CompactLevel::Full => "full",
+    };
+
+    let messages = match decision.level {
         CompactLevel::None => messages.to_vec(),
         CompactLevel::Micro => apply_micro_compact(messages),
         CompactLevel::Full => {
@@ -537,7 +644,23 @@ pub async fn compact_messages_for_turn(
             let micro_compacted = apply_micro_compact(messages);
             apply_full_compact(app, conversation_id, &micro_compacted).await
         }
+    };
+
+    CompactionOutcome {
+        messages,
+        estimated_tokens: decision.estimated_tokens,
+        level,
     }
+}
+
+pub async fn compact_messages_for_turn(
+    app: &AppHandle,
+    conversation_id: Option<&str>,
+    messages: &[Message],
+) -> Vec<Message> {
+    compact_messages_for_turn_with_report(app, conversation_id, messages)
+        .await
+        .messages
 }
 
 // 检查当前输出消息是否包含工具结果里标记为需要用户输入的 payload，

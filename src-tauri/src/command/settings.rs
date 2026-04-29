@@ -43,6 +43,7 @@ fn default_ui_theme() -> String {
 }
 
 const STOP_HOOK_MAX_ASSISTANT_MESSAGES_KEY: &str = "NOVA_STOP_HOOK_MAX_ASSISTANT_MESSAGES";
+const POST_COMPACT_HOOK_CONTEXT_KEY: &str = "NOVA_POST_COMPACT_HOOK_CONTEXT";
 
 fn normalize_provider_key(provider: &str) -> String {
     // provider 名去空白并转小写。
@@ -263,6 +264,15 @@ pub fn get_settings_path(app: &AppHandle) -> Result<PathBuf, String> {
 }
 
 fn validate_hook_env(settings: &AppSettings) -> Result<(), String> {
+    if let Some(raw_value) = settings.hook_env.get(POST_COMPACT_HOOK_CONTEXT_KEY) {
+        if raw_value.contains('\u{0000}') {
+            return Err(format!(
+                "Invalid hook_env[{}]: contains NUL character",
+                POST_COMPACT_HOOK_CONTEXT_KEY
+            ));
+        }
+    }
+
     if let Some(raw_value) = settings
         .hook_env
         .get(STOP_HOOK_MAX_ASSISTANT_MESSAGES_KEY)
