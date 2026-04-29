@@ -42,72 +42,49 @@ import type {
   PendingUploadFile,
   ToolExecutionEntry,
   TurnCost,
-  UploadedImageFile,
-  UploadedRagFile,
 } from "../../../lib/chat-types";
-
-export type MainView = "chat" | "hooks" | "agent" | "schedule";
-
-type BackendErrorEvent = {
-  source?: string;
-  message?: string;
-  stage?: string | null;
-};
-
-type ScheduledTaskTriggerEvent = {
-  id: string;
-  conversationId?: string;
-  cron: string;
-  prompt: string;
-  recurring: boolean;
-  durable: boolean;
-  createdAt?: string;
-  triggeredAt?: string;
-};
-
-type ChatScreenHandle = {
-  scrollToBottom: () => void;
-  scrollLastUserMessageToTop: () => void;
-};
-
-type ModelTextBlock = {
-  type: "text";
-  text: string;
-};
-
-type ModelImageBlock = {
-  type: "image";
-  source: {
-    type: "base64";
-    media_type: string;
-    data: string;
-  };
-};
-
-type ModelMessage = {
-  role: "user" | "assistant";
-  content: string | Array<ModelTextBlock | ModelImageBlock>;
-};
-
-const SCHEDULED_CONVERSATION_TITLE_PREFIX = "Scheduled [";
-
-type ConversationTurnRuntimeState = {
-  isGenerating: boolean;
-  assistantResponse: string;
-  assistantReasoning: string;
-  assistantTokenUsage?: number;
-  assistantTurnCost?: TurnCost;
-  pendingQuestion: NeedsUserInputPayload | null;
-  pendingPermissionRequestId: string | null;
-  currentToolStartedAt: number | null;
-  currentToolCalls: number;
-  currentToolDurationMs: number;
-  currentInputTokens: number;
-  currentOutputTokens: number;
-  toolExecutionLogs: ToolExecutionEntry[];
-  toolInputById: Map<string, string>;
-  toolNameById: Map<string, string>;
-};
+import {
+  buildAssistantCost,
+  buildAssistantCostForState,
+  buildModelMessage,
+  estimateInputTokensForTurn,
+  isDocumentUploadFile,
+  isImageUploadFile,
+  shouldPreservePendingPromptOnStop,
+  toAttachmentMeta,
+} from "./chat-message-helpers";
+import {
+  type BackendErrorEvent,
+  type ChatScreenHandle,
+  type ConversationTurnRuntimeState,
+  type MainView,
+  SCHEDULED_CONVERSATION_TITLE_PREFIX,
+  type ScheduledTaskTriggerEvent,
+} from "./chat-controller-types";
+import {
+  cleanupRuntimeStateIfIdle,
+  clearActiveRuntimeState,
+  ensureRuntimeState,
+  hasAnyGeneratingConversations,
+  isSpecificConversationGenerating,
+  normalizeConversationId,
+  resetPendingPromptState,
+  resetToolTrackingState,
+  resetTurnRuntimeState,
+  restoreRuntimeState,
+  stashRuntimeState,
+} from "./chat-runtime-state";
+import {
+  appendToolExecutionInput,
+  appendToolExecutionInputInState,
+  completeToolExecutionTrace,
+  completeToolExecutionTraceInState,
+  latestRunningToolExecutionIdByName,
+  markRunningToolExecutions,
+  markRunningToolExecutionsInState,
+  startToolExecutionTrace,
+  startToolExecutionTraceInState,
+} from "./chat-tool-execution";
 
 export function useChatController() {
   const messages = ref<ChatMessage[]>([]);
@@ -138,418 +115,27 @@ export function useChatController() {
   const toolInputById = new Map<string, string>();
   const toolNameById = new Map<string, string>();
   const runtimeStateByConversation = new Map<string, ConversationTurnRuntimeState>();
+  const activeRuntimeRefs = {
+    isGenerating,
+    assistantResponse,
+    assistantReasoning,
+    assistantTokenUsage,
+    assistantTurnCost,
+    pendingQuestion,
+    pendingPermissionRequestId,
+    currentToolStartedAt,
+    currentToolCalls,
+    currentToolDurationMs,
+    currentInputTokens,
+    currentOutputTokens,
+    toolExecutionLogs,
+    toolInputById,
+    toolNameById,
+  };
 
   let unlistenChatStream: UnlistenFn | null = null;
   let unlistenBackendError: UnlistenFn | null = null;
   let unlistenScheduledTaskTrigger: UnlistenFn | null = null;
-
-  function createEmptyRuntimeState(): ConversationTurnRuntimeState {
-    return {
-      isGenerating: false,
-      assistantResponse: "",
-      assistantReasoning: "",
-      assistantTokenUsage: undefined,
-      assistantTurnCost: undefined,
-      pendingQuestion: null,
-      pendingPermissionRequestId: null,
-      currentToolStartedAt: null,
-      currentToolCalls: 0,
-      currentToolDurationMs: 0,
-      currentInputTokens: 0,
-      currentOutputTokens: 0,
-      toolExecutionLogs: [],
-      toolInputById: new Map<string, string>(),
-      toolNameById: new Map<string, string>(),
-    };
-  }
-
-  function normalizeConversationId(conversationId?: string | null): string {
-    const normalized = (conversationId ?? "").trim();
-    return normalized || "__default__";
-  }
-
-  function cloneRuntimeState(state: ConversationTurnRuntimeState): ConversationTurnRuntimeState {
-    return {
-      ...state,
-      toolExecutionLogs: state.toolExecutionLogs.map((entry) => ({ ...entry })),
-      toolInputById: new Map(state.toolInputById),
-      toolNameById: new Map(state.toolNameById),
-    };
-  }
-
-  function snapshotActiveRuntimeState(): ConversationTurnRuntimeState {
-    return {
-      isGenerating: isGenerating.value,
-      assistantResponse: assistantResponse.value,
-      assistantReasoning: assistantReasoning.value,
-      assistantTokenUsage: assistantTokenUsage.value,
-      assistantTurnCost: assistantTurnCost.value,
-      pendingQuestion: pendingQuestion.value,
-      pendingPermissionRequestId: pendingPermissionRequestId.value,
-      currentToolStartedAt: currentToolStartedAt.value,
-      currentToolCalls: currentToolCalls.value,
-      currentToolDurationMs: currentToolDurationMs.value,
-      currentInputTokens: currentInputTokens.value,
-      currentOutputTokens: currentOutputTokens.value,
-      toolExecutionLogs: toolExecutionLogs.value.map((entry) => ({ ...entry })),
-      toolInputById: new Map(toolInputById),
-      toolNameById: new Map(toolNameById),
-    };
-  }
-
-  function applyRuntimeStateToActive(state: ConversationTurnRuntimeState) {
-    isGenerating.value = state.isGenerating;
-    assistantResponse.value = state.assistantResponse;
-    assistantReasoning.value = state.assistantReasoning;
-    assistantTokenUsage.value = state.assistantTokenUsage;
-    assistantTurnCost.value = state.assistantTurnCost;
-    pendingQuestion.value = state.pendingQuestion;
-    pendingPermissionRequestId.value = state.pendingPermissionRequestId;
-    currentToolStartedAt.value = state.currentToolStartedAt;
-    currentToolCalls.value = state.currentToolCalls;
-    currentToolDurationMs.value = state.currentToolDurationMs;
-    currentInputTokens.value = state.currentInputTokens;
-    currentOutputTokens.value = state.currentOutputTokens;
-    toolExecutionLogs.value = state.toolExecutionLogs.map((entry) => ({ ...entry }));
-
-    toolInputById.clear();
-    for (const [id, input] of state.toolInputById.entries()) {
-      toolInputById.set(id, input);
-    }
-
-    toolNameById.clear();
-    for (const [id, name] of state.toolNameById.entries()) {
-      toolNameById.set(id, name);
-    }
-  }
-
-  function clearActiveRuntimeState() {
-    isGenerating.value = false;
-    assistantResponse.value = "";
-    assistantReasoning.value = "";
-    assistantTokenUsage.value = undefined;
-    assistantTurnCost.value = undefined;
-    pendingQuestion.value = null;
-    pendingPermissionRequestId.value = null;
-    currentToolStartedAt.value = null;
-    currentToolCalls.value = 0;
-    currentToolDurationMs.value = 0;
-    currentInputTokens.value = 0;
-    currentOutputTokens.value = 0;
-    toolExecutionLogs.value = [];
-    toolInputById.clear();
-    toolNameById.clear();
-  }
-
-  function cleanupRuntimeStateIfIdle(conversationId: string) {
-    const key = normalizeConversationId(conversationId);
-    const state = runtimeStateByConversation.get(key);
-    if (!state) {
-      return;
-    }
-
-    const hasRenderableResponse = state.assistantResponse.trim().length > 0;
-    const hasReasoning = state.assistantReasoning.trim().length > 0;
-    const hasPendingPrompt = !!state.pendingPermissionRequestId || !!state.pendingQuestion;
-    const hasRunningTool = state.toolExecutionLogs.some((entry) => entry.status === "running");
-    if (!state.isGenerating && !hasRenderableResponse && !hasReasoning && !hasPendingPrompt && !hasRunningTool) {
-      runtimeStateByConversation.delete(key);
-    }
-  }
-
-  function stashRuntimeState(conversationId: string) {
-    const key = normalizeConversationId(conversationId);
-    runtimeStateByConversation.set(key, snapshotActiveRuntimeState());
-    cleanupRuntimeStateIfIdle(key);
-  }
-
-  function restoreRuntimeState(conversationId: string): boolean {
-    const key = normalizeConversationId(conversationId);
-    const state = runtimeStateByConversation.get(key);
-    if (!state) {
-      clearActiveRuntimeState();
-      return false;
-    }
-
-    applyRuntimeStateToActive(cloneRuntimeState(state));
-    cleanupRuntimeStateIfIdle(key);
-    return true;
-  }
-
-  function ensureRuntimeState(conversationId: string): ConversationTurnRuntimeState {
-    const key = normalizeConversationId(conversationId);
-    const existing = runtimeStateByConversation.get(key);
-    if (existing) {
-      return existing;
-    }
-
-    const created = createEmptyRuntimeState();
-    runtimeStateByConversation.set(key, created);
-    return created;
-  }
-
-  function hasAnyGeneratingConversations(): boolean {
-    if (isGenerating.value) {
-      return true;
-    }
-
-    for (const state of runtimeStateByConversation.values()) {
-      if (state.isGenerating) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  function isSpecificConversationGenerating(conversationId: string): boolean {
-    if (conversationId === activeConversationId.value) {
-      return isGenerating.value;
-    }
-
-    const state = runtimeStateByConversation.get(normalizeConversationId(conversationId));
-    return state?.isGenerating ?? false;
-  }
-
-  function resetToolTrackingState() {
-    currentToolStartedAt.value = null;
-    toolInputById.clear();
-    toolNameById.clear();
-  }
-
-  function resetPendingPromptState() {
-    pendingPermissionRequestId.value = null;
-    pendingQuestion.value = null;
-  }
-
-  function resetTurnRuntimeState() {
-    resetToolTrackingState();
-    resetPendingPromptState();
-  }
-
-  function findToolExecutionIndexById(toolId: string): number {
-    return toolExecutionLogs.value.findIndex((entry) => entry.id === toolId);
-  }
-
-  function latestRunningToolExecutionIdByName(toolName: string): string | null {
-    for (let i = toolExecutionLogs.value.length - 1; i >= 0; i -= 1) {
-      const entry = toolExecutionLogs.value[i];
-      if (entry.toolName === toolName && entry.status === "running") {
-        return entry.id;
-      }
-    }
-    return null;
-  }
-
-  function startToolExecutionTrace(toolId: string, toolName: string) {
-    const idx = findToolExecutionIndexById(toolId);
-    if (idx >= 0) {
-      toolExecutionLogs.value[idx] = {
-        ...toolExecutionLogs.value[idx],
-        toolName,
-        status: "running",
-        startedAt: Date.now(),
-        finishedAt: undefined,
-      };
-      return;
-    }
-
-    toolExecutionLogs.value.push({
-      id: toolId,
-      toolName,
-      input: "",
-      result: "",
-      status: "running",
-      startedAt: Date.now(),
-      finishedAt: undefined,
-    });
-  }
-
-  function appendToolExecutionInput(toolId: string, inputDelta: string) {
-    const idx = findToolExecutionIndexById(toolId);
-    if (idx < 0) {
-      return;
-    }
-
-    const entry = toolExecutionLogs.value[idx];
-    toolExecutionLogs.value[idx] = {
-      ...entry,
-      input: `${entry.input}${inputDelta}`,
-    };
-  }
-
-  function completeToolExecutionTrace(
-    toolId: string | null,
-    toolName: string,
-    result: string,
-    status: ToolExecutionEntry["status"],
-    inputFallback?: string,
-  ) {
-    const resolvedId = toolId || latestRunningToolExecutionIdByName(toolName);
-    if (!resolvedId) {
-      return;
-    }
-
-    const idx = findToolExecutionIndexById(resolvedId);
-    if (idx < 0) {
-      return;
-    }
-
-    const entry = toolExecutionLogs.value[idx];
-    const normalizedFallback = (inputFallback ?? "").trim();
-    const resolvedInput = entry.input.trim().length > 0 ? entry.input : normalizedFallback;
-    const updatedEntry: ToolExecutionEntry = {
-      ...entry,
-      toolName,
-      input: resolvedInput,
-      result,
-      status,
-      finishedAt: Date.now(),
-    };
-    toolExecutionLogs.value[idx] = updatedEntry;
-    persistToolExecutionLog(updatedEntry);
-  }
-
-  function markRunningToolExecutions(status: "completed" | "error" | "cancelled") {
-    const now = Date.now();
-    const finalizedEntries: ToolExecutionEntry[] = [];
-    toolExecutionLogs.value = toolExecutionLogs.value.map((entry) => {
-      if (entry.status !== "running") {
-        return entry;
-      }
-
-      const updatedEntry: ToolExecutionEntry = {
-        ...entry,
-        status,
-        finishedAt: now,
-      };
-      finalizedEntries.push(updatedEntry);
-      return updatedEntry;
-    });
-
-    for (const entry of finalizedEntries) {
-      persistToolExecutionLog(entry);
-    }
-  }
-
-  function findToolExecutionIndexByIdInLogs(entries: ToolExecutionEntry[], toolId: string): number {
-    return entries.findIndex((entry) => entry.id === toolId);
-  }
-
-  function latestRunningToolExecutionIdByNameInLogs(
-    entries: ToolExecutionEntry[],
-    toolName: string,
-  ): string | null {
-    for (let i = entries.length - 1; i >= 0; i -= 1) {
-      const entry = entries[i];
-      if (entry.toolName === toolName && entry.status === "running") {
-        return entry.id;
-      }
-    }
-    return null;
-  }
-
-  function startToolExecutionTraceInState(
-    state: ConversationTurnRuntimeState,
-    toolId: string,
-    toolName: string,
-  ) {
-    const idx = findToolExecutionIndexByIdInLogs(state.toolExecutionLogs, toolId);
-    if (idx >= 0) {
-      state.toolExecutionLogs[idx] = {
-        ...state.toolExecutionLogs[idx],
-        toolName,
-        status: "running",
-        startedAt: Date.now(),
-        finishedAt: undefined,
-      };
-      return;
-    }
-
-    state.toolExecutionLogs.push({
-      id: toolId,
-      toolName,
-      input: "",
-      result: "",
-      status: "running",
-      startedAt: Date.now(),
-      finishedAt: undefined,
-    });
-  }
-
-  function appendToolExecutionInputInState(
-    state: ConversationTurnRuntimeState,
-    toolId: string,
-    inputDelta: string,
-  ) {
-    const idx = findToolExecutionIndexByIdInLogs(state.toolExecutionLogs, toolId);
-    if (idx < 0) {
-      return;
-    }
-
-    const entry = state.toolExecutionLogs[idx];
-    state.toolExecutionLogs[idx] = {
-      ...entry,
-      input: `${entry.input}${inputDelta}`,
-    };
-  }
-
-  function completeToolExecutionTraceInState(
-    conversationId: string,
-    state: ConversationTurnRuntimeState,
-    toolId: string | null,
-    toolName: string,
-    result: string,
-    status: ToolExecutionEntry["status"],
-    inputFallback?: string,
-  ) {
-    const resolvedId =
-      toolId || latestRunningToolExecutionIdByNameInLogs(state.toolExecutionLogs, toolName);
-    if (!resolvedId) {
-      return;
-    }
-
-    const idx = findToolExecutionIndexByIdInLogs(state.toolExecutionLogs, resolvedId);
-    if (idx < 0) {
-      return;
-    }
-
-    const entry = state.toolExecutionLogs[idx];
-    const normalizedFallback = (inputFallback ?? "").trim();
-    const resolvedInput = entry.input.trim().length > 0 ? entry.input : normalizedFallback;
-    const updatedEntry: ToolExecutionEntry = {
-      ...entry,
-      toolName,
-      input: resolvedInput,
-      result,
-      status,
-      finishedAt: Date.now(),
-    };
-
-    state.toolExecutionLogs[idx] = updatedEntry;
-    persistToolExecutionLog(updatedEntry, conversationId);
-  }
-
-  function markRunningToolExecutionsInState(
-    conversationId: string,
-    state: ConversationTurnRuntimeState,
-    status: "completed" | "error" | "cancelled",
-  ) {
-    const now = Date.now();
-    for (let i = 0; i < state.toolExecutionLogs.length; i += 1) {
-      const entry = state.toolExecutionLogs[i];
-      if (entry.status !== "running") {
-        continue;
-      }
-
-      const updatedEntry: ToolExecutionEntry = {
-        ...entry,
-        status,
-        finishedAt: now,
-      };
-      state.toolExecutionLogs[i] = updatedEntry;
-      persistToolExecutionLog(updatedEntry, conversationId);
-    }
-  }
 
   function persistToolExecutionLog(entry: ToolExecutionEntry, conversationId = activeConversationId.value) {
     if (!conversationId || entry.status === "running") {
@@ -584,136 +170,6 @@ export function useChatController() {
     planMode.value = mode === "plan";
   }
 
-  function estimateInputTokensForTurn(userText: string, attachmentNames: string[]): number {
-    const historyText = messages.value
-      .slice(-12)
-      .map((m) => m.content)
-      .join("\n");
-    const memoryText = conversationMemory.value
-      ? `Summary: ${conversationMemory.value.summary}\nFacts: ${conversationMemory.value.keyFacts.join("; ")}`
-      : "";
-    const attachmentText = attachmentNames.length
-      ? `Attachments: ${attachmentNames.join(", ")}`
-      : "";
-    return estimateTokens(`${historyText}\n${memoryText}\n${attachmentText}\n${userText}`);
-  }
-
-  function formatMessageContentForModel(msg: ChatMessage): string {
-    const content = msg.content.trim();
-    const names =
-      msg.attachments
-        ?.filter((item) => item.kind !== "image")
-        .map((item) => item.sourceName)
-        .filter(Boolean) ?? [];
-    const ragNotice =
-      names.length > 0
-        ? `\n\n已上传文件（可在会话RAG中检索）：${names.join("，")}\n若你不确定答案，请先在RAG中检索相关片段，再视情况使用 web_search / web_fetch。`
-        : "";
-
-    if (content) {
-      return `${content}${ragNotice}`;
-    }
-
-    if (names.length > 0) {
-      return `请优先结合我上传的文件回答。${ragNotice}`;
-    }
-
-    return "";
-  }
-
-  function isDocumentUploadFile(file: PendingUploadFile): file is UploadedRagFile {
-    return file.kind === "document";
-  }
-
-  function isImageUploadFile(file: PendingUploadFile): file is UploadedImageFile {
-    return file.kind === "image";
-  }
-
-  function isImageAttachment(item: ChatAttachment): item is ChatAttachment & {
-    kind: "image";
-    mediaType: string;
-    data: string;
-  } {
-    return item.kind === "image" && !!item.mediaType && !!item.data;
-  }
-
-  function toAttachmentMeta(files: PendingUploadFile[]): ChatAttachment[] {
-    return files.map((file) => {
-      if (file.kind === "image") {
-        return {
-          sourceName: file.sourceName,
-          mimeType: file.mimeType,
-          size: file.size,
-          kind: "image",
-          mediaType: file.mediaType,
-          data: file.data,
-        };
-      }
-
-      return {
-        sourceName: file.sourceName,
-        mimeType: file.mimeType,
-        size: file.size,
-        kind: "document",
-      };
-    });
-  }
-
-  function buildModelMessage(msg: ChatMessage): ModelMessage {
-    const textContent = formatMessageContentForModel(msg);
-    if (msg.role !== "user") {
-      return {
-        role: msg.role,
-        content: textContent,
-      };
-    }
-
-    const imageAttachments = (msg.attachments ?? []).filter(isImageAttachment);
-    if (imageAttachments.length === 0) {
-      return {
-        role: msg.role,
-        content: textContent,
-      };
-    }
-
-    const fallbackText = textContent || "请结合我上传的图片回答。";
-    const blocks: Array<ModelTextBlock | ModelImageBlock> = [
-      {
-        type: "text",
-        text: fallbackText,
-      },
-    ];
-
-    for (const image of imageAttachments) {
-      const mediaType = (image.mediaType || image.mimeType || "").trim().toLowerCase();
-      const data = (image.data || "").trim();
-      if (!mediaType || !data) {
-        continue;
-      }
-
-      blocks.push({
-        type: "image",
-        source: {
-          type: "base64",
-          media_type: mediaType,
-          data,
-        },
-      });
-    }
-
-    if (blocks.length <= 1) {
-      return {
-        role: msg.role,
-        content: fallbackText,
-      };
-    }
-
-    return {
-      role: msg.role,
-      content: blocks,
-    };
-  }
-
   async function refreshConversationFiles(conversationId: string) {
     if (!conversationId) {
       conversationFiles.value = [];
@@ -730,15 +186,6 @@ export function useChatController() {
 
   async function refreshActiveConversationFiles() {
     await refreshConversationFiles(activeConversationId.value);
-  }
-
-  function buildAssistantCost(): TurnCost {
-    return {
-      inputTokens: currentInputTokens.value,
-      outputTokens: currentOutputTokens.value,
-      toolCalls: currentToolCalls.value,
-      toolDurationMs: currentToolDurationMs.value,
-    };
   }
 
   async function loadConversationMemory(conversationId: string) {
@@ -796,7 +243,7 @@ export function useChatController() {
 
     const previousConversationId = activeConversationId.value;
     if (previousConversationId && previousConversationId !== targetConversationId) {
-      stashRuntimeState(previousConversationId);
+      stashRuntimeState(runtimeStateByConversation, previousConversationId, activeRuntimeRefs);
     }
 
     activeConversationId.value = targetConversationId;
@@ -820,7 +267,11 @@ export function useChatController() {
           cost: m.cost,
         }));
 
-      const restored = restoreRuntimeState(targetConversationId);
+      const restored = restoreRuntimeState(
+        runtimeStateByConversation,
+        targetConversationId,
+        activeRuntimeRefs,
+      );
       if (!restored) {
         toolExecutionLogs.value = savedToolLogs;
       } else if (toolExecutionLogs.value.length === 0) {
@@ -832,7 +283,7 @@ export function useChatController() {
     } catch (err) {
       console.error("Failed to load conversation messages:", err);
       messages.value = [];
-      clearActiveRuntimeState();
+      clearActiveRuntimeState(activeRuntimeRefs);
       conversationFiles.value = [];
     }
   }
@@ -845,23 +296,6 @@ export function useChatController() {
     } catch (err) {
       console.error("Failed to persist message:", err);
     }
-  }
-
-  function buildAssistantCostForState(state: ConversationTurnRuntimeState): TurnCost {
-    return {
-      inputTokens: state.currentInputTokens,
-      outputTokens: state.currentOutputTokens,
-      toolCalls: state.currentToolCalls,
-      toolDurationMs: state.currentToolDurationMs,
-    };
-  }
-
-  function shouldPreservePendingPromptOnStop(turnState: string, stopReason: string): boolean {
-    return (
-      turnState === "awaiting_user_input" ||
-      turnState === "needs_user_input" ||
-      stopReason === "needs_user_input"
-    );
   }
 
   async function finalizeBackgroundTurn(
@@ -913,7 +347,7 @@ export function useChatController() {
     state.toolNameById.clear();
 
     if (!preservePendingPrompt) {
-      cleanupRuntimeStateIfIdle(conversationId);
+      cleanupRuntimeStateIfIdle(runtimeStateByConversation, conversationId);
     }
   }
 
@@ -932,7 +366,12 @@ export function useChatController() {
       currentOutputTokens.value = resolvedTokenUsage;
     }
 
-    const cost = buildAssistantCost();
+    const cost = buildAssistantCost(
+      currentInputTokens.value,
+      currentOutputTokens.value,
+      currentToolCalls.value,
+      currentToolDurationMs.value,
+    );
     assistantTurnCost.value = cost;
     const assistantMsg: ChatMessage = {
       role: "assistant",
@@ -963,7 +402,7 @@ export function useChatController() {
     if (!text && filesToSend.length === 0) return;
 
     mainView.value = "chat";
-    resetPendingPromptState();
+    resetPendingPromptState(activeRuntimeRefs);
 
     if (!activeConversationId.value) {
       const seedTitle = text || filesToSend[0]?.sourceName || "New chat";
@@ -1070,10 +509,12 @@ export function useChatController() {
     currentToolDurationMs.value = 0;
     currentOutputTokens.value = 0;
     currentInputTokens.value = estimateInputTokensForTurn(
+      messages.value,
+      conversationMemory.value,
       modelUserText,
       uploadedAttachmentNames,
     );
-    resetToolTrackingState();
+    resetToolTrackingState(activeRuntimeRefs);
 
     const rustMessages = messages.value.map((msg) => buildModelMessage(msg));
 
@@ -1103,10 +544,13 @@ export function useChatController() {
         assistantTokenUsage.value = undefined;
         assistantTurnCost.value = undefined;
         isGenerating.value = false;
-        resetTurnRuntimeState();
+        resetTurnRuntimeState(activeRuntimeRefs);
         runtimeStateByConversation.delete(normalizeConversationId(sendingConversationId));
       } else {
-        const backgroundState = ensureRuntimeState(sendingConversationId);
+        const backgroundState = ensureRuntimeState(
+          runtimeStateByConversation,
+          sendingConversationId,
+        );
         backgroundState.assistantResponse = "";
         backgroundState.assistantReasoning = "";
         backgroundState.assistantTokenUsage = undefined;
@@ -1121,7 +565,7 @@ export function useChatController() {
         backgroundState.currentOutputTokens = 0;
         backgroundState.toolInputById.clear();
         backgroundState.toolNameById.clear();
-        cleanupRuntimeStateIfIdle(sendingConversationId);
+        cleanupRuntimeStateIfIdle(runtimeStateByConversation, sendingConversationId);
       }
     }
   }
@@ -1180,7 +624,7 @@ export function useChatController() {
           pendingPermissionRequestId.value,
           action,
         );
-        resetPendingPromptState();
+        resetPendingPromptState(activeRuntimeRefs);
       } catch (err) {
         emitToast({
           variant: "error",
@@ -1202,7 +646,7 @@ export function useChatController() {
           pendingPermissionRequestId.value,
           "deny_session",
         );
-        resetPendingPromptState();
+        resetPendingPromptState(activeRuntimeRefs);
       } catch (err) {
         emitToast({
           variant: "error",
@@ -1220,7 +664,7 @@ export function useChatController() {
     if (isCreatingNewChat.value) return;
 
     mainView.value = "chat";
-    resetPendingPromptState();
+    resetPendingPromptState(activeRuntimeRefs);
 
     // 当前已是空会话时，不重复创建新的空会话。
     if (activeConversationId.value && !hasConversationContent() && !assistantResponse.value.trim()) {
@@ -1248,7 +692,14 @@ export function useChatController() {
 
   async function handleDeleteConversation(id: string) {
     if (!id) return;
-    if (isSpecificConversationGenerating(id)) {
+    if (
+      isSpecificConversationGenerating(
+        activeConversationId,
+        isGenerating,
+        runtimeStateByConversation,
+        id,
+      )
+    ) {
       emitToast({
         variant: "info",
         source: "delete-conversation",
@@ -1287,7 +738,7 @@ export function useChatController() {
   }
 
   const handleHistoryCleared = async () => {
-    if (hasAnyGeneratingConversations()) {
+    if (hasAnyGeneratingConversations(isGenerating, runtimeStateByConversation)) {
       emitToast({
         variant: "info",
         source: "history",
@@ -1297,7 +748,7 @@ export function useChatController() {
     }
 
     runtimeStateByConversation.clear();
-    resetTurnRuntimeState();
+    resetTurnRuntimeState(activeRuntimeRefs);
     assistantResponse.value = "";
     assistantReasoning.value = "";
     assistantTokenUsage.value = undefined;
@@ -1326,7 +777,7 @@ export function useChatController() {
     conversationId: string,
     payload: ChatMessageEvent,
   ) {
-    const state = ensureRuntimeState(conversationId);
+    const state = ensureRuntimeState(runtimeStateByConversation, conversationId);
 
     if (payload.type === "text" && payload.text) {
       state.isGenerating = true;
@@ -1413,7 +864,7 @@ export function useChatController() {
         "unknown";
       const toolId =
         rawToolId ||
-        latestRunningToolExecutionIdByNameInLogs(state.toolExecutionLogs, toolName) ||
+        latestRunningToolExecutionIdByName(state.toolExecutionLogs, toolName) ||
         "";
       const streamedInput = toolId ? state.toolInputById.get(toolId) ?? "" : "";
       const fallbackInput = (payload.tool_use_input ?? "").trim();
@@ -1426,6 +877,7 @@ export function useChatController() {
         toolName,
         result,
         "completed",
+        persistToolExecutionLog,
         rawInput,
       );
 
@@ -1468,7 +920,12 @@ export function useChatController() {
     const turnState = payload.turn_state ?? "";
 
     if (turnState === "cancelled" || stopReason === "cancelled") {
-      markRunningToolExecutionsInState(conversationId, state, "cancelled");
+      markRunningToolExecutionsInState(
+        conversationId,
+        state,
+        "cancelled",
+        persistToolExecutionLog,
+      );
       state.isGenerating = false;
       state.assistantResponse = "";
       state.assistantReasoning = "";
@@ -1483,12 +940,17 @@ export function useChatController() {
       state.currentOutputTokens = 0;
       state.toolInputById.clear();
       state.toolNameById.clear();
-      cleanupRuntimeStateIfIdle(conversationId);
+      cleanupRuntimeStateIfIdle(runtimeStateByConversation, conversationId);
       return;
     }
 
     if (turnState === "error") {
-      markRunningToolExecutionsInState(conversationId, state, "error");
+      markRunningToolExecutionsInState(
+        conversationId,
+        state,
+        "error",
+        persistToolExecutionLog,
+      );
       state.isGenerating = false;
       state.assistantResponse = "";
       state.assistantReasoning = "";
@@ -1503,7 +965,7 @@ export function useChatController() {
       state.currentOutputTokens = 0;
       state.toolInputById.clear();
       state.toolNameById.clear();
-      cleanupRuntimeStateIfIdle(conversationId);
+      cleanupRuntimeStateIfIdle(runtimeStateByConversation, conversationId);
 
       const detail = (payload.text ?? "").trim();
       emitToast({
@@ -1527,7 +989,12 @@ export function useChatController() {
         shouldPreservePendingPromptOnStop(turnState, stopReason) ||
         !!state.pendingPermissionRequestId ||
         !!state.pendingQuestion;
-      markRunningToolExecutionsInState(conversationId, state, "completed");
+      markRunningToolExecutionsInState(
+        conversationId,
+        state,
+        "completed",
+        persistToolExecutionLog,
+      );
       await finalizeBackgroundTurn(
         conversationId,
         state,
@@ -1580,7 +1047,7 @@ export function useChatController() {
             toolInputById.set(toolId, "");
           }
 
-          startToolExecutionTrace(toolId, toolName);
+          startToolExecutionTrace(toolExecutionLogs, toolId, toolName);
           assistantResponse.value += `\n> Using tool: ${toolName}...\n`;
           chatScreenRef.value?.scrollToBottom();
         } else if (payload.type === "tool-json-delta") {
@@ -1588,7 +1055,7 @@ export function useChatController() {
           if (toolId && payload.tool_use_input) {
             const prev = toolInputById.get(toolId) ?? "";
             toolInputById.set(toolId, prev + payload.tool_use_input);
-            appendToolExecutionInput(toolId, payload.tool_use_input);
+            appendToolExecutionInput(toolExecutionLogs, toolId, payload.tool_use_input);
           }
         } else if (payload.type === "permission-request") {
           const requestId = (payload.tool_use_id ?? "").trim();
@@ -1608,7 +1075,7 @@ export function useChatController() {
                 message: `取消异常权限请求失败: ${String(err)}`,
               });
             });
-            resetPendingPromptState();
+            resetPendingPromptState(activeRuntimeRefs);
             return;
           }
 
@@ -1629,7 +1096,7 @@ export function useChatController() {
                 message: `自动拒绝权限请求失败: ${String(err)}`,
               });
             });
-            resetPendingPromptState();
+            resetPendingPromptState(activeRuntimeRefs);
             return;
           }
 
@@ -1647,7 +1114,10 @@ export function useChatController() {
             fallbackToolName ||
             (rawToolId ? toolNameById.get(rawToolId) : undefined) ||
             "unknown";
-          const toolId = rawToolId || latestRunningToolExecutionIdByName(toolName) || "";
+          const toolId =
+            rawToolId ||
+            latestRunningToolExecutionIdByName(toolExecutionLogs.value, toolName) ||
+            "";
           const streamedInput = toolId ? toolInputById.get(toolId) ?? "" : "";
           const fallbackInput = (payload.tool_use_input ?? "").trim();
           const rawInput = streamedInput.trim().length > 0 ? streamedInput : fallbackInput;
@@ -1657,7 +1127,15 @@ export function useChatController() {
           }
           assistantResponse.value += `\n> Tool done: ${toolName}\n`;
           const result = (payload.tool_result ?? "").trim();
-          completeToolExecutionTrace(toolId || null, toolName, result, "completed", rawInput);
+          completeToolExecutionTrace(
+            toolExecutionLogs,
+            toolId || null,
+            toolName,
+            result,
+            "completed",
+            persistToolExecutionLog,
+            rawInput,
+          );
 
           if (toolId) {
             toolInputById.delete(toolId);
@@ -1691,9 +1169,13 @@ export function useChatController() {
           const turnState = payload.turn_state ?? "";
 
           if (turnState === "cancelled" || stopReason === "cancelled") {
-            markRunningToolExecutions("cancelled");
+            markRunningToolExecutions(
+              toolExecutionLogs,
+              "cancelled",
+              persistToolExecutionLog,
+            );
             finalizeOrStopTurn(payload.token_usage);
-            resetTurnRuntimeState();
+            resetTurnRuntimeState(activeRuntimeRefs);
             if (activeConversationId.value) {
               runtimeStateByConversation.delete(normalizeConversationId(activeConversationId.value));
             }
@@ -1701,13 +1183,17 @@ export function useChatController() {
           }
 
           if (turnState === "error") {
-            markRunningToolExecutions("error");
+            markRunningToolExecutions(
+              toolExecutionLogs,
+              "error",
+              persistToolExecutionLog,
+            );
             isGenerating.value = false;
             assistantResponse.value = "";
             assistantReasoning.value = "";
             assistantTokenUsage.value = undefined;
             assistantTurnCost.value = undefined;
-            resetTurnRuntimeState();
+            resetTurnRuntimeState(activeRuntimeRefs);
             if (activeConversationId.value) {
               runtimeStateByConversation.delete(normalizeConversationId(activeConversationId.value));
             }
@@ -1732,13 +1218,17 @@ export function useChatController() {
               shouldPreservePendingPromptOnStop(turnState, stopReason) ||
               !!pendingPermissionRequestId.value ||
               !!pendingQuestion.value;
-            markRunningToolExecutions("completed");
+            markRunningToolExecutions(
+              toolExecutionLogs,
+              "completed",
+              persistToolExecutionLog,
+            );
             finalizeOrStopTurn(payload.token_usage);
 
             if (!preservePendingPrompt) {
-              resetTurnRuntimeState();
+              resetTurnRuntimeState(activeRuntimeRefs);
             } else {
-              resetToolTrackingState();
+              resetToolTrackingState(activeRuntimeRefs);
             }
 
             if (activeConversationId.value && !preservePendingPrompt) {

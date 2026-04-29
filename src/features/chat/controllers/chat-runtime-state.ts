@@ -1,0 +1,237 @@
+import type { Ref } from "vue";
+import type {
+  NeedsUserInputPayload,
+  ToolExecutionEntry,
+  TurnCost,
+} from "../../../lib/chat-types";
+import type { ConversationTurnRuntimeState } from "./chat-controller-types";
+
+type ActiveRuntimeRefs = {
+  isGenerating: Ref<boolean>;
+  assistantResponse: Ref<string>;
+  assistantReasoning: Ref<string>;
+  assistantTokenUsage: Ref<number | undefined>;
+  assistantTurnCost: Ref<TurnCost | undefined>;
+  pendingQuestion: Ref<NeedsUserInputPayload | null>;
+  pendingPermissionRequestId: Ref<string | null>;
+  currentToolStartedAt: Ref<number | null>;
+  currentToolCalls: Ref<number>;
+  currentToolDurationMs: Ref<number>;
+  currentInputTokens: Ref<number>;
+  currentOutputTokens: Ref<number>;
+  toolExecutionLogs: Ref<ToolExecutionEntry[]>;
+  toolInputById: Map<string, string>;
+  toolNameById: Map<string, string>;
+};
+
+export function createEmptyRuntimeState(): ConversationTurnRuntimeState {
+  return {
+    isGenerating: false,
+    assistantResponse: "",
+    assistantReasoning: "",
+    assistantTokenUsage: undefined,
+    assistantTurnCost: undefined,
+    pendingQuestion: null,
+    pendingPermissionRequestId: null,
+    currentToolStartedAt: null,
+    currentToolCalls: 0,
+    currentToolDurationMs: 0,
+    currentInputTokens: 0,
+    currentOutputTokens: 0,
+    toolExecutionLogs: [],
+    toolInputById: new Map<string, string>(),
+    toolNameById: new Map<string, string>(),
+  };
+}
+
+export function normalizeConversationId(conversationId?: string | null): string {
+  const normalized = (conversationId ?? "").trim();
+  return normalized || "__default__";
+}
+
+export function cloneRuntimeState(
+  state: ConversationTurnRuntimeState,
+): ConversationTurnRuntimeState {
+  return {
+    ...state,
+    toolExecutionLogs: state.toolExecutionLogs.map((entry) => ({ ...entry })),
+    toolInputById: new Map(state.toolInputById),
+    toolNameById: new Map(state.toolNameById),
+  };
+}
+
+export function snapshotActiveRuntimeState(
+  active: ActiveRuntimeRefs,
+): ConversationTurnRuntimeState {
+  return {
+    isGenerating: active.isGenerating.value,
+    assistantResponse: active.assistantResponse.value,
+    assistantReasoning: active.assistantReasoning.value,
+    assistantTokenUsage: active.assistantTokenUsage.value,
+    assistantTurnCost: active.assistantTurnCost.value,
+    pendingQuestion: active.pendingQuestion.value,
+    pendingPermissionRequestId: active.pendingPermissionRequestId.value,
+    currentToolStartedAt: active.currentToolStartedAt.value,
+    currentToolCalls: active.currentToolCalls.value,
+    currentToolDurationMs: active.currentToolDurationMs.value,
+    currentInputTokens: active.currentInputTokens.value,
+    currentOutputTokens: active.currentOutputTokens.value,
+    toolExecutionLogs: active.toolExecutionLogs.value.map((entry) => ({ ...entry })),
+    toolInputById: new Map(active.toolInputById),
+    toolNameById: new Map(active.toolNameById),
+  };
+}
+
+export function applyRuntimeStateToActive(
+  state: ConversationTurnRuntimeState,
+  active: ActiveRuntimeRefs,
+) {
+  active.isGenerating.value = state.isGenerating;
+  active.assistantResponse.value = state.assistantResponse;
+  active.assistantReasoning.value = state.assistantReasoning;
+  active.assistantTokenUsage.value = state.assistantTokenUsage;
+  active.assistantTurnCost.value = state.assistantTurnCost;
+  active.pendingQuestion.value = state.pendingQuestion;
+  active.pendingPermissionRequestId.value = state.pendingPermissionRequestId;
+  active.currentToolStartedAt.value = state.currentToolStartedAt;
+  active.currentToolCalls.value = state.currentToolCalls;
+  active.currentToolDurationMs.value = state.currentToolDurationMs;
+  active.currentInputTokens.value = state.currentInputTokens;
+  active.currentOutputTokens.value = state.currentOutputTokens;
+  active.toolExecutionLogs.value = state.toolExecutionLogs.map((entry) => ({ ...entry }));
+
+  active.toolInputById.clear();
+  for (const [id, input] of state.toolInputById.entries()) {
+    active.toolInputById.set(id, input);
+  }
+
+  active.toolNameById.clear();
+  for (const [id, name] of state.toolNameById.entries()) {
+    active.toolNameById.set(id, name);
+  }
+}
+
+export function clearActiveRuntimeState(active: ActiveRuntimeRefs) {
+  active.isGenerating.value = false;
+  active.assistantResponse.value = "";
+  active.assistantReasoning.value = "";
+  active.assistantTokenUsage.value = undefined;
+  active.assistantTurnCost.value = undefined;
+  active.pendingQuestion.value = null;
+  active.pendingPermissionRequestId.value = null;
+  active.currentToolStartedAt.value = null;
+  active.currentToolCalls.value = 0;
+  active.currentToolDurationMs.value = 0;
+  active.currentInputTokens.value = 0;
+  active.currentOutputTokens.value = 0;
+  active.toolExecutionLogs.value = [];
+  active.toolInputById.clear();
+  active.toolNameById.clear();
+}
+
+export function cleanupRuntimeStateIfIdle(
+  runtimeStateByConversation: Map<string, ConversationTurnRuntimeState>,
+  conversationId: string,
+) {
+  const key = normalizeConversationId(conversationId);
+  const state = runtimeStateByConversation.get(key);
+  if (!state) {
+    return;
+  }
+
+  const hasRenderableResponse = state.assistantResponse.trim().length > 0;
+  const hasReasoning = state.assistantReasoning.trim().length > 0;
+  const hasPendingPrompt = !!state.pendingPermissionRequestId || !!state.pendingQuestion;
+  const hasRunningTool = state.toolExecutionLogs.some((entry) => entry.status === "running");
+  if (!state.isGenerating && !hasRenderableResponse && !hasReasoning && !hasPendingPrompt && !hasRunningTool) {
+    runtimeStateByConversation.delete(key);
+  }
+}
+
+export function stashRuntimeState(
+  runtimeStateByConversation: Map<string, ConversationTurnRuntimeState>,
+  conversationId: string,
+  active: ActiveRuntimeRefs,
+) {
+  const key = normalizeConversationId(conversationId);
+  runtimeStateByConversation.set(key, snapshotActiveRuntimeState(active));
+  cleanupRuntimeStateIfIdle(runtimeStateByConversation, key);
+}
+
+export function restoreRuntimeState(
+  runtimeStateByConversation: Map<string, ConversationTurnRuntimeState>,
+  conversationId: string,
+  active: ActiveRuntimeRefs,
+): boolean {
+  const key = normalizeConversationId(conversationId);
+  const state = runtimeStateByConversation.get(key);
+  if (!state) {
+    clearActiveRuntimeState(active);
+    return false;
+  }
+
+  applyRuntimeStateToActive(cloneRuntimeState(state), active);
+  cleanupRuntimeStateIfIdle(runtimeStateByConversation, key);
+  return true;
+}
+
+export function ensureRuntimeState(
+  runtimeStateByConversation: Map<string, ConversationTurnRuntimeState>,
+  conversationId: string,
+): ConversationTurnRuntimeState {
+  const key = normalizeConversationId(conversationId);
+  const existing = runtimeStateByConversation.get(key);
+  if (existing) {
+    return existing;
+  }
+
+  const created = createEmptyRuntimeState();
+  runtimeStateByConversation.set(key, created);
+  return created;
+}
+
+export function hasAnyGeneratingConversations(
+  isGenerating: Ref<boolean>,
+  runtimeStateByConversation: Map<string, ConversationTurnRuntimeState>,
+): boolean {
+  if (isGenerating.value) {
+    return true;
+  }
+
+  for (const state of runtimeStateByConversation.values()) {
+    if (state.isGenerating) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export function isSpecificConversationGenerating(
+  activeConversationId: Ref<string>,
+  isGenerating: Ref<boolean>,
+  runtimeStateByConversation: Map<string, ConversationTurnRuntimeState>,
+  conversationId: string,
+): boolean {
+  if (conversationId === activeConversationId.value) {
+    return isGenerating.value;
+  }
+
+  const state = runtimeStateByConversation.get(normalizeConversationId(conversationId));
+  return state?.isGenerating ?? false;
+}
+
+export function resetToolTrackingState(active: ActiveRuntimeRefs) {
+  active.currentToolStartedAt.value = null;
+  active.toolInputById.clear();
+  active.toolNameById.clear();
+}
+
+export function resetPendingPromptState(active: ActiveRuntimeRefs) {
+  active.pendingPermissionRequestId.value = null;
+  active.pendingQuestion.value = null;
+}
+
+export function resetTurnRuntimeState(active: ActiveRuntimeRefs) {
+  resetToolTrackingState(active);
+  resetPendingPromptState(active);
+}
