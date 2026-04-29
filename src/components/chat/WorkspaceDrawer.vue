@@ -1,29 +1,27 @@
 <script setup lang="ts">
 import { ref } from 'vue';
-import type { FlowNodeEntry, ToolExecutionEntry } from '../../lib/chat-types';
-import AgentFlowGraph from './AgentFlowGraph.vue';
-
-defineProps<{
-  open: boolean;
-  entries: ToolExecutionEntry[];
-  flowNodes: FlowNodeEntry[];
-  isGenerating: boolean;
-  hasMessages: boolean;
-  lastUserMessage?: string;
-  lastAssistantMessage?: string;
-}>();
+import type { ChatMessage, ToolExecutionEntry, TurnCost } from '../../lib/chat-types';
+import CodeDiffTab from './workspace/CodeDiffTab.vue';
+import UsageTab from './workspace/UsageTab.vue';
 
 const emit = defineEmits<{
   (e: 'close'): void;
 }>();
 
-type TabId = 'agent-flow' | 'diff';
+type TabId = 'diff' | 'usage';
 
-const activeTab = ref<TabId>('agent-flow');
+defineProps<{
+  open: boolean;
+  entries: ToolExecutionEntry[];
+  messages: ChatMessage[];
+  assistantTurnCost?: TurnCost;
+}>();
+
+const activeTab = ref<TabId>('diff');
 
 const tabs: { id: TabId; label: string }[] = [
-  { id: 'agent-flow', label: 'Agent 流图' },
   { id: 'diff', label: 'Code Diff' },
+  { id: 'usage', label: 'Usage' },
 ];
 </script>
 
@@ -72,27 +70,16 @@ const tabs: { id: TabId; label: string }[] = [
         </div>
 
         <div class="min-h-0 flex-1 overflow-hidden">
-          <AgentFlowGraph
-            v-if="activeTab === 'agent-flow'"
-            :entries="entries"
-            :flowNodes="flowNodes"
-            :isGenerating="isGenerating"
-            :hasMessages="hasMessages"
-            :lastUserMessage="lastUserMessage"
-            :lastAssistantMessage="lastAssistantMessage"
-            class="h-full w-full"
+          <CodeDiffTab
+            v-if="activeTab === 'diff'"
           />
 
-          <div
-            v-else-if="activeTab === 'diff'"
-            class="flex h-full flex-col items-center justify-center gap-3 text-muted-foreground"
-          >
-            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="opacity-40">
-              <polyline points="16 18 22 12 16 6"/>
-              <polyline points="8 6 2 12 8 18"/>
-            </svg>
-            <p class="text-sm">Code Diff 将在此显示</p>
-          </div>
+          <UsageTab
+            v-else
+            :entries="entries"
+            :messages="messages"
+            :assistantTurnCost="assistantTurnCost"
+          />
         </div>
       </div>
     </div>

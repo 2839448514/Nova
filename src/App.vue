@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { ref } from 'vue';
 import { Button } from "@/components/ui/button";
 import Sidebar from "./components/layout/Sidebar.vue";
 import WelcomeScreen from "./components/chat/WelcomeScreen.vue";
@@ -48,21 +48,6 @@ const {
 void chatScreenRef;
 
 const isDrawerOpen = ref(false);
-const flowNodes = computed(() => []);
-
-const lastUserMessage = computed<string>(() => {
-  for (let i = messages.value.length - 1; i >= 0; i -= 1) {
-    if (messages.value[i].role === "user") return messages.value[i].content ?? "";
-  }
-  return "";
-});
-
-const lastAssistantMessage = computed<string>(() => {
-  for (let i = messages.value.length - 1; i >= 0; i -= 1) {
-    if (messages.value[i].role === "assistant") return messages.value[i].content ?? "";
-  }
-  return isGenerating.value ? assistantResponse.value : "";
-});
 </script>
 
 <template>
@@ -179,11 +164,8 @@ const lastAssistantMessage = computed<string>(() => {
         v-if="mainView === 'chat'"
         :open="isDrawerOpen"
         :entries="toolExecutionLogs"
-        :flowNodes="flowNodes"
-        :isGenerating="isGenerating"
-        :hasMessages="messages.length > 0"
-        :lastUserMessage="lastUserMessage"
-        :lastAssistantMessage="lastAssistantMessage"
+        :messages="messages"
+        :assistantTurnCost="assistantTurnCost"
         @close="isDrawerOpen = false"
       />
 
