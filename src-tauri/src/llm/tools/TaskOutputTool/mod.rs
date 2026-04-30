@@ -3,10 +3,12 @@ use crate::llm::tools::{sync_tool, ToolRegistration};
 use crate::llm::types::Tool;
 use serde_json::{json, Value};
 
+// 注册 TaskOutput，声明它是只读同步工具，用于兼容 Claude 风格的任务输出查询。
 pub(crate) fn registration() -> ToolRegistration {
     sync_tool(tool, execute, true, None)
 }
 
+// 返回暴露给模型的工具元数据，支持 task_id / taskId / id 三种字段取任务标识。
 pub fn tool() -> Tool {
     Tool {
         name: "TaskOutput".into(),
@@ -22,6 +24,7 @@ pub fn tool() -> Tool {
     }
 }
 
+// 依次尝试 task_id、taskId、id，把字符串或整数统一解析成内部 task id。
 fn parse_task_id(input: &Value) -> Option<u64> {
     for key in ["task_id", "taskId", "id"] {
         if let Some(v) = input.get(key) {
@@ -38,6 +41,7 @@ fn parse_task_id(input: &Value) -> Option<u64> {
     None
 }
 
+// 根据解析出的 task_id 读取任务，再拼出 Claude 兼容的 output 摘要结构。
 pub fn execute(input: Value) -> String {
     let Some(task_id) = parse_task_id(&input) else {
         return "Error: Missing task id (task_id/taskId/id)".into();
@@ -47,6 +51,7 @@ pub fn execute(input: Value) -> String {
         return json!({ "ok": true, "retrieval_status": "not_found", "task": Value::Null }).to_string();
     };
 
+    // output: 拼给模型看的多行任务摘要文本。
     let output = format!(
         "Task #{}\nTitle: {}\nStatus: {}\nNotes: {}",
         task.id,

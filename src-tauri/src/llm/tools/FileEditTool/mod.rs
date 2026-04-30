@@ -8,6 +8,7 @@ pub(crate) fn registration() -> ToolRegistration {
 }
 
 fn permission(input: &Value) -> Option<ToolPermissionDescriptor> {
+    // 字符串替换本质上仍是写文件，所以权限描述和 write_file 走同一类 helper。
     crate::llm::utils::permissions::describe_file_write_permission(
         "replace_string_in_file",
         "文件编辑",
@@ -38,6 +39,7 @@ pub fn execute(input: Value) -> String {
         input.get("old_string").and_then(|v| v.as_str()),
         input.get("new_string").and_then(|v| v.as_str())
     ) {
+        // old_string/new_string: 在目标文件里做一次精确替换的前后文本。
         match fs::read_to_string(path) {
             Ok(content) => {
                 if !content.contains(old_string) {

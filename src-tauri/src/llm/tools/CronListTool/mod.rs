@@ -4,6 +4,7 @@ use crate::llm::types::Tool;
 use serde_json::{json, Value};
 use tauri::AppHandle;
 
+// 把列出计划任务的 async 逻辑包装成统一 future。
 fn execute_with_app_boxed(
     app: AppHandle,
     _conversation_id: Option<String>,
@@ -12,10 +13,13 @@ fn execute_with_app_boxed(
     Box::pin(async move { execute_with_app(&app, input).await })
 }
 
+// 返回 CronList 的注册信息。
+// `read_only=true`，因为它只读取任务列表，不改动任何状态。
 pub(crate) fn registration() -> ToolRegistration {
     app_tool(tool, execute, execute_with_app_boxed, true, None)
 }
 
+// 返回 CronList 暴露给模型的元数据。
 pub fn tool() -> Tool {
     Tool {
         name: "CronList".into(),
@@ -27,6 +31,7 @@ pub fn tool() -> Tool {
     }
 }
 
+// 同步入口只返回提示，要求调用方改走带 AppHandle 的执行路径。
 pub fn execute(_input: Value) -> String {
     json!({
         "ok": false,
@@ -35,9 +40,12 @@ pub fn execute(_input: Value) -> String {
     .to_string()
 }
 
+// 读取当前会话和持久化存储里的所有计划任务。
+// `jobs` 是合并后的任务列表，最后会统一转成 JSON 数组返回给模型。
 pub async fn execute_with_app(app: &AppHandle, _input: Value) -> String {
     match list_jobs(app) {
         Ok(jobs) => {
+            // list: 返回给模型的轻量序列化结果，只保留工具协议需要的字段。
             let list = jobs
                 .into_iter()
                 .map(|job| {

@@ -73,19 +73,29 @@ pub(crate) type PermissionFn = fn(&Value) -> Option<ToolPermissionDescriptor>;
 
 #[derive(Debug, Clone)]
 pub(crate) struct ToolPermissionDescriptor {
+    // signature: 当前敏感操作的稳定签名，用于会话内权限复用与去重。
     pub signature: String,
+    // preview: 展示给用户看的简短操作摘要。
     pub preview: String,
+    // warning: 风险提示文案；为空表示仅记录该操作，不额外提示风险。
     pub warning: Option<String>,
+    // needs_approval: 是否必须先经过用户审批。
     pub needs_approval: bool,
 }
 
 #[derive(Clone, Copy)]
 pub(crate) struct ToolRegistration {
+    // tool: 暴露给模型看的静态定义（name/description/schema）。
     tool: fn() -> Tool,
+    // execute: 不依赖 AppHandle 的同步执行入口。
     execute: fn(Value) -> String,
+    // execute_with_app: 需要 AppHandle / async / 会话上下文时使用。
     execute_with_app: Option<AppExecuteFn>,
+    // postprocess: 执行完成后补充 side-channel 消息或清洗输出。
     postprocess: Option<PostprocessFn>,
+    // permission: 工具自己的权限描述函数；内置工具不再走按名字兜底。
     permission: Option<PermissionFn>,
+    // read_only: 只读工具可进入批量并发执行队列。
     read_only: bool,
 }
 
@@ -95,6 +105,7 @@ pub(crate) const fn sync_tool(
     read_only: bool,
     permission: Option<PermissionFn>,
 ) -> ToolRegistration {
+    // sync_tool: 适合同步工具；权限策略也必须在这里显式声明。
     ToolRegistration {
         tool,
         execute,
@@ -112,6 +123,7 @@ pub(crate) const fn app_tool(
     read_only: bool,
     permission: Option<PermissionFn>,
 ) -> ToolRegistration {
+    // app_tool: 适合异步或依赖 AppHandle 的工具；权限策略同样显式声明。
     ToolRegistration {
         tool,
         execute,
@@ -130,6 +142,7 @@ pub(crate) const fn app_tool_with_extras(
     permission: Option<PermissionFn>,
     postprocess: Option<PostprocessFn>,
 ) -> ToolRegistration {
+    // app_tool_with_extras: 在 app_tool 基础上再挂权限和后处理扩展点。
     ToolRegistration {
         tool,
         execute,
@@ -141,6 +154,7 @@ pub(crate) const fn app_tool_with_extras(
 }
 fn registered_tools() -> &'static [ToolRegistration] {
     static REGISTERED_TOOLS: OnceLock<Vec<ToolRegistration>> = OnceLock::new();
+    // REGISTERED_TOOLS: 进程级缓存，避免每次请求都重新构建注册表。
     REGISTERED_TOOLS
         .get_or_init(builtin_tool_registrations)
         .as_slice()

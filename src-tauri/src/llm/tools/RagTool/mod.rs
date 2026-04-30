@@ -3,6 +3,8 @@ use crate::llm::types::Tool;
 use serde_json::{json, Value};
 use tauri::AppHandle;
 
+// 把 RAG 工具的 async 执行逻辑包装成统一 future。
+// `input` 里会带 action/query/documentId/limit 这些查询参数。
 fn execute_with_app_boxed(
     app: AppHandle,
     _conversation_id: Option<String>,
@@ -11,10 +13,14 @@ fn execute_with_app_boxed(
     Box::pin(async move { execute_with_app(&app, input).await })
 }
 
+// 返回 rag_tool 的注册信息。
+// RAG 只做本地知识库读取，因此标成只读工具。
 pub(crate) fn registration() -> ToolRegistration {
     app_tool(tool, execute, execute_with_app_boxed, true, None)
 }
 
+// 返回模型可见的 rag_tool 元数据。
+// `action` 决定本次是查统计、搜索文档，还是读取单篇文档内容。
 pub fn tool() -> Tool {
     Tool {
         name: "rag_tool".into(),
@@ -36,6 +42,7 @@ pub fn tool() -> Tool {
     }
 }
 
+// 同步入口只返回提示，要求调用方改走带 AppHandle 的 RAG 执行路径。
 pub fn execute(_input: Value) -> String {
     json!({
         "ok": false,
@@ -44,7 +51,10 @@ pub fn execute(_input: Value) -> String {
     .to_string()
 }
 
+// 根据 `action` 访问本地 RAG 数据库。
+// `query` 只在 search 分支使用，`document_id` 只在 read 分支使用。
 pub async fn execute_with_app(app: &AppHandle, input: Value) -> String {
+    // action: 统一转成小写后的操作类型，避免模型大小写混用时匹配失败。
     let action = input
         .get("action")
         .and_then(|v| v.as_str())
@@ -76,6 +86,7 @@ pub async fn execute_with_app(app: &AppHandle, input: Value) -> String {
                 .to_string();
             };
 
+            // limit: 搜索结果数量上限；不传时交给底层 RAG 默认值处理。
             let limit = input
                 .get("limit")
                 .and_then(|v| v.as_u64())

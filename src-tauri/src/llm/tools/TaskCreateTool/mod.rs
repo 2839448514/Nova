@@ -3,10 +3,12 @@ use crate::llm::tools::{sync_tool, ToolRegistration};
 use crate::llm::types::Tool;
 use serde_json::{json, Value};
 
+// 注册 task_create，声明它是写类同步工具，用于创建当前会话任务。
 pub(crate) fn registration() -> ToolRegistration {
     sync_tool(tool, execute, false, None)
 }
 
+// 返回暴露给模型的工具元数据，要求至少提供 title。
 pub fn tool() -> Tool {
     Tool {
         name: "task_create".into(),
@@ -23,6 +25,7 @@ pub fn tool() -> Tool {
     }
 }
 
+// 从输入里提取 title/status/notes，并在内存任务表里创建一条新任务。
 pub fn execute(input: Value) -> String {
     let title = match input.get("title").and_then(|v| v.as_str()) {
         Some(v) if !v.trim().is_empty() => v.trim().to_string(),
@@ -35,6 +38,7 @@ pub fn execute(input: Value) -> String {
         .unwrap_or("not-started")
         .to_string();
 
+    // notes: 可选备注，缺省时保持为 None。
     let notes = input.get("notes").and_then(|v| v.as_str()).map(|s| s.to_string());
 
     let task = task_store::create(title, status, notes);

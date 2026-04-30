@@ -2,10 +2,14 @@ use crate::llm::tools::{sync_tool, ToolRegistration};
 use crate::llm::types::Tool;
 use serde_json::{json, Value};
 
+// 返回 StructuredOutput 工具的注册信息。
+// 这个工具只包装并返回 JSON，不读写外部状态。
 pub(crate) fn registration() -> ToolRegistration {
     sync_tool(tool, execute, false, None)
 }
 
+// 返回模型可见的 StructuredOutput 元数据。
+// schema 故意保持宽松，允许模型直接返回任意结构化 JSON。
 pub fn tool() -> Tool {
     Tool {
         name: "StructuredOutput".into(),
@@ -17,6 +21,8 @@ pub fn tool() -> Tool {
     }
 }
 
+// 把输入 JSON 原样挂到 `structured_output` 字段里返回。
+// `input` 就是模型要作为最终机器可读结果交付给调用方的对象。
 pub fn execute(input: Value) -> String {
     json!({
         "ok": true,

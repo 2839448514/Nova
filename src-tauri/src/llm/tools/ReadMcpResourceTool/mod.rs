@@ -3,6 +3,7 @@ use crate::llm::types::Tool;
 use serde_json::{json, Value};
 use tauri::AppHandle;
 
+// 把读取 MCP 资源内容的 async 逻辑包装成统一 future。
 fn execute_with_app_boxed(
     app: AppHandle,
     _conversation_id: Option<String>,
@@ -11,10 +12,14 @@ fn execute_with_app_boxed(
     Box::pin(async move { execute_with_app(&app, input).await })
 }
 
+// 返回 read_mcp_resource 的注册信息。
+// 这是只读操作，只读取 MCP 暴露的资源内容。
 pub(crate) fn registration() -> ToolRegistration {
     app_tool(tool, execute, execute_with_app_boxed, true, None)
 }
 
+// 返回模型可见的 read_mcp_resource 元数据。
+// `resource` 和 `uri` 是同义字段，工具内部会统一成一个资源标识。
 pub fn tool() -> Tool {
     Tool {
         name: "read_mcp_resource".into(),
@@ -31,6 +36,7 @@ pub fn tool() -> Tool {
     }
 }
 
+// 同步入口只返回提示，要求调用方改走带 AppHandle 的 MCP 读取逻辑。
 pub fn execute(input: Value) -> String {
     let server = input.get("server").and_then(|v| v.as_str()).unwrap_or("");
     let resource = input
@@ -47,6 +53,8 @@ pub fn execute(input: Value) -> String {
     .to_string()
 }
 
+// 从指定 MCP server 读取一个资源。
+// `server_name` 标识服务器，`uri` 标识资源地址，二者都会先去掉首尾空白。
 pub async fn execute_with_app(app: &AppHandle, input: Value) -> String {
     let server_name = input
         .get("server")

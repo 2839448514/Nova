@@ -351,6 +351,7 @@ pub(crate) fn describe_shell_command_permission(
     preview_label: &str,
     input: &Value,
 ) -> Option<ToolPermissionDescriptor> {
+    // command: 当前工具请求执行的终端命令文本。
     let command = input
         .get("command")
         .and_then(|v| v.as_str())
@@ -367,6 +368,7 @@ pub(crate) fn describe_shell_command_permission(
     }
 
     let normalized = normalize_command_for_match(command);
+    // warning: 命令命中危险规则时返回给用户看的风险提示。
     let warning = check_command(command).err();
 
     Some(ToolPermissionDescriptor {
@@ -383,6 +385,7 @@ pub(crate) fn describe_file_write_permission(
     path_key: &str,
     input: &Value,
 ) -> Option<ToolPermissionDescriptor> {
+    // path: 当前写操作的目标路径；不同工具可通过 path_key 复用这个 helper。
     let path = input
         .get(path_key)
         .and_then(|v| v.as_str())
@@ -399,6 +402,7 @@ pub(crate) fn describe_file_write_permission(
     }
 
     let normalized = normalize_path_for_match(path);
+    // warning: 路径命中受保护目录或敏感标记时生成风险提示。
     let warning = check_file_path(path).err();
 
     Some(ToolPermissionDescriptor {
@@ -410,6 +414,8 @@ pub(crate) fn describe_file_write_permission(
 }
 
 fn operation_from_input(tool_name: &str, input: &Value) -> Option<ProtectedOperation> {
+    // 内置工具先读取自己显式声明的权限描述；
+    // 这里不再按 tool_name 做隐式兜底，避免策略散落在权限模块里。
     if let Some(operation) = crate::llm::tools::permission_descriptor_for_tool(tool_name, input) {
         return Some(ProtectedOperation {
             signature: operation.signature,
@@ -420,6 +426,7 @@ fn operation_from_input(tool_name: &str, input: &Value) -> Option<ProtectedOpera
     }
 
     if let Some((server, tool)) = crate::llm::services::mcp_tools::parse_mcp_tool_name(tool_name) {
+        // risk: 对 MCP 动态工具做基于 server/tool 名和参数的统一风险推断。
         let risk = check_mcp_operation(&server, &tool, input).err();
 
         return Some(ProtectedOperation {
@@ -769,7 +776,7 @@ pub fn enforce_tool_permission(
     }
 
     let Some(operation) = operation_from_input(tool_name, input) else {
-        // 非受控工具默认放行。
+        // operation: None 表示该工具没有声明受控操作，当前权限层不参与拦截。
         return PermissionEnforcement::Allow;
     };
     // operation: 当前待评估的受控操作。

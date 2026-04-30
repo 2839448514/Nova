@@ -21,6 +21,7 @@ const DEFAULT_WAIT_MS: u64 = 500;
 const MAX_WAIT_MS: u64 = 10_000;
 const DEFAULT_DRAG_SETTLE_MS: u64 = 50;
 
+// 把 async execute_with_app 包装成统一 future，供注册层保存函数指针。
 fn execute_with_app_boxed(
     app: AppHandle,
     conversation_id: Option<String>,
@@ -29,7 +30,9 @@ fn execute_with_app_boxed(
     Box::pin(async move { execute_with_app(&app, conversation_id.as_deref(), input).await })
 }
 
+// 根据 action 生成统一的桌面控制权限描述；所有 computer_use 操作都会先经过用户确认。
 fn permission(input: &Value) -> Option<ToolPermissionDescriptor> {
+    // action: 当前准备执行的桌面操作名，会显示在权限弹窗里。
     let action = input
         .get("action")
         .and_then(|v| v.as_str())
@@ -47,6 +50,7 @@ fn permission(input: &Value) -> Option<ToolPermissionDescriptor> {
     })
 }
 
+// 注册 computer_use，同时挂上权限描述和截图后处理逻辑。
 pub(crate) fn registration() -> ToolRegistration {
     app_tool_with_extras(
         tool,
@@ -58,11 +62,13 @@ pub(crate) fn registration() -> ToolRegistration {
     )
 }
 
+// 返回一个进程级互斥锁，保证同一时刻只有一个桌面控制操作在执行。
 fn session_lock() -> &'static Mutex<()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
     LOCK.get_or_init(|| Mutex::new(()))
 }
 
+// 返回暴露给模型的工具元数据，列出 computer_use 支持的全部 action 和参数。
 pub fn tool() -> Tool {
     Tool {
         name: "computer_use".into(),
@@ -127,6 +133,7 @@ pub fn tool() -> Tool {
     }
 }
 
+// 同步调用路径只返回提示，真正执行必须走带 AppHandle 的 execute_with_app。
 pub fn execute(input: Value) -> String {
     let action = input.get("action").and_then(|v| v.as_str()).unwrap_or("unknown");
     json!({
@@ -137,6 +144,7 @@ pub fn execute(input: Value) -> String {
     .to_string()
 }
 
+// 从 input 里读取 key 对应的整数，并转成 i32，供鼠标坐标等参数使用。
 fn parse_i32_field(input: &Value, key: &str) -> Result<i32, String> {
     input
         .get(key)
@@ -145,12 +153,14 @@ fn parse_i32_field(input: &Value, key: &str) -> Result<i32, String> {
         .ok_or_else(|| format!("computer_use requires integer '{}'", key))
 }
 
+// 从 input 里读取可选的 u64 字段，供等待时间、点击次数等参数使用。
 fn parse_u64_field(input: &Value, key: &str) -> Option<u64> {
     input
         .get(key)
         .and_then(|v| v.as_u64())
 }
 
+// 解析 button 字段，把 "left/middle/right" 映射成 enigo 的鼠标按钮枚举。
 fn parse_button(input: &Value) -> Result<Button, String> {
     match input
         .get("button")
@@ -167,6 +177,7 @@ fn parse_button(input: &Value) -> Result<Button, String> {
     }
 }
 
+// 把内部 Button 枚举反向转成人类可读的字符串，方便放进 JSON 结果。
 fn button_name(button: &Button) -> &'static str {
     match button {
         Button::Left => "left",
@@ -176,6 +187,7 @@ fn button_name(button: &Button) -> &'static str {
     }
 }
 
+// 把字符串按常见快捷键名字解析成 enigo 的 Key 枚举。
 fn parse_key_name(name: &str) -> Result<Key, String> {
     let trimmed = name.trim();
     if trimmed.is_empty() {
@@ -232,6 +244,7 @@ fn parse_key_name(name: &str) -> Result<Key, String> {
     Ok(key)
 }
 
+// 把当前屏幕对象整理成 JSON，供 list_displays / screenshot / cursor_position 返回。
 fn display_json(screen: &Screen) -> Value {
     let info = screen.display_info;
     json!({
@@ -247,6 +260,7 @@ fn display_json(screen: &Screen) -> Value {
     })
 }
 
+// display_id 提供时按 id 查屏幕；不提供时优先选主屏，否则退到第一块屏幕。
 fn find_screen_by_id(display_id: Option<u32>) -> Result<Screen, String> {
     let screens = Screen::all().map_err(|e| format!("Failed to enumerate displays: {}", e))?;
     if screens.is_empty() {
@@ -267,6 +281,7 @@ fn find_screen_by_id(display_id: Option<u32>) -> Result<Screen, String> {
     }
 }
 
+// 截取整屏或 region 区域，并编码成 base64 PNG 返回给后续 postprocess 使用。
 fn capture_png_base64(screen: Screen, region: Option<&Value>) -> Result<Value, String> {
     let image = if let Some(region) = region {
         let x = region
@@ -317,11 +332,13 @@ fn capture_png_base64(screen: Screen, region: Option<&Value>) -> Result<Value, S
     }))
 }
 
+// 初始化 enigo 输入后端；后续鼠标和键盘动作都复用这个入口。
 fn new_enigo() -> Result<Enigo, String> {
     Enigo::new(&Settings::default())
         .map_err(|e| format!("Failed to initialize desktop input backend: {}", e))
 }
 
+// 在绝对坐标 x/y 处执行 count 次鼠标点击，并返回结构化点击结果。
 fn perform_click(mut enigo: Enigo, x: i32, y: i32, button: Button, count: u64) -> Result<Value, String> {
     enigo
         .move_mouse(x, y, Coordinate::Abs)
@@ -340,6 +357,7 @@ fn perform_click(mut enigo: Enigo, x: i32, y: i32, button: Button, count: u64) -
     }))
 }
 
+// keys 里前 n-1 个按键作为修饰键按下，最后一个键点击后再按倒序释放修饰键。
 fn perform_hotkey(mut enigo: Enigo, keys: &[String]) -> Result<Value, String> {
     if keys.len() < 2 {
         return Err("hotkey requires at least two key names".to_string());
@@ -373,6 +391,7 @@ fn perform_hotkey(mut enigo: Enigo, keys: &[String]) -> Result<Value, String> {
     }))
 }
 
+// 根据 action 分发真正的桌面控制逻辑；因为会阻塞线程，所以由 execute_with_app 放到 spawn_blocking 里执行。
 fn execute_blocking(action: String, input: Value) -> Result<Value, String> {
     match action.as_str() {
         "request_access" => Ok(json!({
@@ -577,11 +596,13 @@ fn execute_blocking(action: String, input: Value) -> Result<Value, String> {
     }
 }
 
+// 处理 wait 这种纯异步动作，或串行执行其余桌面控制动作并返回 JSON 结果。
 pub async fn execute_with_app(
     _app: &AppHandle,
     _conversation_id: Option<&str>,
     input: Value,
 ) -> String {
+    // action: 当前请求的桌面动作名，会决定走哪个执行分支。
     let action = input
         .get("action")
         .and_then(|v| v.as_str())
@@ -590,6 +611,7 @@ pub async fn execute_with_app(
         .to_ascii_lowercase();
 
     if action == "wait" {
+        // wait_ms: 等待毫秒数，兼容 duration_ms 和 ms 两个字段。
         let wait_ms = parse_u64_field(&input, "duration_ms")
             .or_else(|| parse_u64_field(&input, "ms"))
             .unwrap_or(DEFAULT_WAIT_MS)
@@ -603,6 +625,7 @@ pub async fn execute_with_app(
         .to_string();
     }
 
+    // _guard: 持有互斥锁期间，阻止多个桌面动作同时操作同一会话环境。
     let _guard = session_lock().lock().await;
     match tokio::task::spawn_blocking(move || execute_blocking(action, input)).await {
         Ok(Ok(value)) => value.to_string(),
@@ -615,6 +638,7 @@ pub async fn execute_with_app(
     }
 }
 
+// 把 screenshot 结果里的 image.data 提升成额外图片消息，便于后续模型直接“看到”截图。
 pub fn postprocess_output(output: &str) -> (String, Vec<Message>) {
     let Ok(mut value) = serde_json::from_str::<Value>(output) else {
         return (output.to_string(), Vec::new());

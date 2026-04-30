@@ -3,10 +3,12 @@ use crate::llm::tools::{sync_tool, ToolRegistration};
 use crate::llm::types::Tool;
 use serde_json::{json, Value};
 
+// 注册 task_update，声明它是写类同步工具，用于更新已有任务。
 pub(crate) fn registration() -> ToolRegistration {
     sync_tool(tool, execute, false, None)
 }
 
+// 返回暴露给模型的工具元数据，要求提供 id，其他字段按需更新。
 pub fn tool() -> Tool {
     Tool {
         name: "task_update".into(),
@@ -24,6 +26,7 @@ pub fn tool() -> Tool {
     }
 }
 
+// 读取要更新的 id，以及可选的 title/status/notes，再写回内存任务表。
 pub fn execute(input: Value) -> String {
     let id = match input.get("id").and_then(|v| v.as_u64()) {
         Some(v) => v,
@@ -36,11 +39,13 @@ pub fn execute(input: Value) -> String {
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
 
+    // status: 新状态；未提供时保持原值不变。
     let status = input
         .get("status")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
 
+    // notes: Some(None) 表示显式清空备注；None 表示本次不改备注字段。
     let notes = if input.get("notes").is_some() {
         Some(input.get("notes").and_then(|v| v.as_str()).map(|s| s.to_string()))
     } else {

@@ -3,6 +3,7 @@ use crate::llm::types::Tool;
 use serde_json::{json, Value};
 use tauri::AppHandle;
 
+// 把读取 MCP 资源列表的 async 逻辑包装成统一 future。
 fn execute_with_app_boxed(
     app: AppHandle,
     _conversation_id: Option<String>,
@@ -11,10 +12,14 @@ fn execute_with_app_boxed(
     Box::pin(async move { execute_with_app(&app, input).await })
 }
 
+// 返回 list_mcp_resources 的注册信息。
+// 这是只读操作，只会向 MCP 查询资源目录。
 pub(crate) fn registration() -> ToolRegistration {
     app_tool(tool, execute, execute_with_app_boxed, true, None)
 }
 
+// 返回模型可见的 list_mcp_resources 元数据。
+// `server` 指定要查询哪一个 MCP server。
 pub fn tool() -> Tool {
     Tool {
         name: "list_mcp_resources".into(),
@@ -29,6 +34,7 @@ pub fn tool() -> Tool {
     }
 }
 
+// 同步入口只返回提示，要求调用方改走带 AppHandle 的 MCP 查询逻辑。
 pub fn execute(input: Value) -> String {
     let server = input.get("server").and_then(|v| v.as_str()).unwrap_or("");
     json!({
@@ -39,6 +45,8 @@ pub fn execute(input: Value) -> String {
     .to_string()
 }
 
+// 调用后端 MCP 命令列出指定 server 的资源。
+// `server_name` 是去掉空白后的服务器名，不能为空。
 pub async fn execute_with_app(app: &AppHandle, input: Value) -> String {
     let server_name = input
         .get("server")

@@ -6,6 +6,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
+// 把 Skill 工具的 async 执行逻辑包装成统一 future。
+// `app` 只用来定位 skills 根目录，`input` 里带 action/skill/args。
 fn execute_with_app_boxed(
     app: AppHandle,
     _conversation_id: Option<String>,
@@ -14,6 +16,8 @@ fn execute_with_app_boxed(
     Box::pin(async move { execute_with_app(&app, input).await })
 }
 
+// 返回 Skill 工具的注册信息。
+// 它只读本地 skill 文件，不直接改写状态，所以标成只读工具。
 pub(crate) fn registration() -> ToolRegistration {
     app_tool(tool, execute, execute_with_app_boxed, true, None)
 }
@@ -33,6 +37,8 @@ pub struct SkillSummary {
     pub path: String,
 }
 
+// 返回模型可见的 Skill 工具元数据。
+// 模型先 `action=list` 发现技能，再 `action=run` 加载某个技能说明。
 pub fn tool() -> Tool {
     Tool {
         name: "Skill".into(),
@@ -58,14 +64,19 @@ pub fn tool() -> Tool {
     }
 }
 
+// 把任意长字符串截成最多 `max_chars` 个字符，避免把大段 skill 内容原样塞回模型。
 fn truncate_chars(input: &str, max_chars: usize) -> String {
     input.chars().take(max_chars).collect::<String>()
 }
 
+// 把 skill 名字归一化成便于比较的形式。
+// 当前只做 trim + 小写，用来支持大小写不敏感匹配。
 fn normalize_name(name: &str) -> String {
     name.trim().to_ascii_lowercase()
 }
 
+// 去掉 SKILL.md 头部的 frontmatter，只保留正文说明。
+// `raw` 是文件原始文本，返回值是提供给模型阅读的纯说明内容。
 fn strip_frontmatter(raw: &str) -> String {
     let mut lines = raw.lines();
     if lines.next() != Some("---") {
@@ -87,6 +98,8 @@ fn strip_frontmatter(raw: &str) -> String {
     body.join("\n").trim().to_string()
 }
 
+// 从 frontmatter 里读取指定 key 的值。
+// `key` 常用来提取 `name` 或 `description` 这些元信息。
 fn parse_frontmatter_value(raw: &str, key: &str) -> Option<String> {
     let mut lines = raw.lines();
     if lines.next() != Some("---") {
@@ -108,6 +121,8 @@ fn parse_frontmatter_value(raw: &str, key: &str) -> Option<String> {
     None
 }
 
+// 决定一个 skill 最终显示给模型的名字。
+// 优先读 frontmatter 的 `name`，否则退回到 skill 目录名。
 fn pick_skill_name(path: &Path, raw: &str) -> String {
     parse_frontmatter_value(raw, "name")
         .filter(|v| !v.trim().is_empty())
@@ -120,6 +135,8 @@ fn pick_skill_name(path: &Path, raw: &str) -> String {
         .unwrap_or_else(|| "unknown-skill".to_string())
 }
 
+// 决定一个 skill 的简短描述。
+// 优先读 frontmatter 的 `description`，否则取正文里第一条非空文本。
 fn pick_skill_description(raw: &str) -> String {
     if let Some(desc) = parse_frontmatter_value(raw, "description") {
         if !desc.trim().is_empty() {
@@ -138,6 +155,8 @@ fn pick_skill_description(raw: &str) -> String {
     "(no description)".to_string()
 }
 
+// 递归收集 root 目录下所有名为 `SKILL.md` 的文件。
+// `out` 是收集结果的可变数组，函数本身不做去重。
 fn collect_skill_files(root: &Path, out: &mut Vec<PathBuf>) {
     let Ok(entries) = fs::read_dir(root) else {
         return;
@@ -160,6 +179,8 @@ fn collect_skill_files(root: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
+// 返回 skills 根目录 `<app_data_dir>/skills`。
+// Skill 工具所有磁盘扫描都从这个目录开始。
 fn skills_root_dir(app: &AppHandle) -> Result<PathBuf, String> {
     app.path()
         .app_data_dir()
@@ -167,6 +188,8 @@ fn skills_root_dir(app: &AppHandle) -> Result<PathBuf, String> {
         .map_err(|e| format!("Failed to resolve app_data_dir for skills: {}", e))
 }
 
+// 从本地 skills 目录加载全部 skill 元数据和正文内容。
+// `skill_files` 是扫到的 SKILL.md 文件列表，`out` 是最终返回的去重结果。
 fn load_skills(app: &AppHandle) -> Result<Vec<SkillEntry>, String> {
     let mut skill_files = Vec::new();
     let skills_root = skills_root_dir(app)?;
@@ -198,6 +221,8 @@ fn load_skills(app: &AppHandle) -> Result<Vec<SkillEntry>, String> {
     Ok(out)
 }
 
+// 返回给其他模块使用的轻量 skill 摘要。
+// 这里只暴露 name/description/path，不把正文 content 一起带出去。
 pub fn list_skill_summaries_with_app(app: &AppHandle) -> Result<Vec<SkillSummary>, String> {
     Ok(load_skills(app)?
         .into_iter()
@@ -209,6 +234,7 @@ pub fn list_skill_summaries_with_app(app: &AppHandle) -> Result<Vec<SkillSummary
         .collect())
 }
 
+// 把 skills 列表转成模型更容易消费的 JSON 数组。
 fn list_skills(skills: &[SkillEntry]) -> String {
     let items = skills
         .iter()
@@ -228,6 +254,8 @@ fn list_skills(skills: &[SkillEntry]) -> String {
     .to_string()
 }
 
+// 收集某个 skill 所在目录下的附属文件列表。
+// 返回 `(相对路径, 绝对路径)`，方便模型知道还可以继续读取哪些文件。
 fn collect_skill_sibling_files(skill_md_path: &Path) -> Vec<(String, PathBuf)> {
     let Some(skill_dir) = skill_md_path.parent() else {
         return vec![];
@@ -245,6 +273,8 @@ fn collect_skill_sibling_files(skill_md_path: &Path) -> Vec<(String, PathBuf)> {
         .collect()
 }
 
+// 递归收集目录里的普通文件，并记录相对路径。
+// `root` 用来算相对路径，`current` 是当前递归目录，`out` 是累计结果。
 fn collect_dir_files_relative(root: &Path, current: &Path, out: &mut Vec<(String, PathBuf)>) {
     let Ok(entries) = fs::read_dir(current) else { return };
     for entry in entries.flatten() {
@@ -263,7 +293,10 @@ fn collect_dir_files_relative(root: &Path, current: &Path, out: &mut Vec<(String
     }
 }
 
+// 按名字挑出一个 skill，并把正文和附属文件说明打包成返回文本。
+// `skill_name` 是模型请求的技能名，`args` 是附加给 skill 的可选参数提示。
 fn run_skill(skills: &[SkillEntry], skill_name: &str, args: Option<&str>) -> String {
+    // skill_name_norm: 归一化后的名字，用于大小写不敏感查找。
     let skill_name_norm = normalize_name(skill_name);
 
     let picked = skills
@@ -289,6 +322,7 @@ fn run_skill(skills: &[SkillEntry], skill_name: &str, args: Option<&str>) -> Str
         .map(|p| p.display().to_string())
         .unwrap_or_default();
 
+    // sibling_files: skill 目录下可继续读取的辅文件清单，例如 scripts/、references/ 等。
     let sibling_files = collect_skill_sibling_files(&skill.path);
 
     let mut out = String::new();
@@ -316,6 +350,7 @@ fn run_skill(skills: &[SkillEntry], skill_name: &str, args: Option<&str>) -> Str
     .to_string()
 }
 
+// 同步入口只返回提示，要求调用方改走带 AppHandle 的执行路径。
 pub fn execute(_input: Value) -> String {
     json!({
         "ok": false,
@@ -324,6 +359,8 @@ pub fn execute(_input: Value) -> String {
     .to_string()
 }
 
+// 根据 action 执行 `list` 或 `run`。
+// `skills` 是当前磁盘上实际存在的技能集合，`skill` 是模型请求运行的目标技能名。
 pub async fn execute_with_app(app: &AppHandle, input: Value) -> String {
     let action = input
         .get("action")

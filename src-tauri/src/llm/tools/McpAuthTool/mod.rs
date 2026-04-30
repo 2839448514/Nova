@@ -3,6 +3,8 @@ use crate::llm::types::Tool;
 use serde_json::{json, Value};
 use tauri::AppHandle;
 
+// 把 MCP 管理操作的 async 逻辑包装成统一 future。
+// `conversation_id` 只在 `probe_tool` 分支里继续往下传，用于嵌套权限确认。
 fn execute_with_app_boxed(
     app: AppHandle,
     conversation_id: Option<String>,
@@ -11,10 +13,14 @@ fn execute_with_app_boxed(
     Box::pin(async move { execute_with_app(&app, conversation_id.as_deref(), input).await })
 }
 
+// 返回 mcp_auth 的注册信息。
+// 这是写类工具，因为 enable/disable/reload/probe 都可能改变运行状态或触发远端调用。
 pub(crate) fn registration() -> ToolRegistration {
     app_tool(tool, execute, execute_with_app_boxed, false, None)
 }
 
+// 返回模型可见的 mcp_auth 元数据。
+// `action` 决定本次是查状态、重载、切换开关、列工具还是探测调用。
 pub fn tool() -> Tool {
     Tool {
         name: "mcp_auth".into(),
@@ -35,6 +41,7 @@ pub fn tool() -> Tool {
     }
 }
 
+// 同步入口只返回提示，要求调用方改走带 AppHandle 的 MCP 管理逻辑。
 pub fn execute(input: Value) -> String {
     let action = input.get("action").and_then(|v| v.as_str()).unwrap_or("unknown");
     json!({
@@ -45,11 +52,14 @@ pub fn execute(input: Value) -> String {
     .to_string()
 }
 
+// 执行 MCP 管理动作。
+// `action` 决定分支；`server_name`、`tool_name`、`arguments` 只在对应分支中生效。
 pub async fn execute_with_app(
     app: &AppHandle,
     conversation_id: Option<&str>,
     input: Value,
 ) -> String {
+    // action: 统一转成小写后的操作类型，避免大小写差异导致匹配失败。
     let action = input
         .get("action")
         .and_then(|v| v.as_str())
@@ -95,6 +105,7 @@ pub async fn execute_with_app(
                 .to_string();
             };
 
+            // enabled: true 表示启用 server，false 表示禁用 server。
             let enabled = action == "enable";
             match crate::command::mcp::set_mcp_server_enabled(
                 app.clone(),
@@ -151,6 +162,7 @@ pub async fn execute_with_app(
                 .map(str::trim)
                 .unwrap_or_default()
                 .to_string();
+            // arguments: 传给目标 MCP 工具的原始参数对象；缺失时默认空对象。
             let arguments = input
                 .get("arguments")
                 .cloned()

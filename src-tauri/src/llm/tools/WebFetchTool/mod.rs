@@ -3,10 +3,14 @@ use crate::llm::types::Tool;
 use serde_json::{json, Value};
 use std::process::Command;
 
+// 返回 web_fetch 的注册信息。
+// `read_only=true`，因为它只抓网页内容，不会修改本地状态。
 pub(crate) fn registration() -> ToolRegistration {
     sync_tool(tool, execute, true, None)
 }
 
+// 返回模型可见的 web_fetch 元数据。
+// 模型需要提供 `url`，工具再去抓取该地址的正文内容。
 pub fn tool() -> Tool {
     Tool {
         name: "web_fetch".into(),
@@ -21,6 +25,8 @@ pub fn tool() -> Tool {
     }
 }
 
+// 把抓到的正文按字节裁剪到安全长度。
+// `max_bytes` 限制返回大小，`boundary` 用来退到合法 UTF-8 边界，避免截断多字节字符。
 fn truncate(s: String, max_bytes: usize) -> String {
     if s.len() <= max_bytes {
         return s;
@@ -34,6 +40,8 @@ fn truncate(s: String, max_bytes: usize) -> String {
     format!("{}\n...(truncated)", &s[..boundary])
 }
 
+// 抓取 input 里的 `url`，并把网页正文返回给模型。
+// `url` 是要访问的 HTTP/HTTPS 地址，`out` 是底层命令执行后的原始结果。
 pub fn execute(input: Value) -> String {
     let url = match input.get("url").and_then(|v| v.as_str()) {
         Some(v) if v.starts_with("http://") || v.starts_with("https://") => v,
@@ -59,6 +67,7 @@ pub fn execute(input: Value) -> String {
 
     match out {
         Ok(output) => {
+            // stdout: 实际抓到的网页内容；stderr: 抓取命令输出的错误信息。
             let stdout = String::from_utf8_lossy(&output.stdout).to_string();
             let stderr = String::from_utf8_lossy(&output.stderr).to_string();
             if output.status.success() {

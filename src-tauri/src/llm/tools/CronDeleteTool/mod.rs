@@ -4,6 +4,7 @@ use crate::llm::types::Tool;
 use serde_json::{json, Value};
 use tauri::AppHandle;
 
+// 把删除计划任务的 async 逻辑包装成统一 future。
 fn execute_with_app_boxed(
     app: AppHandle,
     _conversation_id: Option<String>,
@@ -12,10 +13,13 @@ fn execute_with_app_boxed(
     Box::pin(async move { execute_with_app(&app, input).await })
 }
 
+// 返回 CronDelete 的注册信息。
+// `read_only=false`，因为它会删除已有的计划任务。
 pub(crate) fn registration() -> ToolRegistration {
     app_tool(tool, execute, execute_with_app_boxed, false, None)
 }
 
+// 返回 CronDelete 暴露给模型的元数据。
 pub fn tool() -> Tool {
     Tool {
         name: "CronDelete".into(),
@@ -30,6 +34,7 @@ pub fn tool() -> Tool {
     }
 }
 
+// 同步入口只返回提示，要求调用方改走带 AppHandle 的删除逻辑。
 pub fn execute(_input: Value) -> String {
     json!({
         "ok": false,
@@ -38,6 +43,8 @@ pub fn execute(_input: Value) -> String {
     .to_string()
 }
 
+// 按 `id` 删除一个计划任务。
+// `id` 是 CronCreate 返回的任务标识，找不到时会返回明确错误。
 pub async fn execute_with_app(app: &AppHandle, input: Value) -> String {
     let id = match input.get("id").and_then(|v| v.as_str()).map(str::trim) {
         Some(v) if !v.is_empty() => v,

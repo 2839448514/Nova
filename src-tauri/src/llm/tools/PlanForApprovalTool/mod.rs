@@ -2,10 +2,14 @@ use crate::llm::tools::{sync_tool, ToolRegistration};
 use crate::llm::types::Tool;
 use serde_json::{json, Value};
 
+// 返回 plan_for_approval 的注册信息。
+// 这个工具会暂停执行并等待用户审批计划，因此不是只读工具。
 pub(crate) fn registration() -> ToolRegistration {
     sync_tool(tool, execute, false, None)
 }
 
+// 从 input[key] 里读取一个非空字符串。
+// 这里统一做 trim，避免后面每个字段都重复写空白处理逻辑。
 fn normalized_non_empty_string(input: &Value, key: &str) -> Option<String> {
     input
         .get(key)
@@ -14,6 +18,8 @@ fn normalized_non_empty_string(input: &Value, key: &str) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
+// 从 input[key] 里读取字符串数组，并过滤掉空字符串项。
+// 这个函数主要给 `steps` 和 `risks` 复用。
 fn normalized_string_list(input: &Value, key: &str) -> Vec<String> {
     input
         .get(key)
@@ -28,6 +34,8 @@ fn normalized_string_list(input: &Value, key: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+// 把字符串列表格式化成 `1. xxx` 这种编号段落。
+// `items` 一般是计划步骤或风险点。
 fn join_bullets(items: &[String]) -> String {
     items
         .iter()
@@ -37,6 +45,8 @@ fn join_bullets(items: &[String]) -> String {
         .join("\n")
 }
 
+// 返回模型可见的 plan_for_approval 元数据。
+// 模型需要提供 `summary` 和 `steps`，工具再把它们包装成一个审批问题。
 pub fn tool() -> Tool {
     Tool {
         name: "plan_for_approval".into(),
@@ -72,6 +82,8 @@ pub fn tool() -> Tool {
     }
 }
 
+// 把计划摘要、步骤和风险整理成 `needs_user_input` payload，请用户明确审批。
+// `summary` 是高层概述，`steps` 是具体实施步骤，`risks` 是可选风险提醒。
 pub fn execute(input: Value) -> String {
     let summary = match normalized_non_empty_string(&input, "summary") {
         Some(v) => v,
@@ -83,6 +95,7 @@ pub fn execute(input: Value) -> String {
         return "Error: Missing non-empty 'steps' array".into();
     }
 
+    // title: 展示给用户看的计划标题，不传时使用默认“计划提审”。
     let title = normalized_non_empty_string(&input, "title")
         .unwrap_or_else(|| "计划提审".to_string());
     let risks = normalized_string_list(&input, "risks");
@@ -91,6 +104,7 @@ pub fn execute(input: Value) -> String {
         .and_then(|v| v.as_bool())
         .unwrap_or(true);
 
+    // context_lines: 拼成审批弹窗正文的多行文本，前端最终会把它展示给用户。
     let mut context_lines = vec![
         format!("{}：", title),
         format!("摘要：{}", summary),
