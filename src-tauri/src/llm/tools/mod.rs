@@ -56,6 +56,7 @@ declare_builtin_tools! {
 }
 
 pub mod shared;
+pub mod process;
 
 use crate::llm::types::{Message, Tool};
 use std::collections::{BTreeMap, VecDeque};

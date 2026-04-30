@@ -6,6 +6,12 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import {
+  buildDocumentAcceptAttribute,
+  describeSupportedDocumentExtensions,
+  extensionOf,
+  parseDocumentUploadFile,
+} from '@/lib/document-upload'
 import { emitToast, normalizeErrorMessage } from '@/lib/toast'
 
 type RagSettings = {
@@ -59,10 +65,8 @@ const DEFAULT_RAG_SETTINGS: RagSettings = {
 }
 
 const MAX_FILES_PER_BATCH = 20
-const SUPPORTED_EXTENSIONS = new Set([
-  'txt', 'md', 'markdown', 'csv', 'json', 'yaml', 'yml', 'xml', 'log', 'sql',
-  'js', 'jsx', 'ts', 'tsx', 'py', 'rs', 'java', 'go', 'c', 'cpp', 'h', 'hpp',
-])
+const SUPPORTED_EXTENSIONS_TEXT = describeSupportedDocumentExtensions()
+const FILE_INPUT_ACCEPT = buildDocumentAcceptAttribute()
 
 const textInput = ref('')
 const embeddingModel = ref('')
@@ -132,12 +136,6 @@ const clearFileSelection = () => {
   if (fileInputRef.value) {
     fileInputRef.value.value = ''
   }
-}
-
-const extensionOf = (name: string) => {
-  const index = name.lastIndexOf('.')
-  if (index < 0) return ''
-  return name.slice(index + 1).toLowerCase()
 }
 
 const ensureEmbeddingReady = () => {
@@ -316,12 +314,6 @@ const importFiles = async () => {
     const payload: Array<{ sourceName: string; sourceType: string; mimeType?: string; content: string }> = []
 
     for (const file of selectedFiles.value) {
-      const ext = extensionOf(file.name)
-      if (!SUPPORTED_EXTENSIONS.has(ext)) {
-        frontendRejected.push({ sourceName: file.name, reason: `暂不支持的类型 .${ext || 'unknown'}` })
-        continue
-      }
-
       if (file.size > maxFileSizeBytes.value) {
         frontendRejected.push({
           sourceName: file.name,
@@ -330,9 +322,14 @@ const importFiles = async () => {
         continue
       }
 
-      const content = (await file.text()).trim()
-      if (!content) {
-        frontendRejected.push({ sourceName: file.name, reason: '文件内容为空' })
+      let parsed
+      try {
+        parsed = await parseDocumentUploadFile(file)
+      } catch (error) {
+        frontendRejected.push({
+          sourceName: file.name,
+          reason: error instanceof Error ? error.message : `暂不支持的类型 .${extensionOf(file.name) || 'unknown'}`,
+        })
         continue
       }
 
@@ -340,7 +337,7 @@ const importFiles = async () => {
         sourceName: file.name,
         sourceType: 'file',
         mimeType: file.type || undefined,
-        content,
+        content: parsed.content,
       })
     }
 
@@ -512,12 +509,13 @@ defineExpose({ refresh })
             type="file"
             class="hidden"
             multiple
+            :accept="FILE_INPUT_ACCEPT"
             @change="onFileChange"
           >
         </div>
 
         <div class="text-[12px] text-[#8a8478] dark:text-[#a09e99]">
-          单次最多 {{ MAX_FILES_PER_BATCH }} 个文件，单文件上限 {{ maxFileSizeKb }}KB，支持扩展名：{{ Array.from(SUPPORTED_EXTENSIONS).join(', ') }}
+          单次最多 {{ MAX_FILES_PER_BATCH }} 个文件，单文件上限 {{ maxFileSizeKb }}KB，支持扩展名：{{ SUPPORTED_EXTENSIONS_TEXT }}
         </div>
 
         <div v-if="selectedFiles.length > 0" class="rounded-lg border border-[#ebe9e3] dark:border-[#3b3a37] p-2.5 space-y-1.5">

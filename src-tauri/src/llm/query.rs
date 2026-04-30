@@ -13,6 +13,8 @@ use state_machine::TurnOutcome;
 
 const SESSION_RAG_CONTEXT_MARKER: &str = "[Session RAG Context]";
 const SESSION_RAG_SEARCH_LIMIT: usize = 5;
+const DIRECT_ATTACHMENT_CONTEXT_LIMIT: usize = 2;
+const DIRECT_ATTACHMENT_SNIPPET_CHARS: usize = 2200;
 
 fn text_from_content(content: &Content) -> String {
 	match content {
@@ -52,6 +54,81 @@ fn latest_user_query_text(messages: &[Message]) -> Option<String> {
 	})
 }
 
+fn truncate_chars(input: &str, limit: usize) -> String {
+	let mut chars = input.chars();
+	let snippet: String = chars.by_ref().take(limit).collect();
+	if chars.next().is_some() {
+		format!("{}...", snippet)
+	} else {
+		snippet
+	}
+}
+
+fn extract_uploaded_document_names(query: &str) -> Vec<String> {
+	query
+		.lines()
+		.find_map(|line| {
+			line
+				.trim()
+				.strip_prefix("已上传文件（可在会话RAG中检索）：")
+				.map(str::trim)
+		})
+		.map(|raw| {
+			raw.split("，")
+				.map(str::trim)
+				.filter(|name| !name.is_empty())
+				.map(|name| name.to_string())
+				.collect::<Vec<_>>()
+		})
+		.unwrap_or_default()
+}
+
+fn build_direct_attachment_context(
+	app: &AppHandle,
+	conversation_id: &str,
+	source_names: &[String],
+) -> Result<Vec<String>, String> {
+	if source_names.is_empty() {
+		return Ok(Vec::new());
+	}
+
+	let documents = crate::command::rag::rag_list_conversation_documents(
+		app.clone(),
+		conversation_id.to_string(),
+	)?;
+
+	let mut lines = Vec::new();
+	let mut included = 0usize;
+
+	for source_name in source_names {
+		if included >= DIRECT_ATTACHMENT_CONTEXT_LIMIT {
+			break;
+		}
+
+		let Some(doc) = documents.iter().find(|doc| doc.source_name == *source_name) else {
+			continue;
+		};
+
+		let Some(content) =
+			crate::command::rag::rag_read_document(app.clone(), doc.id.clone())?
+		else {
+			continue;
+		};
+
+		lines.push(format!(
+			"Attached document: {} (id={}, chars={})",
+			content.source_name, content.id, content.content_chars
+		));
+		lines.push(format!(
+			"   excerpt: {}",
+			truncate_chars(&content.content, DIRECT_ATTACHMENT_SNIPPET_CHARS)
+		));
+		included += 1;
+	}
+
+	Ok(lines)
+}
+
 fn build_session_rag_context_message(
 	app: &AppHandle,
 	conversation_id: Option<&str>,
@@ -69,6 +146,10 @@ fn build_session_rag_context_message(
 		return Ok(None);
 	}
 
+	let attached_source_names = extract_uploaded_document_names(query_text);
+	let direct_attachment_lines =
+		build_direct_attachment_context(app, scope_id, &attached_source_names)?;
+
 	let hits = crate::command::rag::rag_search_conversation_documents(
 		app.clone(),
 		scope_id.to_string(),
@@ -77,15 +158,24 @@ fn build_session_rag_context_message(
 	)?;
 
 	if hits.is_empty() {
-		return Ok(None);
+		if direct_attachment_lines.is_empty() {
+			return Ok(None);
+		}
 	}
 
 	let mut context_lines = vec![
 		format!("{} Query: {}", SESSION_RAG_CONTEXT_MARKER, query_text),
 		"Use the retrieved snippets below as supporting context. If they conflict with current repository reality or explicit user instructions, prioritize repository reality and user intent.".to_string(),
-		"Retrieved snippets:".to_string(),
 	];
 
+	if !direct_attachment_lines.is_empty() {
+		context_lines.push("Directly attached documents for this turn:".to_string());
+		context_lines.extend(direct_attachment_lines);
+	}
+
+	if !hits.is_empty() {
+		context_lines.push("Retrieved snippets:".to_string());
+	}
 	for (idx, hit) in hits.iter().enumerate() {
 		context_lines.push(format!(
 			"{}. {} (score={}, id={})",

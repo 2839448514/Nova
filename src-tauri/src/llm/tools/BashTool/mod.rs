@@ -1,6 +1,7 @@
 use crate::llm::tools::{sync_tool, ToolPermissionDescriptor, ToolRegistration};
 use crate::llm::types::Tool;
 use serde_json::{json, Value};
+#[cfg(not(target_os = "windows"))]
 use std::process::Command;
 
 // 返回 BashTool 的注册信息。
@@ -47,7 +48,7 @@ pub fn execute(input: Value) -> String {
     if let Some(cmd) = input.get("command").and_then(|v| v.as_str()) {
         // cmd: 模型请求执行的原始命令文本。
         #[cfg(target_os = "windows")]
-        let out = Command::new("powershell").args(["-Command", cmd]).output();
+        let out = crate::llm::tools::process::run_hidden_pwsh(cmd);
 
         #[cfg(not(target_os = "windows"))]
         let out = Command::new("sh").arg("-c").arg(cmd).output();

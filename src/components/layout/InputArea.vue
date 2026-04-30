@@ -7,6 +7,11 @@ import type {
   UploadedImageFile,
   UploadedRagFile,
 } from '../../lib/chat-types';
+import {
+  buildDocumentAcceptAttribute,
+  extensionOf,
+  parseDocumentUploadFile,
+} from '../../lib/document-upload';
 import { emitToast } from '../../lib/toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
@@ -31,40 +36,6 @@ const fileInputRef = ref<HTMLInputElement | null>(null);
 const MAX_UPLOAD_FILE_SIZE_BYTES = 2 * 1024 * 1024;
 const MAX_IMAGE_FILE_SIZE_BYTES = 5 * 1024 * 1024;
 const MAX_UPLOAD_FILE_CHARS = 200_000;
-const SUPPORTED_TEXT_EXTENSIONS = new Set([
-  'txt',
-  'md',
-  'markdown',
-  'json',
-  'yaml',
-  'yml',
-  'toml',
-  'ini',
-  'log',
-  'csv',
-  'ts',
-  'tsx',
-  'js',
-  'jsx',
-  'py',
-  'rs',
-  'go',
-  'java',
-  'c',
-  'cc',
-  'cpp',
-  'h',
-  'hpp',
-  'vue',
-  'css',
-  'scss',
-  'html',
-  'xml',
-  'sql',
-  'sh',
-  'ps1',
-  'bat',
-]);
 const SUPPORTED_IMAGE_MIME_TYPES = new Set([
   'image/png',
   'image/jpeg',
@@ -84,6 +55,7 @@ const IMAGE_MIME_TO_EXTENSION: Record<string, string> = {
   'image/webp': 'webp',
   'image/gif': 'gif',
 };
+const FILE_INPUT_ACCEPT = buildDocumentAcceptAttribute(true);
 
 const settings = ref<any>(null);
 
@@ -150,12 +122,6 @@ const onModelValueChange = async (value: unknown) => {
   } catch (error) {
     console.error('Failed to save model change:', error);
   }
-};
-
-const extensionOf = (fileName: string) => {
-  const idx = fileName.lastIndexOf('.');
-  if (idx < 0) return '';
-  return fileName.slice(idx + 1).toLowerCase();
 };
 
 const inferImageMimeType = (file: File): string | null => {
@@ -236,24 +202,21 @@ const buildPendingUploadFiles = async (files: File[]): Promise<{
       continue;
     }
 
-    const ext = extensionOf(file.name);
-    if (!SUPPORTED_TEXT_EXTENSIONS.has(ext)) {
-      rejected.push(`${file.name || `文件${i + 1}`}: 不支持的文件类型`);
-      continue;
-    }
-
     if (file.size > MAX_UPLOAD_FILE_SIZE_BYTES) {
       rejected.push(`${file.name || `文件${i + 1}`}: 超过 2MB 限制`);
       continue;
     }
 
-    const content = (await file.text()).trim();
-    if (!content) {
-      rejected.push(`${file.name || `文件${i + 1}`}: 文件内容为空`);
+    let parsed;
+    try {
+      parsed = await parseDocumentUploadFile(file);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '文件解析失败';
+      rejected.push(`${file.name || `文件${i + 1}`}: ${message}`);
       continue;
     }
 
-    if (content.length > MAX_UPLOAD_FILE_CHARS) {
+    if (parsed.content.length > MAX_UPLOAD_FILE_CHARS) {
       rejected.push(`${file.name || `文件${i + 1}`}: 内容超过 ${MAX_UPLOAD_FILE_CHARS.toLocaleString()} 字符`);
       continue;
     }
@@ -262,7 +225,7 @@ const buildPendingUploadFiles = async (files: File[]): Promise<{
       kind: 'document',
       sourceName: file.name,
       mimeType: file.type || undefined,
-      content,
+      content: parsed.content,
       size: file.size,
     };
     accepted.push(textItem);
@@ -415,6 +378,7 @@ defineExpose({
       type="file"
       multiple
       class="hidden"
+      :accept="FILE_INPUT_ACCEPT"
       @change="onFileChange"
     />
     <div

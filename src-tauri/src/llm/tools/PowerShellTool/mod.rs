@@ -1,7 +1,6 @@
 use crate::llm::tools::{sync_tool, ToolPermissionDescriptor, ToolRegistration};
 use crate::llm::types::Tool;
 use serde_json::{json, Value};
-use std::process::Command;
 
 pub(crate) fn registration() -> ToolRegistration {
     sync_tool(tool, execute, false, Some(permission))
@@ -39,9 +38,7 @@ pub fn execute(input: Value) -> String {
 
     #[cfg(target_os = "windows")]
     {
-        let out = Command::new("powershell")
-            .args(["-NoProfile", "-Command", cmd])
-            .output();
+        let out = crate::llm::tools::process::run_hidden_pwsh(cmd);
 
         return match out {
             Ok(output) => {

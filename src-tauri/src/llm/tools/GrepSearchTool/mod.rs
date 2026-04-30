@@ -1,6 +1,7 @@
 use crate::llm::tools::{sync_tool, ToolRegistration};
 use crate::llm::types::Tool;
 use serde_json::{json, Value};
+#[cfg(not(target_os = "windows"))]
 use std::process::Command;
 
 // 返回 grep_search 的注册信息。
@@ -34,7 +35,11 @@ pub fn execute(input: Value) -> String {
         input.get("path").and_then(|v| v.as_str())
     ) {
         #[cfg(target_os = "windows")]
-        let out = Command::new("powershell").args(["-Command", &format!("Select-String -Path '{}' -Pattern '{}' -Recurse", path, pattern)]).output();
+        let out = crate::llm::tools::process::run_hidden_pwsh(&format!(
+            "Select-String -Path '{}' -Pattern '{}' -Recurse",
+            path.replace('\'', "''"),
+            pattern.replace('\'', "''")
+        ));
 
         #[cfg(not(target_os = "windows"))]
         let out = Command::new("grep").args(["-rni", pattern, path]).output();

@@ -7,10 +7,10 @@ use tauri::AppHandle;
 // `input` 里会带 action/query/document_id/limit 这些查询参数。
 fn execute_with_app_boxed(
     app: AppHandle,
-    _conversation_id: Option<String>,
+    conversation_id: Option<String>,
     input: Value,
 ) -> AppExecuteFuture {
-    Box::pin(async move { execute_with_app(&app, input).await })
+    Box::pin(async move { execute_with_app(&app, conversation_id, input).await })
 }
 
 // 返回 rag_tool 的注册信息。
@@ -52,7 +52,11 @@ pub fn execute(_input: Value) -> String {
 
 // 根据 `action` 访问本地 RAG 数据库。
 // `query` 只在 search 分支使用，`document_id` 只在 read 分支使用。
-pub async fn execute_with_app(app: &AppHandle, input: Value) -> String {
+pub async fn execute_with_app(
+    app: &AppHandle,
+    conversation_id: Option<String>,
+    input: Value,
+) -> String {
     // action: 统一转成小写后的操作类型，避免模型大小写混用时匹配失败。
     let action = input
         .get("action")
@@ -91,11 +95,27 @@ pub async fn execute_with_app(app: &AppHandle, input: Value) -> String {
                 .and_then(|v| v.as_u64())
                 .map(|v| v as usize);
 
-            match crate::command::rag::rag_search_documents(app.clone(), query.to_string(), limit) {
+            let result = if let Some(scope_id) = conversation_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                crate::command::rag::rag_search_conversation_documents(
+                    app.clone(),
+                    scope_id.to_string(),
+                    query.to_string(),
+                    limit,
+                )
+            } else {
+                crate::command::rag::rag_search_documents(app.clone(), query.to_string(), limit)
+            };
+
+            match result {
                 Ok(results) => json!({
                     "ok": true,
                     "action": "search",
                     "query": query,
+                    "conversation_scoped": conversation_id.as_deref().map(str::trim).filter(|value| !value.is_empty()).is_some(),
                     "results": results
                 })
                 .to_string(),

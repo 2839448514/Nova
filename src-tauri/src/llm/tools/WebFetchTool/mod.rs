@@ -1,6 +1,7 @@
 use crate::llm::tools::{sync_tool, ToolRegistration};
 use crate::llm::types::Tool;
 use serde_json::{json, Value};
+#[cfg(not(target_os = "windows"))]
 use std::process::Command;
 
 // 返回 web_fetch 的注册信息。
@@ -49,16 +50,10 @@ pub fn execute(input: Value) -> String {
     };
 
     #[cfg(target_os = "windows")]
-    let out = Command::new("powershell")
-        .args([
-            "-NoProfile",
-            "-Command",
-            &format!(
-                "(Invoke-WebRequest -UseBasicParsing -Uri '{}' -TimeoutSec 20).Content",
-                url.replace('"', "")
-            ),
-        ])
-        .output();
+    let out = crate::llm::tools::process::run_hidden_pwsh(&format!(
+        "(Invoke-WebRequest -UseBasicParsing -Uri '{}' -TimeoutSec 20).Content",
+        url.replace('\'', "''")
+    ));
 
     #[cfg(not(target_os = "windows"))]
     let out = Command::new("curl")
