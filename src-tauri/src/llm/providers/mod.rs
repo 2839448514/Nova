@@ -12,6 +12,8 @@ pub struct ProviderTurnResult {
     pub messages: Vec<Message>,
     // 本轮停止原因（可选）。
     pub stop_reason: Option<String>,
+    // provider 上报的输入 token 数（可选）。
+    pub input_tokens: Option<u32>,
     // provider 上报的输出 token 数（可选）。
     pub output_tokens: Option<u32>,
     // 是否阻止 query 层继续发起下一轮。

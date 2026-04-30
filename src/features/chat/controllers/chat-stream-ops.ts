@@ -44,6 +44,25 @@ type PersistToolExecutionLog = (
   conversationId?: string,
 ) => void;
 
+type TokenUsagePayload = {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  source?: string;
+};
+
+function parseTokenUsagePayload(raw?: string): TokenUsagePayload | null {
+  if (!raw?.trim()) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(raw) as TokenUsagePayload;
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 type StreamOpsDeps = {
   activeRuntimeRefs: ActiveRuntimeRefs;
   activeRuntimeState: ConversationTurnRuntimeState;
@@ -438,8 +457,25 @@ export function createChatStreamOperations(deps: StreamOpsDeps) {
     }
 
     if (payload.type === "token-usage") {
-      state.assistantTokenUsage = payload.token_usage;
-      state.currentOutputTokens = payload.token_usage ?? state.currentOutputTokens;
+      const usage = parseTokenUsagePayload(payload.text);
+      const nextInputTokens =
+        typeof usage?.inputTokens === "number" && usage.inputTokens > 0
+          ? usage.inputTokens
+          : 0;
+      const nextOutputTokens =
+        typeof usage?.outputTokens === "number" && usage.outputTokens > 0
+          ? usage.outputTokens
+          : typeof payload.token_usage === "number" && payload.token_usage > 0
+            ? payload.token_usage
+            : 0;
+
+      if (nextInputTokens > 0) {
+        state.currentInputTokens += nextInputTokens;
+      }
+      if (nextOutputTokens > 0) {
+        state.currentOutputTokens += nextOutputTokens;
+        state.assistantTokenUsage = state.currentOutputTokens;
+      }
       return;
     }
 

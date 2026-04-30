@@ -16,6 +16,55 @@ const SESSION_RAG_SEARCH_LIMIT: usize = 5;
 const DIRECT_ATTACHMENT_CONTEXT_LIMIT: usize = 2;
 const DIRECT_ATTACHMENT_SNIPPET_CHARS: usize = 2200;
 
+fn clamp_i64_to_u32(value: i64) -> u32 {
+	if value <= 0 {
+		0
+	} else if value >= u32::MAX as i64 {
+		u32::MAX
+	} else {
+		value as u32
+	}
+}
+
+fn emit_token_usage_event(
+	app: &AppHandle,
+	conversation_id: Option<&str>,
+	input_tokens: Option<u32>,
+	output_tokens: Option<u32>,
+	source: &str,
+) {
+	let total_tokens = match (input_tokens, output_tokens) {
+		(Some(input), Some(output)) => input.checked_add(output),
+		(Some(input), None) => Some(input),
+		(None, Some(output)) => Some(output),
+		(None, None) => None,
+	};
+
+	let payload = serde_json::json!({
+		"inputTokens": input_tokens,
+		"outputTokens": output_tokens,
+		"totalTokens": total_tokens,
+		"source": source,
+	});
+
+	app.emit(
+		"chat-stream",
+		ChatMessageEvent {
+			r#type: "token-usage".into(),
+			text: Some(payload.to_string()),
+			tool_use_id: None,
+			tool_use_name: None,
+			tool_use_input: None,
+			tool_result: None,
+			token_usage: output_tokens,
+			stop_reason: None,
+			turn_state: Some("usage".into()),
+			conversation_id: conversation_id.map(str::to_string),
+		},
+	)
+	.ok();
+}
+
 fn text_from_content(content: &Content) -> String {
 	match content {
 		Content::Text(text) => text.trim().to_string(),
@@ -357,6 +406,9 @@ pub async fn send_chat_message(
 			eprintln!("[permissions] applied user approval decisions={}", consumed);
 		}
 
+		let request_input_estimate =
+			clamp_i64_to_u32(compact::estimate_tokens_for_messages(&current_messages));
+
 		// 发起 provider 请求并等待结果。
 		let provider_result = match provider
 			.send_request(&app, &current_messages, agent_mode, conversation_id.as_deref())
@@ -427,6 +479,23 @@ pub async fn send_chat_message(
 		if provider_result.stop_reason.as_deref() == Some("cancelled") {
 			break TurnOutcome::cancelled();
 		}
+
+		let input_tokens = provider_result
+			.input_tokens
+			.or(Some(request_input_estimate))
+			.filter(|value| *value > 0);
+		let input_token_source = if provider_result.input_tokens.is_some() {
+			"actual"
+		} else {
+			"estimated"
+		};
+		emit_token_usage_event(
+			&app,
+			conversation_id.as_deref(),
+			input_tokens,
+			provider_result.output_tokens,
+			input_token_source,
+		);
 
 		// 本轮 provider 输出合并到 current_messages 以支持工具环回。
 		// 取出本轮新增消息。

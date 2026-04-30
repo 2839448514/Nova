@@ -9,7 +9,6 @@ import type {
   AskUserAnswerSubmission,
   ChatAttachment,
   ChatMessage,
-  ConversationMemory,
   PendingUploadFile,
   TurnCost,
 } from "../../../lib/chat-types";
@@ -30,7 +29,6 @@ import {
 } from "./chat-runtime-state";
 import {
   buildModelMessage,
-  estimateInputTokensForTurn,
   isDocumentUploadFile,
   isImageUploadFile,
   toAttachmentMeta,
@@ -42,7 +40,6 @@ type SendOpsDeps = {
   messages: Ref<ChatMessage[]>;
   pendingUploads: Ref<PendingUploadFile[]>;
   pendingPermissionRequestId: Ref<string | null>;
-  conversationMemory: Ref<ConversationMemory | null>;
   mainView: Ref<"chat" | "hooks" | "agent" | "schedule">;
   planMode: Ref<boolean>;
   agentMode: Ref<AgentMode>;
@@ -75,7 +72,6 @@ export function createSendOperations(deps: SendOpsDeps) {
     messages,
     pendingUploads,
     pendingPermissionRequestId,
-    conversationMemory,
     mainView,
     planMode,
     agentMode,
@@ -182,19 +178,6 @@ export function createSendOperations(deps: SendOpsDeps) {
       return;
     }
 
-    const uploadedAttachmentNames = uploadedAttachments.map((item) => item.sourceName);
-    const uploadedDocumentNames = uploadedAttachments
-      .filter((item) => item.kind !== "image")
-      .map((item) => item.sourceName);
-    const uploadedImageCount = uploadedAttachments.filter((item) => item.kind === "image").length;
-    const modelUserText =
-      text ||
-      (uploadedImageCount > 0
-        ? "请结合我上传的图片回答。"
-        : uploadedDocumentNames.length > 0
-          ? `请结合我上传的文件回答：${uploadedDocumentNames.join("，")}`
-          : text);
-
     const userMessage: ChatMessage = {
       role: "user",
       content: text,
@@ -212,12 +195,7 @@ export function createSendOperations(deps: SendOpsDeps) {
     currentToolCalls.value = 0;
     currentToolDurationMs.value = 0;
     currentOutputTokens.value = 0;
-    currentInputTokens.value = estimateInputTokensForTurn(
-      messages.value,
-      conversationMemory.value,
-      modelUserText,
-      uploadedAttachmentNames,
-    );
+    currentInputTokens.value = 0;
     resetToolTrackingState(activeRuntimeRefs);
 
     const rustMessages = messages.value.map((message) => buildModelMessage(message));

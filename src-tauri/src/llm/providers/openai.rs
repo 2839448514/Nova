@@ -30,8 +30,16 @@ struct OpenAiRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     // 可选工具定义列表。
     tools: Option<Vec<OpenAiTool>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    // 可选流配置。官方 OpenAI 可用 include_usage 在流末尾返回 usage。
+    stream_options: Option<OpenAiStreamOptions>,
     // 是否开启流式返回。
     stream: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct OpenAiStreamOptions {
+    include_usage: bool,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -88,6 +96,18 @@ struct OpenAiFunction {
 struct OpenAiStreamChunk {
     // 本 SSE 分片中的 choices。
     choices: Vec<OpenAiChoice>,
+    #[serde(default)]
+    usage: Option<OpenAiUsage>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAiUsage {
+    #[serde(default)]
+    prompt_tokens: Option<u32>,
+    #[serde(default)]
+    completion_tokens: Option<u32>,
+    #[serde(default)]
+    total_tokens: Option<u32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -359,10 +379,16 @@ impl OpenAiProvider {
         };
 
         // 组装最终请求体。
+        let provider_key = settings.provider.trim().to_ascii_lowercase();
+        let supports_stream_usage =
+            provider_key == "openai" || profile.base_url.contains("api.openai.com");
         let request = OpenAiRequest {
             model: profile.model.clone(),
             messages: oai_messages,
             tools,
+            stream_options: supports_stream_usage.then_some(OpenAiStreamOptions {
+                include_usage: true,
+            }),
             stream: true,
         };
 
@@ -446,6 +472,10 @@ impl OpenAiProvider {
         let mut emitted_stop = false;
         // 最后一条 finish_reason。
         let mut last_finish_reason: Option<String> = None;
+        // 本次请求实际输入 token（OpenAI usage.prompt_tokens）。
+        let mut current_input_tokens: Option<u32> = None;
+        // 本次请求实际输出 token（OpenAI usage.completion_tokens）。
+        let mut current_output_tokens: Option<u32> = None;
 
         loop {
             // 每轮先检查是否取消。
@@ -453,7 +483,8 @@ impl OpenAiProvider {
                 return Ok(ProviderTurnResult {
                     messages: Vec::new(),
                     stop_reason: Some("cancelled".into()),
-                    output_tokens: None,
+                    input_tokens: current_input_tokens,
+                    output_tokens: current_output_tokens,
                     prevent_continuation: false,
                 });
             }
@@ -510,6 +541,15 @@ impl OpenAiProvider {
                         .ok();
                         // 解析 OpenAI chunk JSON。
                         if let Ok(chunk) = serde_json::from_str::<OpenAiStreamChunk>(data) {
+                            if let Some(usage) = chunk.usage {
+                                current_input_tokens = usage.prompt_tokens;
+                                current_output_tokens = usage.completion_tokens.or_else(|| {
+                                    usage
+                                        .total_tokens
+                                        .zip(usage.prompt_tokens)
+                                        .and_then(|(total, prompt)| total.checked_sub(prompt))
+                                });
+                            }
                             for choice in chunk.choices {
                                 let OpenAiDelta {
                                     content,
@@ -823,7 +863,8 @@ impl OpenAiProvider {
         Ok(ProviderTurnResult {
             messages: result_messages,
             stop_reason: final_stop_reason,
-            output_tokens: None,
+            input_tokens: current_input_tokens,
+            output_tokens: current_output_tokens,
             prevent_continuation,
         })
     }

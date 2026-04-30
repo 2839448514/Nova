@@ -155,7 +155,6 @@ export function useChatController() {
     messages,
     pendingUploads,
     pendingPermissionRequestId,
-    conversationMemory,
     mainView,
     planMode,
     agentMode,

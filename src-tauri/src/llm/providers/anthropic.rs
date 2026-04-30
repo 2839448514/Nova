@@ -215,6 +215,8 @@ impl AnthropicProvider {
     let mut pending_tool_calls: Vec<tools::ToolCallRequest> = Vec::new();
     // 是否已发过 stop 事件。
     let mut emitted_stop = false;
+    // 当前输入 token 数（来自 message_start usage）。
+    let mut current_input_tokens: Option<u32> = None;
     // 当前输出 token 数（来自 usage）。
     let mut current_output_tokens: Option<u32> = None;
     // 是否已经因 needs_user_input 发过 stop。
@@ -240,6 +242,7 @@ impl AnthropicProvider {
             return Ok(ProviderTurnResult {
                 messages: Vec::new(),
                 stop_reason: Some("cancelled".into()),
+                input_tokens: current_input_tokens,
                 output_tokens: current_output_tokens,
                 prevent_continuation: false,
             });
@@ -296,6 +299,10 @@ impl AnthropicProvider {
                     // 解析为 Anthropic StreamEvent。
                     if let Ok(event) = serde_json::from_str::<StreamEvent>(data) {
                         match event {
+                            StreamEvent::MessageStart { message } => {
+                                current_input_tokens = Some(message.usage.input_tokens);
+                                current_output_tokens = Some(message.usage.output_tokens);
+                            }
                             StreamEvent::ContentBlockStart { content_block, .. } => {
                                 // 工具调用块开始。
                                 match content_block {
@@ -483,22 +490,6 @@ impl AnthropicProvider {
                                     last_stop_reason = Some(reason);
                                 }
                                 current_output_tokens = Some(usage.output_tokens);
-                                app.emit(
-                                    "chat-stream",
-                                    ChatMessageEvent {
-                                        r#type: "token-usage".into(),
-                                        text: None,
-                                        tool_use_id: None,
-                                        tool_use_name: None,
-                                        tool_use_input: None,
-                                        tool_result: None,
-                                        token_usage: current_output_tokens,
-                                        stop_reason: last_stop_reason.clone(),
-                                        turn_state: Some("streaming".into()),
-                                        conversation_id: conversation_id.map(str::to_string),
-                                    },
-                                )
-                                .ok();
                             }
                             StreamEvent::MessageStop => {
                                 // message stop 前执行剩余待处理工具调用。
@@ -603,6 +594,7 @@ impl AnthropicProvider {
     Ok(ProviderTurnResult {
         messages: result_messages,
         stop_reason: final_stop_reason,
+        input_tokens: current_input_tokens,
         output_tokens: current_output_tokens,
         prevent_continuation,
     })
