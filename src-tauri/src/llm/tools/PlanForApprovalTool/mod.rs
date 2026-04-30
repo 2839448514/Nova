@@ -3,7 +3,7 @@ use crate::llm::types::Tool;
 use serde_json::{json, Value};
 
 pub(crate) fn registration() -> ToolRegistration {
-    sync_tool(tool, execute, false)
+    sync_tool(tool, execute, false, None)
 }
 
 fn normalized_non_empty_string(input: &Value, key: &str) -> Option<String> {

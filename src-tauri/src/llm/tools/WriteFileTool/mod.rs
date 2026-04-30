@@ -1,10 +1,19 @@
-use crate::llm::tools::{sync_tool, ToolRegistration};
+use crate::llm::tools::{sync_tool, ToolPermissionDescriptor, ToolRegistration};
 use crate::llm::types::Tool;
 use serde_json::{json, Value};
 use std::fs;
 
 pub(crate) fn registration() -> ToolRegistration {
-    sync_tool(tool, execute, false)
+    sync_tool(tool, execute, false, Some(permission))
+}
+
+fn permission(input: &Value) -> Option<ToolPermissionDescriptor> {
+    crate::llm::utils::permissions::describe_file_write_permission(
+        "write_file",
+        "文件写入",
+        "path",
+        input,
+    )
 }
 
 pub fn tool() -> Tool {

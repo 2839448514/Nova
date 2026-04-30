@@ -70,7 +70,7 @@ cargo check --manifest-path src-tauri/Cargo.toml
 
 - 同步工具
 - 不需要 `AppHandle`
-- 不需要权限声明
+- 权限策略可显式传 `None` 或 `Some(permission)`
 - 不需要 side-channel 后处理
 
 ### `app_tool(...)`
@@ -80,7 +80,7 @@ cargo check --manifest-path src-tauri/Cargo.toml
 - 需要 `AppHandle`
 - 需要异步逻辑
 - 需要 conversation scope
-- 但不需要特殊权限和后处理
+- 后处理不复杂，权限策略显式传 `None` 或 `Some(permission)`
 
 ### `app_tool_with_extras(...)`
 

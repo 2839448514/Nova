@@ -93,10 +93,10 @@ pub(crate) fn registration() -> ToolRegistration {
     // Pick one pattern and delete the others:
 
     // 1. Pure sync tool:
-    // sync_tool(tool, execute, true)
+    // sync_tool(tool, execute, true, None)
 
     // 2. App-aware tool:
-    // app_tool(tool, execute, execute_with_app_boxed, false)
+    // app_tool(tool, execute, execute_with_app_boxed, false, None)
 
     // 3. App-aware tool with permission/postprocess:
     app_tool_with_extras(

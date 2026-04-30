@@ -4,7 +4,7 @@ use serde_json::{json, Value};
 use tauri::AppHandle;
 
 pub(crate) fn registration() -> ToolRegistration {
-    app_tool(tool, execute, execute_with_app_boxed, false)
+    app_tool(tool, execute, execute_with_app_boxed, false, None)
 }
 
 pub fn tool() -> Tool {

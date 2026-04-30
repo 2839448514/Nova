@@ -12,7 +12,7 @@ fn execute_with_app_boxed(
 }
 
 pub(crate) fn registration() -> ToolRegistration {
-    app_tool(tool, execute, execute_with_app_boxed, true)
+    app_tool(tool, execute, execute_with_app_boxed, true, None)
 }
 
 pub fn tool() -> Tool {

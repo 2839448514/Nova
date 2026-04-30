@@ -7,7 +7,7 @@ use std::time::Duration;
 const MAX_SLEEP_MS: u64 = 5 * 60 * 1000;
 
 pub(crate) fn registration() -> ToolRegistration {
-    sync_tool(tool, execute, true)
+    sync_tool(tool, execute, true, None)
 }
 
 pub fn tool() -> Tool {

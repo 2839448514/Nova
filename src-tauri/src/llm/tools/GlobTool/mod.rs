@@ -5,7 +5,7 @@ use std::fs;
 use std::path::Path;
 
 pub(crate) fn registration() -> ToolRegistration {
-    sync_tool(tool, execute, true)
+    sync_tool(tool, execute, true, None)
 }
 
 pub fn tool() -> Tool {

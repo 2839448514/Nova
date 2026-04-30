@@ -93,13 +93,14 @@ pub(crate) const fn sync_tool(
     tool: fn() -> Tool,
     execute: fn(Value) -> String,
     read_only: bool,
+    permission: Option<PermissionFn>,
 ) -> ToolRegistration {
     ToolRegistration {
         tool,
         execute,
         execute_with_app: None,
         postprocess: None,
-        permission: None,
+        permission,
         read_only,
     }
 }
@@ -109,13 +110,14 @@ pub(crate) const fn app_tool(
     execute: fn(Value) -> String,
     execute_with_app: AppExecuteFn,
     read_only: bool,
+    permission: Option<PermissionFn>,
 ) -> ToolRegistration {
     ToolRegistration {
         tool,
         execute,
         execute_with_app: Some(execute_with_app),
         postprocess: None,
-        permission: None,
+        permission,
         read_only,
     }
 }

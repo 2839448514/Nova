@@ -1,9 +1,12 @@
-use crate::llm::tools::{sync_tool, ToolRegistration};
+use crate::llm::services::mcp_tools;
+use crate::llm::tools::{app_tool, get_available_tools, AppExecuteFuture, ToolRegistration};
 use crate::llm::types::Tool;
 use serde_json::{json, Value};
+use std::collections::HashSet;
+use tauri::AppHandle;
 
 pub(crate) fn registration() -> ToolRegistration {
-    sync_tool(tool, execute, true)
+    app_tool(tool, execute, execute_with_app_boxed, true, None)
 }
 
 pub fn tool() -> Tool {
@@ -22,44 +25,54 @@ pub fn tool() -> Tool {
 
 pub fn execute(input: Value) -> String {
     let query = match input.get("query").and_then(|v| v.as_str()) {
-        Some(v) if !v.trim().is_empty() => v.trim().to_lowercase(),
+        Some(v) if !v.trim().is_empty() => v.trim(),
         _ => return "Error: Missing 'query' argument".into(),
     };
 
-    let candidates = vec![
-        "execute_bash",
-        "execute_powershell",
-        "read_file",
-        "write_file",
-        "replace_string_in_file",
-        "grep_search",
-        "glob_search",
-        "web_fetch",
-        "web_search",
-        "tool_search",
-        "task_create",
-        "task_list",
-        "task_update",
-        "TaskCreate",
-        "TaskList",
-        "TaskUpdate",
-        "TaskGet",
-        "TaskOutput",
-        "TaskStop",
-        "Skill",
-        "todo_write",
-        "list_mcp_resources",
-        "read_mcp_resource",
-        "ask_user_question",
-        "plan_for_approval",
-        "remember_global_memory",
-        "config_tool",
-    ];
+    search_tools(query, get_available_tools())
+}
 
-    let matched: Vec<&str> = candidates
+pub async fn execute_with_app(app: &AppHandle, input: Value) -> String {
+    let query = match input.get("query").and_then(|v| v.as_str()) {
+        Some(v) if !v.trim().is_empty() => v.trim(),
+        _ => return "Error: Missing 'query' argument".into(),
+    };
+
+    let mut tools = get_available_tools();
+    tools.extend(mcp_tools::collect_mcp_tools(app).await);
+    search_tools(query, tools)
+}
+
+fn execute_with_app_boxed(
+    app: AppHandle,
+    _conversation_id: Option<String>,
+    input: Value,
+) -> AppExecuteFuture {
+    Box::pin(async move { execute_with_app(&app, input).await })
+}
+
+fn search_tools(query: &str, tools: Vec<Tool>) -> String {
+    let query = query.trim();
+    let match_all = query == "*";
+    let normalized_query = query.to_ascii_lowercase();
+    let mut seen = HashSet::new();
+    let mut matched: Vec<String> = tools
         .into_iter()
-        .filter(|name| name.to_lowercase().contains(&query))
+        .filter(|tool| {
+            if match_all {
+                return true;
+            }
+            let searchable = format!(
+                "{} {}",
+                tool.name.to_ascii_lowercase(),
+                tool.description.to_ascii_lowercase()
+            );
+            searchable.contains(&normalized_query)
+        })
+        .filter(|tool| seen.insert(tool.name.clone()))
+        .map(|tool| format!("{}: {}", tool.name, tool.description))
         .collect();
+    matched.sort();
 
     if matched.is_empty() {
         "No matching tools found".into()

@@ -4,7 +4,7 @@ use serde_json::{json, Value};
 use std::process::Command;
 
 pub(crate) fn registration() -> ToolRegistration {
-    sync_tool(tool, execute, true)
+    sync_tool(tool, execute, true, None)
 }
 
 pub fn tool() -> Tool {

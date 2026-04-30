@@ -7,6 +7,7 @@ use tauri::AppHandle;
 use tokio::sync::oneshot;
 
 use crate::llm::types::Message;
+use crate::llm::tools::ToolPermissionDescriptor;
 
 // Command fragments considered destructive enough to always be gated.
 const DANGEROUS_COMMAND_PATTERNS: &[&str] = &[
@@ -345,6 +346,69 @@ fn check_mcp_operation(server: &str, tool: &str, arguments: &Value) -> Result<()
     Ok(())
 }
 
+pub(crate) fn describe_shell_command_permission(
+    tool_name: &str,
+    preview_label: &str,
+    input: &Value,
+) -> Option<ToolPermissionDescriptor> {
+    let command = input
+        .get("command")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .trim();
+
+    if command.is_empty() {
+        return Some(ToolPermissionDescriptor {
+            signature: format!("{}:<empty>", tool_name),
+            preview: "命令为空".to_string(),
+            warning: Some("命令为空，无法执行。".to_string()),
+            needs_approval: false,
+        });
+    }
+
+    let normalized = normalize_command_for_match(command);
+    let warning = check_command(command).err();
+
+    Some(ToolPermissionDescriptor {
+        signature: format!("{}:{}", tool_name, normalized),
+        preview: format!("{}（{}）：{}", preview_label, tool_name, truncate_chars(command, 180)),
+        warning: warning.clone(),
+        needs_approval: warning.is_some(),
+    })
+}
+
+pub(crate) fn describe_file_write_permission(
+    tool_name: &str,
+    preview_label: &str,
+    path_key: &str,
+    input: &Value,
+) -> Option<ToolPermissionDescriptor> {
+    let path = input
+        .get(path_key)
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .trim();
+
+    if path.is_empty() {
+        return Some(ToolPermissionDescriptor {
+            signature: format!("{}:<empty>", tool_name),
+            preview: "路径为空".to_string(),
+            warning: Some("目标路径为空，无法执行。".to_string()),
+            needs_approval: false,
+        });
+    }
+
+    let normalized = normalize_path_for_match(path);
+    let warning = check_file_path(path).err();
+
+    Some(ToolPermissionDescriptor {
+        signature: format!("{}:{}", tool_name, normalized),
+        preview: format!("{}（{}）：{}", preview_label, tool_name, truncate_chars(path, 200)),
+        warning: warning.clone(),
+        needs_approval: warning.is_some(),
+    })
+}
+
 fn operation_from_input(tool_name: &str, input: &Value) -> Option<ProtectedOperation> {
     if let Some(operation) = crate::llm::tools::permission_descriptor_for_tool(tool_name, input) {
         return Some(ProtectedOperation {
@@ -371,67 +435,7 @@ fn operation_from_input(tool_name: &str, input: &Value) -> Option<ProtectedOpera
         });
     }
 
-    match tool_name {
-        "execute_bash" | "execute_powershell" => {
-            let command = input
-                .get("command")
-                .and_then(|v| v.as_str())
-                .unwrap_or_default()
-                .trim();
-            // command: 原始 shell 命令文本。
-
-            if command.is_empty() {
-                return Some(ProtectedOperation {
-                    signature: format!("{}:<empty>", tool_name),
-                    preview: "命令为空".to_string(),
-                    warning: Some("命令为空，无法执行。".to_string()),
-                    needs_approval: false,
-                });
-            }
-
-            let normalized = normalize_command_for_match(command);
-            // normalized: 规范化后用于签名匹配的命令文本。
-            // 只提取错误文本，不抛出错误，让外层走审批流程。
-            let risk = check_command(command).err();
-
-            Some(ProtectedOperation {
-                // signature 用归一化命令，避免等价命令生成不同权限项。
-                signature: format!("{}:{}", tool_name, normalized),
-                preview: format!("终端命令（{}）：{}", tool_name, truncate_chars(command, 180)),
-                warning: risk.clone(),
-                needs_approval: risk.is_some(),
-            })
-        }
-        "replace_string_in_file" | "write_file" => {
-            let path = input
-                .get("path")
-                .and_then(|v| v.as_str())
-                .unwrap_or_default()
-                .trim();
-            // path: 目标写入路径。
-
-            if path.is_empty() {
-                return Some(ProtectedOperation {
-                    signature: format!("{}:<empty>", tool_name),
-                    preview: "路径为空".to_string(),
-                    warning: Some("目标路径为空，无法执行。".to_string()),
-                    needs_approval: false,
-                });
-            }
-
-            let normalized = normalize_path_for_match(path);
-            // normalized: 规范化后的路径签名。
-            let risk = check_file_path(path).err();
-
-            Some(ProtectedOperation {
-                signature: format!("{}:{}", tool_name, normalized),
-                preview: format!("文件写入（{}）：{}", tool_name, truncate_chars(path, 200)),
-                warning: risk.clone(),
-                needs_approval: risk.is_some(),
-            })
-        }
-        _ => None,
-    }
+    None
 }
 
 fn build_permission_prompt_payload(operation: &ProtectedOperation) -> String {

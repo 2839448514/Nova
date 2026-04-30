@@ -4,7 +4,7 @@ use crate::llm::types::Tool;
 use serde_json::{json, Value};
 
 pub(crate) fn registration() -> ToolRegistration {
-    sync_tool(tool, execute, false)
+    sync_tool(tool, execute, false, None)
 }
 
 pub fn tool() -> Tool {
