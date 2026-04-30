@@ -63,6 +63,7 @@ export type ConversationTurnRuntimeState = {
   currentInputTokens: number;
   currentOutputTokens: number;
   toolExecutionLogs: ToolExecutionEntry[];
+  currentTurnToolIds: string[];
   toolInputById: Map<string, string>;
   toolNameById: Map<string, string>;
 };

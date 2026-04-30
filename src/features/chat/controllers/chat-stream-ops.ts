@@ -11,8 +11,8 @@ import type {
   ChatMessageEvent,
   ToolExecutionEntry,
 } from "../../../lib/chat-types";
-import { summarizeToolInfo } from "../utils/tool-info";
 import { estimateTokens } from "../utils/session-memory";
+import { buildToolTurnSummary } from "../utils/tool-activity-summary";
 import type {
   ChatScreenHandle,
   ConversationTurnRuntimeState,
@@ -116,13 +116,17 @@ export function createChatStreamOperations(deps: StreamOpsDeps) {
       state.currentOutputTokens = resolvedTokenUsage;
     }
 
+    const toolSummary = buildToolTurnSummary(
+      state.toolExecutionLogs.filter((entry) => state.currentTurnToolIds.includes(entry.id)),
+    );
+
     if (finalText || finalReasoning) {
       const assistantMessage: ChatMessage = {
         role: "assistant",
         content: finalText || "（本轮没有返回可显示的文本内容）",
         reasoning: finalReasoning || undefined,
         tokenUsage: resolvedTokenUsage > 0 ? resolvedTokenUsage : undefined,
-        cost: buildAssistantCostForState(state),
+        cost: buildAssistantCostForState(state, toolSummary),
       };
       await persistMessage(assistantMessage, conversationId);
     }
@@ -141,6 +145,7 @@ export function createChatStreamOperations(deps: StreamOpsDeps) {
       state.pendingQuestion = null;
       state.pendingPermissionRequestId = null;
     }
+    state.currentTurnToolIds = [];
     state.toolInputById.clear();
     state.toolNameById.clear();
 
@@ -165,11 +170,18 @@ export function createChatStreamOperations(deps: StreamOpsDeps) {
       activeRuntimeRefs.currentOutputTokens.value = resolvedTokenUsage;
     }
 
+    const toolSummary = buildToolTurnSummary(
+      activeRuntimeRefs.toolExecutionLogs.value.filter((entry) =>
+        activeRuntimeRefs.currentTurnToolIds.value.includes(entry.id),
+      ),
+    );
+
     const cost = buildAssistantCost(
       activeRuntimeRefs.currentInputTokens.value,
       activeRuntimeRefs.currentOutputTokens.value,
       activeRuntimeRefs.currentToolCalls.value,
       activeRuntimeRefs.currentToolDurationMs.value,
+      toolSummary,
     );
     activeRuntimeRefs.assistantTurnCost.value = cost;
 
@@ -212,6 +224,7 @@ export function createChatStreamOperations(deps: StreamOpsDeps) {
     state.currentToolDurationMs = 0;
     state.currentInputTokens = 0;
     state.currentOutputTokens = 0;
+    state.currentTurnToolIds = [];
     state.toolInputById.clear();
     state.toolNameById.clear();
 
@@ -261,11 +274,13 @@ export function createChatStreamOperations(deps: StreamOpsDeps) {
       if (!state.toolInputById.has(toolId)) {
         state.toolInputById.set(toolId, "");
       }
+      if (!state.currentTurnToolIds.includes(toolId)) {
+        state.currentTurnToolIds = [...state.currentTurnToolIds, toolId];
+      }
 
       startToolExecutionTraceInState(state, toolId, toolName);
 
       if (isActive) {
-        state.assistantResponse += `\n> Using tool: ${toolName}...\n`;
         chatScreenRef.value?.scrollToBottom();
       }
       return;
@@ -371,14 +386,6 @@ export function createChatStreamOperations(deps: StreamOpsDeps) {
       const rawInput = streamedInput.trim().length > 0 ? streamedInput : fallbackInput;
       const result = (payload.tool_result ?? "").trim();
 
-      if (isActive) {
-        const info = summarizeToolInfo(toolName, rawInput);
-        if (info) {
-          state.assistantResponse += `\n> Tool info: ${info}\n`;
-        }
-        state.assistantResponse += `\n> Tool done: ${toolName}\n`;
-      }
-
       completeToolExecutionTraceInState(
         conversationId,
         state,
@@ -424,7 +431,6 @@ export function createChatStreamOperations(deps: StreamOpsDeps) {
           }
         }
       }
-
       if (isActive) {
         chatScreenRef.value?.scrollToBottom();
       }

@@ -1,4 +1,4 @@
-import { ref, onMounted, onUnmounted } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { emitToast } from "../../../lib/toast";
 import {
@@ -58,6 +58,7 @@ export function useChatController() {
   const isCreatingNewChat = ref(false);
   const isSidebarOpen = ref(true);
   const toolExecutionLogs = ref<ToolExecutionEntry[]>([]);
+  const currentTurnToolIds = ref<string[]>([]);
   const chatScreenRef = ref<ChatScreenHandle | null>(null);
   const toolInputById = new Map<string, string>();
   const toolNameById = new Map<string, string>();
@@ -76,10 +77,15 @@ export function useChatController() {
     currentInputTokens,
     currentOutputTokens,
     toolExecutionLogs,
+    currentTurnToolIds,
     toolInputById,
     toolNameById,
   };
   const activeRuntimeState = bindActiveRuntimeState(activeRuntimeRefs);
+  const currentTurnToolExecutionLogs = computed(() => {
+    const ids = new Set(currentTurnToolIds.value);
+    return toolExecutionLogs.value.filter((entry) => ids.has(entry.id));
+  });
 
   let unlistenChatStream: UnlistenFn | null = null;
   let unlistenBackendError: UnlistenFn | null = null;
@@ -274,10 +280,12 @@ export function useChatController() {
     conversations,
     activeConversationId,
     pendingQuestion,
+    pendingPermissionRequestId,
     pendingUploads,
     conversationFiles,
     agentMode,
     planMode,
+    currentTurnToolExecutionLogs,
     mainView,
     isSidebarOpen,
     chatScreenRef,

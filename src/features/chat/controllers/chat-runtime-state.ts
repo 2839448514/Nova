@@ -20,6 +20,7 @@ export type ActiveRuntimeRefs = {
   currentInputTokens: Ref<number>;
   currentOutputTokens: Ref<number>;
   toolExecutionLogs: Ref<ToolExecutionEntry[]>;
+  currentTurnToolIds: Ref<string[]>;
   toolInputById: Map<string, string>;
   toolNameById: Map<string, string>;
 };
@@ -104,6 +105,12 @@ export function bindActiveRuntimeState(active: ActiveRuntimeRefs): ConversationT
     set toolExecutionLogs(value: ToolExecutionEntry[]) {
       active.toolExecutionLogs.value = value;
     },
+    get currentTurnToolIds() {
+      return active.currentTurnToolIds.value;
+    },
+    set currentTurnToolIds(value: string[]) {
+      active.currentTurnToolIds.value = [...value];
+    },
     get toolInputById() {
       return active.toolInputById;
     },
@@ -140,6 +147,7 @@ export function createEmptyRuntimeState(): ConversationTurnRuntimeState {
     currentInputTokens: 0,
     currentOutputTokens: 0,
     toolExecutionLogs: [],
+    currentTurnToolIds: [],
     toolInputById: new Map<string, string>(),
     toolNameById: new Map<string, string>(),
   };
@@ -156,6 +164,7 @@ export function cloneRuntimeState(
   return {
     ...state,
     toolExecutionLogs: state.toolExecutionLogs.map((entry) => ({ ...entry })),
+    currentTurnToolIds: [...state.currentTurnToolIds],
     toolInputById: new Map(state.toolInputById),
     toolNameById: new Map(state.toolNameById),
   };
@@ -178,6 +187,7 @@ export function snapshotActiveRuntimeState(
     currentInputTokens: active.currentInputTokens.value,
     currentOutputTokens: active.currentOutputTokens.value,
     toolExecutionLogs: active.toolExecutionLogs.value.map((entry) => ({ ...entry })),
+    currentTurnToolIds: [...active.currentTurnToolIds.value],
     toolInputById: new Map(active.toolInputById),
     toolNameById: new Map(active.toolNameById),
   };
@@ -200,6 +210,7 @@ export function applyRuntimeStateToActive(
   active.currentInputTokens.value = state.currentInputTokens;
   active.currentOutputTokens.value = state.currentOutputTokens;
   active.toolExecutionLogs.value = state.toolExecutionLogs.map((entry) => ({ ...entry }));
+  active.currentTurnToolIds.value = [...state.currentTurnToolIds];
 
   active.toolInputById.clear();
   for (const [id, input] of state.toolInputById.entries()) {
@@ -226,6 +237,7 @@ export function clearActiveRuntimeState(active: ActiveRuntimeRefs) {
   active.currentInputTokens.value = 0;
   active.currentOutputTokens.value = 0;
   active.toolExecutionLogs.value = [];
+  active.currentTurnToolIds.value = [];
   active.toolInputById.clear();
   active.toolNameById.clear();
 }
@@ -323,6 +335,7 @@ export function isSpecificConversationGenerating(
 
 export function resetToolTrackingState(active: ActiveRuntimeRefs) {
   active.currentToolStartedAt.value = null;
+  active.currentTurnToolIds.value = [];
   active.toolInputById.clear();
   active.toolNameById.clear();
 }

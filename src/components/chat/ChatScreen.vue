@@ -6,11 +6,13 @@ import type {
   ChatMessage,
   NeedsUserInputPayload,
   PendingUploadFile,
+  ToolExecutionEntry,
   TurnCost,
 } from '../../lib/chat-types';
 import InputArea from '../layout/InputArea.vue';
 import AskUserInputDialog from './AskUserInputDialog.vue';
 import AssistantMessageBubble from './messages/AssistantMessageBubble.vue';
+import CurrentTurnActivityRail from './messages/CurrentTurnActivityRail.vue';
 import MarkdownRenderer from './MarkdownRenderer.vue';
 import UserMessageBubble from './messages/UserMessageBubble.vue';
 
@@ -21,7 +23,9 @@ const props = defineProps<{
   assistantReasoning?: string;
   assistantTokenUsage?: number;
   assistantTurnCost?: TurnCost;
+  currentTurnToolEntries: ToolExecutionEntry[];
   pendingQuestion?: NeedsUserInputPayload | null;
+  pendingPermissionRequestId?: string | null;
   planMode?: boolean;
   agentMode?: AgentMode;
   pendingUploads?: PendingUploadFile[];
@@ -41,10 +45,11 @@ const chatAreaRef = ref<HTMLElement | null>(null);
 const reactionMap = ref<Record<number, 'up' | 'down' | undefined>>({});
 const copiedMap = ref<Record<string, boolean>>({});
 const copyTimers: Record<string, ReturnType<typeof setTimeout> | undefined> = {};
-
-const toolStartPattern = /^(?:>\s*)?Using tool:\s*(.+?)\.{0,3}\s*$/i;
-const toolInfoPattern = /^(?:>\s*)?Tool info:\s*(.+?)\s*$/i;
-const toolDonePattern = /^(?:>\s*)?Tool done:\s*(.+?)\s*$/i;
+const legacyToolTranscriptPatterns = [
+  /^(?:>\s*)?Using tool:\s*(.+?)\.{0,3}\s*$/i,
+  /^(?:>\s*)?Tool info:\s*(.+?)\s*$/i,
+  /^(?:>\s*)?Tool done:\s*(.+?)\s*$/i,
+];
 
 const formatNowTime = () => {
   const now = new Date();
@@ -87,13 +92,23 @@ const retryFromAssistant = (assistantIndex: number) => {
   scrollToBottom();
 };
 
+// Older conversations may still contain inline tool transcript text that was persisted
+// before the structured activity rail existed. New turns no longer write these lines.
+const removeLegacyToolTranscript = (content: string): string => {
+  if (!content) return '';
+  const lines = content
+    .split('\n')
+    .filter((line) => !legacyToolTranscriptPatterns.some((pattern) => pattern.test(line.trim())));
+  return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+};
+
 const buildAssistantCopyText = (message: ChatMessage) => {
   const sections = [];
   if (message.reasoning?.trim()) {
     sections.push(`AI 思考过程\n${message.reasoning.trim()}`);
   }
   if (message.content?.trim()) {
-    sections.push(message.content.trim());
+    sections.push(removeLegacyToolTranscript(message.content));
   }
   return sections.join('\n\n');
 };
@@ -134,17 +149,6 @@ const handleRemoveUpload = (index: number) => {
   emit('remove-upload', index);
 };
 
-const stripToolLog = (content: string): string => {
-  if (!content) return '';
-  const lines = content
-    .split('\n')
-    .filter((line) => {
-      const t = line.trim();
-      return !toolStartPattern.test(t) && !toolInfoPattern.test(t) && !toolDonePattern.test(t);
-    });
-  return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
-};
-
 const conversationTokenUsage = (index: number): number => {
   return props.messages.slice(0, index + 1).reduce((sum, m) => sum + (m.tokenUsage ?? 0), 0);
 };
@@ -162,7 +166,7 @@ const streamingTokenUsage = (): number => {
   if (!props.isGenerating) {
     return 0;
   }
-  return estimateTokensFromContent(stripToolLog(props.assistantResponse));
+  return estimateTokensFromContent(props.assistantResponse);
 };
 
 const streamingConversationTokenUsage = (): number => {
@@ -171,6 +175,16 @@ const streamingConversationTokenUsage = (): number => {
 };
 
 const hasStreamingReasoning = () => !!props.assistantReasoning?.trim();
+const streamingBodyText = () => props.assistantResponse.trim();
+const hasLiveAssistantTurn = () =>
+  props.isGenerating ||
+  hasStreamingReasoning() ||
+  streamingBodyText().length > 0 ||
+  props.currentTurnToolEntries.length > 0;
+const liveWaitKind = () => {
+  if (!props.pendingQuestion) return null;
+  return props.pendingPermissionRequestId ? 'permission' : 'question';
+};
 
 defineExpose({
   scrollToBottom,
@@ -200,7 +214,7 @@ defineExpose({
 
           <AssistantMessageBubble
             v-else
-            :message="{ ...msg, content: stripToolLog(msg.content) }"
+            :message="{ ...msg, content: removeLegacyToolTranscript(msg.content) }"
             :index="index"
             :copied="!!copiedMap[`assistant-${index}`]"
             :conversationTokenUsage="conversationTokenUsage(index)"
@@ -210,7 +224,7 @@ defineExpose({
           />
         </div>
 
-        <div v-if="isGenerating" class="flex w-full justify-start group">
+        <div v-if="hasLiveAssistantTurn()" class="flex w-full justify-start group">
           <div class="flex gap-3.5 w-full max-w-[85%]">
             <div class="w-7 h-7 rounded-full flex items-center justify-center shrink-0 bg-[#f6f3ec] dark:bg-[#333] text-[#6f685a] mt-0.5 border border-[#e7e2d7] dark:border-[#444] text-[11px] font-medium">
               N
@@ -238,8 +252,22 @@ defineExpose({
                 <summary>AI 思考过程</summary>
                 <MarkdownRenderer :content="props.assistantReasoning || ''" />
               </details>
-              <MarkdownRenderer :content="stripToolLog(assistantResponse)" />
-              <span class="inline-block w-1.5 h-[1em] bg-current ml-1 align-middle animate-pulse opacity-70"></span>
+              <CurrentTurnActivityRail
+                v-if="props.currentTurnToolEntries.length > 0 || !!liveWaitKind()"
+                :entries="props.currentTurnToolEntries"
+                :waitKind="liveWaitKind()"
+              />
+              <MarkdownRenderer v-if="streamingBodyText()" :content="assistantResponse" />
+              <p
+                v-else-if="props.currentTurnToolEntries.length > 0 || props.isGenerating"
+                class="text-[13px] text-[#8e8678] dark:text-[#b2aa9c]"
+              >
+                正在处理你的请求...
+              </p>
+              <span
+                v-if="isGenerating"
+                class="inline-block w-1.5 h-[1em] bg-current ml-1 align-middle animate-pulse opacity-70"
+              ></span>
             </div>
           </div>
         </div>

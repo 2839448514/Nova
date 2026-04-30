@@ -4,6 +4,7 @@ import type {
   ChatMessage,
   ConversationMemory,
   PendingUploadFile,
+  ToolTurnSummary,
   TurnCost,
   UploadedImageFile,
   UploadedRagFile,
@@ -20,23 +21,27 @@ export function buildAssistantCost(
   currentOutputTokens: number,
   currentToolCalls: number,
   currentToolDurationMs: number,
+  toolSummary?: ToolTurnSummary,
 ): TurnCost {
   return {
     inputTokens: currentInputTokens,
     outputTokens: currentOutputTokens,
     toolCalls: currentToolCalls,
     toolDurationMs: currentToolDurationMs,
+    toolSummary,
   };
 }
 
 export function buildAssistantCostForState(
   state: ConversationTurnRuntimeState,
+  toolSummary?: ToolTurnSummary,
 ): TurnCost {
   return {
     inputTokens: state.currentInputTokens,
     outputTokens: state.currentOutputTokens,
     toolCalls: state.currentToolCalls,
     toolDurationMs: state.currentToolDurationMs,
+    toolSummary,
   };
 }
 

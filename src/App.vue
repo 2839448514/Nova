@@ -21,11 +21,13 @@ const {
   assistantTokenUsage,
   assistantTurnCost,
   toolExecutionLogs,
+  currentTurnToolExecutionLogs,
   conversations,
   activeConversationId,
   conversationFiles,
   pendingUploads,
   pendingQuestion,
+  pendingPermissionRequestId,
   agentMode,
   planMode,
   mainView,
@@ -146,7 +148,9 @@ const isDrawerOpen = ref(false);
           :assistantReasoning="assistantReasoning"
           :assistantTokenUsage="assistantTokenUsage"
           :assistantTurnCost="assistantTurnCost"
+          :currentTurnToolEntries="currentTurnToolExecutionLogs"
           :pendingQuestion="pendingQuestion"
+          :pendingPermissionRequestId="pendingPermissionRequestId"
           :agentMode="agentMode"
           :planMode="planMode"
           :pendingUploads="pendingUploads"

@@ -2,6 +2,7 @@
 import { Button } from '@/components/ui/button';
 import MarkdownRenderer from '../MarkdownRenderer.vue';
 import type { ChatMessage } from '../../../lib/chat-types';
+import TurnActivitySummaryCard from './TurnActivitySummaryCard.vue';
 
 defineProps<{
   message: ChatMessage;
@@ -44,6 +45,10 @@ const emit = defineEmits<{
         <summary>AI 思考过程</summary>
         <MarkdownRenderer :content="message.reasoning" />
       </details>
+      <TurnActivitySummaryCard
+        v-if="message.cost?.toolSummary && message.cost.toolSummary.totalCalls > 0"
+        :summary="message.cost.toolSummary"
+      />
       <MarkdownRenderer :content="message.content" />
       <div class="msg-toolbar">
         <Button variant="ghost" size="icon-sm" class="msg-icon-btn" :class="{ 'is-copied': copied }" aria-label="Copy assistant message" @click="emit('copy', index)">

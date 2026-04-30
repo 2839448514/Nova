@@ -3,6 +3,28 @@ export interface TurnCost {
   outputTokens: number;
   toolCalls: number;
   toolDurationMs: number;
+  toolSummary?: ToolTurnSummary;
+}
+
+export interface ToolTurnCategoryCount {
+  label: string;
+  count: number;
+}
+
+export interface ToolTurnEntrySnapshot {
+  id: string;
+  toolName: string;
+  input: string;
+  result: string;
+  status: "running" | "completed" | "error" | "cancelled";
+  startedAt: number;
+  finishedAt?: number;
+}
+
+export interface ToolTurnSummary {
+  totalCalls: number;
+  categoryCounts: ToolTurnCategoryCount[];
+  entries: ToolTurnEntrySnapshot[];
 }
 
 export type AgentMode = "agent" | "plan" | "auto";
