@@ -545,9 +545,6 @@ pub async fn send_chat_message(
 		// 将新增消息并入上下文，供后续轮继续使用。
 		current_messages.extend(new_messages.clone());
 
-		// 输出调试日志，便于观察每轮消息增长。
-		eprintln!("[loop] new_messages count={},the new messages are: {:?}", new_messages.len(), new_messages);
-
 		// 判断新增消息中是否包含 tool_result 块。
 		let has_tool_result = new_messages.iter().any(|m| {
 			// 仅 blocks 结构里可能包含 tool_result。
@@ -562,8 +559,38 @@ pub async fn send_chat_message(
 			}
 		});
 
-		// 输出工具结果检测日志。
-		eprintln!("[loop] has_tool_result={}", has_tool_result);
+		if matches!(provider_result.stop_reason.as_deref(), Some("tool_calls" | "tool_use"))
+			&& !has_tool_result
+		{
+			let msg = format!(
+				"Provider returned stop_reason={:?} but query found no ToolResult in new_messages. new_messages={}",
+				provider_result.stop_reason,
+				truncate_chars(&format!("{:?}", new_messages), 4000)
+			);
+			emit_backend_error(
+				&app,
+				"llm.query.tool_call_invariant",
+				msg.clone(),
+				Some("provider_result"),
+			);
+			app.emit(
+				"chat-stream",
+				ChatMessageEvent {
+					r#type: "stop".into(),
+					text: Some(msg.clone()),
+					tool_use_id: None,
+					tool_use_name: None,
+					tool_use_input: None,
+					tool_result: None,
+					token_usage: None,
+					stop_reason: Some("provider_error".into()),
+					turn_state: Some("error".into()),
+					conversation_id: conversation_id.clone(),
+				},
+			)
+			.ok();
+			return Err(msg);
+		}
 
 		// 若返回需要用户输入，终止当前回合并告诉前端。
 		if compact::has_needs_user_input(&new_messages) {
