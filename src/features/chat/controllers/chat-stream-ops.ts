@@ -15,7 +15,6 @@ import type {
 import { estimateTokens } from "../utils/session-memory";
 import { buildToolTurnSummary } from "../utils/tool-activity-summary";
 import type {
-  ChatScreenHandle,
   ConversationTurnRuntimeState,
 } from "./chat-controller-types";
 import type { ActiveRuntimeRefs } from "./chat-runtime-state";
@@ -116,7 +115,6 @@ type StreamOpsDeps = {
   agentMode: Ref<AgentMode>;
   planMode: Ref<boolean>;
   messages: Ref<ChatMessage[]>;
-  chatScreenRef: Ref<ChatScreenHandle | null>;
   runtimeStateByConversation: Map<string, ConversationTurnRuntimeState>;
   persistMessage: (message: ChatMessage, conversationId?: string) => Promise<void>;
   persistConversationMemory: (conversationId: string) => Promise<void>;
@@ -137,7 +135,6 @@ export function createChatStreamOperations(deps: StreamOpsDeps) {
     agentMode,
     planMode,
     messages,
-    chatScreenRef,
     runtimeStateByConversation,
     persistMessage,
     persistConversationMemory,
@@ -269,7 +266,6 @@ export function createChatStreamOperations(deps: StreamOpsDeps) {
     if (activeConversationId.value) {
       runtimeStateByConversation.delete(normalizeConversationId(activeConversationId.value));
     }
-    chatScreenRef.value?.scrollToBottom();
   }
 
   function resetBackgroundRuntimeState(
@@ -315,18 +311,12 @@ export function createChatStreamOperations(deps: StreamOpsDeps) {
     if (payload.type === "text" && payload.text) {
       state.isGenerating = true;
       state.assistantResponse += payload.text;
-      if (isActive) {
-        chatScreenRef.value?.scrollToBottom();
-      }
       return;
     }
 
     if (payload.type === "reasoning" && payload.text) {
       state.isGenerating = true;
       state.assistantReasoning += payload.text;
-      if (isActive) {
-        chatScreenRef.value?.scrollToBottom();
-      }
       return;
     }
 
@@ -348,10 +338,6 @@ export function createChatStreamOperations(deps: StreamOpsDeps) {
       }
 
       startToolExecutionTraceInState(state, toolId, toolName);
-
-      if (isActive) {
-        chatScreenRef.value?.scrollToBottom();
-      }
       return;
     }
 
@@ -428,8 +414,6 @@ export function createChatStreamOperations(deps: StreamOpsDeps) {
           source: "permission-request",
           message: `会话 ${conversationId} 需要权限确认，请切回该会话处理。`,
         });
-      } else {
-        chatScreenRef.value?.scrollToBottom();
       }
       return;
     }
@@ -500,9 +484,6 @@ export function createChatStreamOperations(deps: StreamOpsDeps) {
           }
         }
       }
-      if (isActive) {
-        chatScreenRef.value?.scrollToBottom();
-      }
       return;
     }
 
@@ -530,6 +511,9 @@ export function createChatStreamOperations(deps: StreamOpsDeps) {
         typeof compact?.savedTokens === "number"
           ? compact.savedTokens
           : Math.max(0, beforeTokens - afterTokens);
+      if (savedTokens <= 0) {
+        return;
+      }
       const detail =
         beforeTokens > 0 || afterTokens > 0
           ? `上下文 ${formatCompactTokens(beforeTokens)} -> ${formatCompactTokens(afterTokens)}，节省约 ${formatCompactTokens(savedTokens)} tokens。`

@@ -190,7 +190,7 @@ export function createSendOperations(deps: SendOpsDeps) {
     };
     messages.value.push(userMessage);
     await persistMessage(userMessage, sendingConversationId);
-    chatScreenRef.value?.scrollLastUserMessageToTop();
+    chatScreenRef.value?.scrollLastUserMessageToBottom();
     isGenerating.value = true;
     assistantResponse.value = "";
     assistantReasoning.value = "";

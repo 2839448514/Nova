@@ -78,14 +78,14 @@ const retryFromUser = (index: number) => {
   const text = props.messages[index]?.content?.trim();
   if (!text) return;
   emit('send', text);
-  scrollToBottom();
+  scrollLastUserMessageToBottom();
 };
 
 const retryFromAssistant = (assistantIndex: number) => {
   const prev = [...props.messages.slice(0, assistantIndex)].reverse().find((m) => m.role === 'user');
   if (!prev?.content?.trim()) return;
   emit('send', prev.content);
-  scrollToBottom();
+  scrollLastUserMessageToBottom();
 };
 
 const buildAssistantCopyText = (message: ChatMessage) => {
@@ -118,13 +118,25 @@ const scrollLastUserMessageToTop = async () => {
   }
 };
 
+const scrollLastUserMessageToBottom = async () => {
+  await nextTick();
+  if (!chatAreaRef.value) return;
+  const rows = chatAreaRef.value.querySelectorAll<HTMLElement>('[data-role="user"]');
+  const last = rows[rows.length - 1];
+  if (last) {
+    last.scrollIntoView({ block: 'end', behavior: 'smooth' });
+  } else {
+    chatAreaRef.value.scrollTop = chatAreaRef.value.scrollHeight;
+  }
+};
+
 onMounted(() => {
   scrollToBottom();
 });
 
 const handleSend = (msg: string) => {
   emit('send', msg);
-  scrollLastUserMessageToTop();
+  scrollLastUserMessageToBottom();
 };
 
 const handleUploadFiles = (files: PendingUploadFile[]) => {
@@ -175,6 +187,7 @@ const liveWaitKind = () => {
 defineExpose({
   scrollToBottom,
   scrollLastUserMessageToTop,
+  scrollLastUserMessageToBottom,
 });
 </script>
 

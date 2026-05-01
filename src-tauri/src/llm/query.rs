@@ -79,6 +79,9 @@ fn emit_context_compact_event(
 	after_tokens: u32,
 ) {
 	let saved_tokens = before_tokens.saturating_sub(after_tokens);
+	if saved_tokens == 0 {
+		return;
+	}
 	app.emit(
 		"chat-stream",
 		ChatMessageEvent {

@@ -27,6 +27,7 @@ export type ScheduledTaskTriggerEvent = {
 export type ChatScreenHandle = {
   scrollToBottom: () => void;
   scrollLastUserMessageToTop: () => void;
+  scrollLastUserMessageToBottom: () => void;
 };
 
 export type ModelTextBlock = {

@@ -16,11 +16,11 @@ const TOKEN_OVERHEAD_TOOL_USE: i64 = 20;
 const TOKEN_OVERHEAD_TOOL_RESULT: i64 = 14;
 const TOKEN_OVERHEAD_IMAGE_INPUT: i64 = 512;
 
-// 策略阈值：目前根据历史消息数和估算 token 来判断是否启用Micro/Full压缩。
-const MICRO_COMPACT_MESSAGE_THRESHOLD: usize = 24;
-const MICRO_COMPACT_TOKEN_THRESHOLD: i64 = 3200;
-const FULL_COMPACT_MESSAGE_THRESHOLD: usize = 42;
-const FULL_COMPACT_TOKEN_THRESHOLD: i64 = 5600;
+// 策略阈值：当前默认上下文窗口较大，自动压缩只在接近高水位时触发。
+const MICRO_COMPACT_MESSAGE_THRESHOLD: usize = 80;
+const MICRO_COMPACT_TOKEN_THRESHOLD: i64 = 80_000;
+const FULL_COMPACT_MESSAGE_THRESHOLD: usize = 140;
+const FULL_COMPACT_TOKEN_THRESHOLD: i64 = 125_000;
 
 // 工具结果体积判断：超过这个阈值时，直接走 Micro 压缩。
 const LARGE_TOOL_RESULT_CHAR_THRESHOLD: usize = 2800;
@@ -55,8 +55,6 @@ enum CompactLevel {
 struct CompactDecision {
     level: CompactLevel,
     estimated_tokens: i64,
-    message_count: usize,
-    has_large_tool_result: bool,
 }
 
 pub struct CompactionOutcome {
@@ -485,8 +483,6 @@ fn decide_compact_strategy(messages: &[Message]) -> CompactDecision {
     CompactDecision {
         level,
         estimated_tokens,
-        message_count,
-        has_large_tool_result,
     }
 }
 
@@ -846,15 +842,6 @@ pub async fn compact_messages_for_turn_with_report(
 ) -> CompactionOutcome {
     // 决策并记录调试信息
     let decision = decide_compact_strategy(messages);
-    // 打印调试日志，便于观察何时触发哪种压缩策略
-    eprintln!(
-        "[compact] level={:?} message_count={} estimated_tokens={} has_large_tool_result={}",
-        decision.level,
-        decision.message_count,
-        decision.estimated_tokens,
-        decision.has_large_tool_result
-    );
-
     // 根据决策执行对应的压缩流程
     let level = match decision.level {
         CompactLevel::None => "none",

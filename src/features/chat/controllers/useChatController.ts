@@ -172,7 +172,6 @@ export function useChatController() {
     agentMode,
     planMode,
     messages,
-    chatScreenRef,
     runtimeStateByConversation,
     persistMessage: conversationOps.persistMessage,
     persistConversationMemory: conversationOps.persistConversationMemory,
