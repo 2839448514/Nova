@@ -27,7 +27,7 @@ const emit = defineEmits<{
       <div class="flex items-center gap-2 mb-1">
         <p class="text-[11px] text-[#9b958a]">Nova</p>
         <span
-          v-if="(message.tokenUsage && message.tokenUsage > 0) || (conversationTokenUsage && conversationTokenUsage > 0)"
+          v-if="((message.cost?.inputTokens ?? 0) + (message.cost?.outputTokens ?? 0) > 0) || (message.tokenUsage && message.tokenUsage > 0) || (conversationTokenUsage && conversationTokenUsage > 0)"
           class="token-badge"
         >
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -35,7 +35,7 @@ const emit = defineEmits<{
             <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path>
             <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>
           </svg>
-          本次 {{ message.tokenUsage ?? 0 }} · 会话 {{ conversationTokenUsage }}
+          本次 {{ ((message.cost?.inputTokens ?? 0) + (message.cost?.outputTokens ?? 0)) || (message.tokenUsage ?? 0) }} · 会话 {{ conversationTokenUsage }}
         </span>
       </div>
       <details

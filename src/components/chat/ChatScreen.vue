@@ -148,7 +148,10 @@ const handleRemoveUpload = (index: number) => {
 };
 
 const conversationTokenUsage = (index: number): number => {
-  return props.messages.slice(0, index + 1).reduce((sum, m) => sum + (m.tokenUsage ?? 0), 0);
+  return props.messages.slice(0, index + 1).reduce((sum, m) => {
+    const costTotal = (m.cost?.inputTokens ?? 0) + (m.cost?.outputTokens ?? 0);
+    return sum + (costTotal > 0 ? costTotal : (m.tokenUsage ?? 0));
+  }, 0);
 };
 
 const estimateTokensFromContent = (content: string): number => {
@@ -158,13 +161,21 @@ const estimateTokensFromContent = (content: string): number => {
 };
 
 const streamingTokenUsage = (): number => {
-  if (typeof props.assistantTokenUsage === 'number' && props.assistantTokenUsage > 0) {
-    return props.assistantTokenUsage;
+  const outputTokens =
+    typeof props.assistantTokenUsage === 'number' && props.assistantTokenUsage > 0
+      ? props.assistantTokenUsage
+      : props.isGenerating
+        ? estimateTokensFromContent(props.assistantResponse)
+        : 0;
+  const inputTokens =
+    typeof props.contextUsage?.usedTokens === 'number' && props.contextUsage.usedTokens > 0
+      ? props.contextUsage.usedTokens
+      : props.contextTokens ?? 0;
+  const total = inputTokens + outputTokens;
+  if (total > 0) {
+    return total;
   }
-  if (!props.isGenerating) {
-    return 0;
-  }
-  return estimateTokensFromContent(props.assistantResponse);
+  return 0;
 };
 
 const streamingConversationTokenUsage = (): number => {

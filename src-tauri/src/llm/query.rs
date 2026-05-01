@@ -82,6 +82,10 @@ fn emit_context_compact_event(
 	if saved_tokens == 0 {
 		return;
 	}
+	eprintln!(
+		"[compact] applied level={} before={} after={} saved={} reason={}",
+		level, before_tokens, after_tokens, saved_tokens, reason
+	);
 	app.emit(
 		"chat-stream",
 		ChatMessageEvent {
