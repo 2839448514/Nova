@@ -31,14 +31,13 @@ impl LlmProvider {
     pub fn new(app: &AppHandle) -> Self {
         // 读取运行时设置。
         let settings = crate::command::settings::get_settings(app.clone());
-        // provider 名统一转小写做匹配。
-        let provider = settings.provider.to_lowercase();
+        // profile key 只负责选中配置；真正路由按 profile.protocol 判断。
+        let protocol = settings.active_provider_protocol();
         
-        // anthropic/claude 都路由到 AnthropicProvider。
-        if provider == "anthropic" || provider == "claude" {
+        // Anthropic 协议走 AnthropicProvider，其余默认走 OpenAI 兼容协议实现。
+        if protocol == "anthropic" {
             LlmProvider::Anthropic(anthropic::AnthropicProvider)
         } else {
-            // 其余 provider 名统一走 OpenAI 协议实现。
             LlmProvider::OpenAi(openai::OpenAiProvider)
         }
     }

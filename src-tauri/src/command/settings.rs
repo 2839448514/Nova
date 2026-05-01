@@ -57,6 +57,20 @@ fn normalize_provider_key(provider: &str) -> String {
     }
 }
 
+fn normalize_provider_protocol(protocol: &str) -> String {
+    match protocol.trim().to_ascii_lowercase().as_str() {
+        "anthropic" | "claude" => "anthropic".to_string(),
+        _ => "openai".to_string(),
+    }
+}
+
+fn infer_provider_protocol(provider_key: &str) -> String {
+    match provider_key.trim().to_ascii_lowercase().as_str() {
+        "anthropic" | "claude" | "dashscope-anthropic" => "anthropic".to_string(),
+        _ => "openai".to_string(),
+    }
+}
+
 fn normalize_ui_language(raw: &str) -> String {
     match raw.trim().to_ascii_lowercase().as_str() {
         "en" | "en-us" | "english" => "en-US".to_string(),
@@ -75,6 +89,12 @@ fn normalize_ui_theme(raw: &str) -> String {
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderProfile {
+    #[serde(default)]
+    // UI 展示名。
+    pub display_name: String,
+    #[serde(default)]
+    // 协议类型：openai / anthropic。profile key 只负责选择配置。
+    pub protocol: String,
     #[serde(default)]
     // provider API key。
     pub api_key: String,
@@ -170,12 +190,32 @@ impl AppSettings {
         self.provider_profiles.get(&key).cloned().unwrap_or_default()
     }
 
+    pub fn active_provider_protocol(&self) -> String {
+        let key = self.active_provider_key();
+        let profile = self.provider_profiles.get(&key);
+        let raw_protocol = profile
+            .map(|profile| profile.protocol.trim())
+            .filter(|protocol| !protocol.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| infer_provider_protocol(&key));
+        normalize_provider_protocol(&raw_protocol)
+    }
+
     pub fn normalize_for_runtime(&mut self) {
         // 规范化 provider key。
         let key = self.active_provider_key();
         // 将 provider 字段回写为规范化值。
         self.provider = key.clone();
-        self.provider_profiles.entry(key).or_default();
+        self.provider_profiles.entry(key.clone()).or_default();
+
+        for (profile_key, profile) in self.provider_profiles.iter_mut() {
+            if profile.protocol.trim().is_empty() {
+                profile.protocol = infer_provider_protocol(profile_key);
+            } else {
+                profile.protocol = normalize_provider_protocol(&profile.protocol);
+            }
+            profile.display_name = profile.display_name.trim().to_string();
+        }
 
         // 规范化 RAG 配置。
         self.rag.embedding_model = self.rag.embedding_model.trim().to_string();

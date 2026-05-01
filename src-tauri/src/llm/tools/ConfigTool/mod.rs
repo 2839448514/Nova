@@ -68,6 +68,8 @@ fn read_settings_json(path: &PathBuf) -> Result<Value, String> {
             "provider": "anthropic",
             "providerProfiles": {
                 "anthropic": {
+                    "displayName": "Anthropic",
+                    "protocol": "anthropic",
                     "apiKey": "",
                     "baseUrl": "https://api.anthropic.com/v1",
                     "model": "claude-3-5-sonnet-20241022"

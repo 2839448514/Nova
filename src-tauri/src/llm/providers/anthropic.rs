@@ -33,6 +33,45 @@ fn is_needs_user_input_payload(raw: &str) -> bool {
         .unwrap_or(false)
 }
 
+fn truncate_for_log(input: &str, max_chars: usize) -> String {
+    let mut chars = input.chars();
+    let preview: String = chars.by_ref().take(max_chars).collect();
+    if chars.next().is_some() {
+        format!("{}...", preview)
+    } else {
+        preview
+    }
+}
+
+fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    haystack
+        .windows(needle.len())
+        .position(|window| window == needle)
+}
+
+fn find_sse_event_delimiter(input: &[u8]) -> Option<(usize, usize)> {
+    let lf = find_bytes(input, b"\n\n").map(|idx| (idx, 2));
+    let crlf = find_bytes(input, b"\r\n\r\n").map(|idx| (idx, 4));
+    match (lf, crlf) {
+        (Some(left), Some(right)) => Some(if left.0 <= right.0 { left } else { right }),
+        (Some(found), None) | (None, Some(found)) => Some(found),
+        (None, None) => None,
+    }
+}
+
+fn extract_sse_data(event_raw: &str) -> String {
+    event_raw
+        .lines()
+        .filter_map(|line| {
+            let trimmed = line.trim_start();
+            trimmed
+                .strip_prefix("data:")
+                .map(|data| data.trim_start().to_string())
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn apply_tool_call_result(
     app: &AppHandle,
     conversation_id: Option<&str>,
@@ -233,6 +272,8 @@ impl AnthropicProvider {
         .and_then(|v| v.trim().parse::<usize>().ok())
         .filter(|v| *v > 0)
         .unwrap_or(2);
+    // SSE 事件可能被网络 chunk 任意切开；必须缓冲到完整事件再解析。
+    let mut sse_buffer: Vec<u8> = Vec::new();
 
     loop {
         // 每轮先检查取消标记。
@@ -266,37 +307,76 @@ impl AnthropicProvider {
                 return Err(msg);
             }
         };
-        // 按宽松 UTF-8 解码文本。
-        let text = String::from_utf8_lossy(&bytes);
-        for line in text.lines() {
-                // 仅解析 data 前缀行。
-                if let Some(data) = line.strip_prefix("data:") {
-                    // 兼容 data: 后可选空格。
-                    let data = data.trim_start();
-                    // 流结束标记。
-                    if data == "[DONE]" {
-                        break;
-                    }
-                    // 回传 raw-json 给前端调试。
-                    app.emit(
-                        "chat-stream",
-                        ChatMessageEvent {
-                            r#type: "raw-json".into(),
-                            text: Some(data.to_string()),
-                            tool_use_id: None,
-                            tool_use_name: None,
-                            tool_use_input: None,
-                            tool_result: None,
-                            token_usage: None,
-                            stop_reason: None,
-                            turn_state: Some("raw_stream".into()),
-                            conversation_id: conversation_id.map(str::to_string),
-                        },
-                    )
-                    .ok();
-                    // 解析为 Anthropic StreamEvent。
-                    if let Ok(event) = serde_json::from_str::<StreamEvent>(data) {
-                        match event {
+        sse_buffer.extend_from_slice(&bytes);
+
+        while let Some((event_end, delimiter_len)) = find_sse_event_delimiter(&sse_buffer) {
+            let event_bytes = sse_buffer[..event_end].to_vec();
+            sse_buffer.drain(..event_end + delimiter_len);
+
+            let event_raw = match String::from_utf8(event_bytes) {
+                Ok(value) => value,
+                Err(error) => {
+                    let preview = String::from_utf8_lossy(error.as_bytes()).into_owned();
+                    let msg = format!(
+                        "Anthropic stream event is not valid UTF-8: {}. Raw event preview: {}",
+                        error,
+                        truncate_for_log(&preview, 800)
+                    );
+                    emit_backend_error(
+                        app,
+                        "llm.providers.anthropic",
+                        msg.clone(),
+                        Some("stream.utf8"),
+                    );
+                    return Err(msg);
+                }
+            };
+
+            let data = extract_sse_data(&event_raw);
+            if data.is_empty() {
+                continue;
+            }
+            if data == "[DONE]" {
+                continue;
+            }
+
+            // 回传 raw-json 给前端调试。
+            app.emit(
+                "chat-stream",
+                ChatMessageEvent {
+                    r#type: "raw-json".into(),
+                    text: Some(data.to_string()),
+                    tool_use_id: None,
+                    tool_use_name: None,
+                    tool_use_input: None,
+                    tool_result: None,
+                    token_usage: None,
+                    stop_reason: None,
+                    turn_state: Some("raw_stream".into()),
+                    conversation_id: conversation_id.map(str::to_string),
+                },
+            )
+            .ok();
+
+            let event = match serde_json::from_str::<StreamEvent>(&data) {
+                Ok(event) => event,
+                Err(error) => {
+                    let msg = format!(
+                        "Failed to parse Anthropic stream event: {}. Data preview: {}",
+                        error,
+                        truncate_for_log(&data, 1200)
+                    );
+                    emit_backend_error(
+                        app,
+                        "llm.providers.anthropic",
+                        msg.clone(),
+                        Some("stream.parse"),
+                    );
+                    return Err(msg);
+                }
+            };
+
+            match event {
                             StreamEvent::MessageStart { message } => {
                                 current_input_tokens = Some(message.usage.input_tokens);
                                 current_output_tokens = Some(message.usage.output_tokens);
@@ -414,10 +494,26 @@ impl AnthropicProvider {
                                 if let (Some(id), Some(name)) =
                                     (current_tool_id.take(), current_tool_name.take())
                                 {
-                                    // 解析工具输入 JSON，失败回退空对象。
+                                    // 工具输入 JSON 不完整时不能用 {} 兜底，否则会误执行工具。
                                     let input_value: serde_json::Value =
-                                        serde_json::from_str(&current_tool_input)
-                                            .unwrap_or_else(|_| serde_json::json!({}));
+                                        match serde_json::from_str(&current_tool_input) {
+                                            Ok(value) => value,
+                                            Err(error) => {
+                                                let msg = format!(
+                                                    "Failed to parse Anthropic tool input for '{}': {}. Raw input preview: {}",
+                                                    name,
+                                                    error,
+                                                    truncate_for_log(&current_tool_input, 1200)
+                                                );
+                                                emit_backend_error(
+                                                    app,
+                                                    "llm.providers.anthropic",
+                                                    msg.clone(),
+                                                    Some("stream.tool_arguments.parse"),
+                                                );
+                                                return Err(msg);
+                                            }
+                                        };
 
                                     // 记录 assistant 的 ToolUse 块。
                                     output_blocks.push(ContentBlock::ToolUse {
@@ -533,11 +629,25 @@ impl AnthropicProvider {
                                 )
                                 .ok();
                             }
-                            _ => {}
-                        }
-                    }
-                }
+                _ => {}
             }
+        }
+    }
+
+    if !sse_buffer.iter().all(|byte| byte.is_ascii_whitespace()) {
+        let preview = String::from_utf8_lossy(&sse_buffer).into_owned();
+        let msg = format!(
+            "Anthropic stream ended with an incomplete SSE event. Pending bytes: {}. Pending preview: {}",
+            sse_buffer.len(),
+            truncate_for_log(&preview, 800)
+        );
+        emit_backend_error(
+            app,
+            "llm.providers.anthropic",
+            msg.clone(),
+            Some("stream.incomplete_event"),
+        );
+        return Err(msg);
     }
 
     // 若流内没发 stop，这里补发一次。

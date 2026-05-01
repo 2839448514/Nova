@@ -350,12 +350,12 @@ pub(crate) async fn summarize_messages_for_compact(
     messages: &[Message],
 ) -> Result<String, String> {
     let settings = crate::command::settings::get_settings(app.clone());
-    let provider_key = settings.active_provider_key();
+    let provider_protocol = settings.active_provider_protocol();
     let mut working_messages = strip_images_to_placeholders(messages);
 
     for attempt in 0..=MAX_SUMMARY_RETRIES {
         let user_prompt = build_summary_user_prompt(&working_messages);
-        let result = if provider_key == "anthropic" || provider_key == "claude" {
+        let result = if provider_protocol == "anthropic" {
             summarize_with_anthropic(app, &user_prompt).await
         } else {
             summarize_with_openai(app, &user_prompt).await

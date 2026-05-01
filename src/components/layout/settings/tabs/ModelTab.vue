@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 
 type ProviderProfile = {
+  displayName?: string
+  protocol?: 'openai' | 'anthropic' | string
   apiKey: string
   baseUrl: string
   model: string
@@ -13,14 +16,18 @@ type ProviderProfile = {
 const apiKeyInput = ref('')
 const apiKeyVisible = ref(false)
 const baseURLInput = ref('')
+const displayNameInput = ref('')
 const savedTip = ref(false)
+const pendingDeleteProfileKey = ref<string | null>(null)
 
-const providers = [
-  { id: 'anthropic', label: 'Anthropic' },
-  { id: 'openai', label: 'OpenAI' },
-  { id: 'ollama', label: 'Ollama' },
-  { id: 'dashscope-anthropic', label: 'DashScope Anthropic' }
-]
+const builtinProviders = [
+  { id: 'anthropic', label: 'Anthropic', protocol: 'anthropic' },
+  { id: 'openai', label: 'OpenAI', protocol: 'openai' },
+  { id: 'ollama', label: 'Ollama', protocol: 'openai' },
+  { id: 'dashscope-anthropic', label: 'DashScope Anthropic', protocol: 'anthropic' },
+] as const
+
+const builtinProviderIds: Set<string> = new Set(builtinProviders.map(provider => provider.id))
 
 const selectedProvider = ref('anthropic')
 const newModelInput = ref('')
@@ -28,6 +35,33 @@ const customModels = ref<Record<string, string[]>>({})
 const providerProfiles = ref<Record<string, ProviderProfile>>({})
 
 const normalizeProviderKey = (provider: string) => provider.trim().toLowerCase()
+
+const providerOptions = computed(() => {
+  const customProviders = Object.entries(providerProfiles.value)
+    .filter(([id]) => !builtinProviderIds.has(id))
+    .map(([id, profile]) => ({
+      id,
+      label: profile.displayName?.trim() || id,
+      protocol: (profile.protocol || 'openai').trim().toLowerCase(),
+      custom: true,
+    }))
+
+  return [
+    ...builtinProviders.map(provider => ({
+      ...provider,
+      custom: false,
+    })),
+    ...customProviders,
+  ]
+})
+
+const inferProtocol = (provider: string) => {
+  const key = normalizeProviderKey(provider)
+  if (key === 'anthropic' || key === 'claude' || key === 'dashscope-anthropic') {
+    return 'anthropic'
+  }
+  return 'openai'
+}
 
 const defaultBaseUrl = (provider: string) => {
   const key = normalizeProviderKey(provider)
@@ -41,9 +75,14 @@ const defaultBaseUrl = (provider: string) => {
 const ensureProfile = (provider: string): ProviderProfile => {
   const key = normalizeProviderKey(provider)
   const existing = providerProfiles.value[key]
-  if (existing) return existing
+  if (existing) {
+    existing.protocol = existing.protocol || inferProtocol(key)
+    return existing
+  }
 
   const profile: ProviderProfile = {
+    displayName: builtinProviders.find(item => item.id === key)?.label || '',
+    protocol: inferProtocol(key),
     apiKey: '',
     baseUrl: defaultBaseUrl(key),
     model: '',
@@ -54,12 +93,16 @@ const ensureProfile = (provider: string): ProviderProfile => {
 
 const readProviderInputs = (provider: string) => {
   const profile = ensureProfile(provider)
+  displayNameInput.value = profile.displayName || builtinProviders.find(item => item.id === normalizeProviderKey(provider))?.label || ''
   apiKeyInput.value = profile.apiKey || ''
   baseURLInput.value = profile.baseUrl || ''
 }
 
 const writeProviderInputs = (provider: string) => {
+  const key = normalizeProviderKey(provider)
   const profile = ensureProfile(provider)
+  profile.displayName = builtinProviderIds.has(key) ? (profile.displayName || '') : displayNameInput.value.trim()
+  profile.protocol = profile.protocol || inferProtocol(key)
   profile.apiKey = apiKeyInput.value.trim()
   profile.baseUrl = baseURLInput.value.trim()
 }
@@ -72,6 +115,68 @@ const selectProvider = (id: string) => {
     customModels.value[id] = []
   }
   readProviderInputs(id)
+}
+
+const addOpenAiProfile = () => {
+  writeProviderInputs(selectedProvider.value)
+  const baseKey = `openai-custom-${Date.now().toString(36)}`
+  const label = `OpenAI 兼容 ${providerOptions.value.filter(provider => provider.custom).length + 1}`
+  providerProfiles.value[baseKey] = {
+    displayName: label,
+    protocol: 'openai',
+    apiKey: '',
+    baseUrl: 'https://api.openai.com/v1',
+    model: '',
+  }
+  customModels.value[baseKey] = []
+  selectedProvider.value = baseKey
+  readProviderInputs(baseKey)
+}
+
+const updateSelectedDisplayName = () => {
+  const key = normalizeProviderKey(selectedProvider.value)
+  if (builtinProviderIds.has(key)) return
+  const profile = ensureProfile(key)
+  profile.displayName = displayNameInput.value.trim()
+}
+
+const removeSelectedCustomProfile = () => {
+  const key = normalizeProviderKey(selectedProvider.value)
+  if (builtinProviderIds.has(key)) return
+  pendingDeleteProfileKey.value = key
+}
+
+const deleteDialogOpen = computed({
+  get: () => pendingDeleteProfileKey.value !== null,
+  set: (value: boolean) => {
+    if (!value) {
+      pendingDeleteProfileKey.value = null
+    }
+  },
+})
+
+const pendingDeleteProfileName = computed(() => {
+  const key = pendingDeleteProfileKey.value
+  if (!key) return ''
+  return providerProfiles.value[key]?.displayName?.trim() || key
+})
+
+const confirmDeleteCustomProfile = () => {
+  const key = pendingDeleteProfileKey.value
+  if (!key || builtinProviderIds.has(key)) {
+    pendingDeleteProfileKey.value = null
+    return
+  }
+
+  delete providerProfiles.value[key]
+  delete customModels.value[key]
+  pendingDeleteProfileKey.value = null
+  selectedProvider.value = 'openai'
+  ensureProfile(selectedProvider.value)
+  if (!customModels.value[selectedProvider.value]) {
+    customModels.value[selectedProvider.value] = []
+  }
+  readProviderInputs(selectedProvider.value)
 }
 
 onMounted(async () => {
@@ -140,11 +245,29 @@ const save = async () => {
 
 <template>
   <div class="px-6 py-4 flex flex-col h-full overflow-y-auto">
+    <ConfirmDialog
+      v-model="deleteDialogOpen"
+      title="删除模型配置？"
+      :description="`配置「${pendingDeleteProfileName}」会被移除，对应的 API Key、Base URL 和模型列表也会一起删除。`"
+      confirm-text="删除"
+      cancel-text="取消"
+      destructive
+      @confirm="confirmDeleteCustomProfile"
+    />
 
-    <div class="text-[13px] font-semibold text-[#1a1915] dark:text-[#e8e3db] mb-[6px] uppercase tracking-wider">服务商</div>
+    <div class="flex items-center justify-between gap-3 mb-[6px]">
+      <div class="text-[13px] font-semibold text-[#1a1915] dark:text-[#e8e3db] uppercase tracking-wider">服务商</div>
+      <Button
+        size="sm"
+        class="h-7 px-3 rounded-full text-[12px] bg-[#f5f4f0] dark:bg-[#32312e] text-[#6b6456] dark:text-[#d3d0c9] border border-[#ddd9d0] dark:border-[#3b3a37] hover:bg-[#eae8e4] dark:hover:bg-[#3c3a37]"
+        @click="addOpenAiProfile"
+      >
+        + OpenAI 兼容
+      </Button>
+    </div>
     <div class="flex gap-1.5 mb-5 flex-wrap">
       <Button
-        v-for="p in providers"
+        v-for="p in providerOptions"
         :key="p.id"
         size="sm"
         class="rounded-full text-[13px]"
@@ -155,6 +278,28 @@ const save = async () => {
       >
         {{ p.label }}
       </Button>
+    </div>
+
+    <div v-if="!builtinProviderIds.has(selectedProvider)" class="mb-4 flex flex-col text-[14px]">
+      <div class="flex items-center justify-between gap-3 mb-[6px]">
+        <label class="text-[13px] font-semibold text-[#1a1915] dark:text-[#e8e3db] uppercase tracking-wider">配置名称</label>
+        <Button
+          size="sm"
+          class="h-7 px-3 rounded-full text-[12px] bg-transparent text-[#b76b54] dark:text-[#e0957d] border border-[#ead1c6] dark:border-[#5a3b31] hover:bg-[#fff0eb] dark:hover:bg-[#3b2a25]"
+          @click="removeSelectedCustomProfile"
+        >
+          删除配置
+        </Button>
+      </div>
+      <Input
+        v-model="displayNameInput"
+        @input="updateSelectedDisplayName"
+        placeholder="例如：Mimo / OpenRouter / SiliconFlow"
+        class="w-full h-9 px-3 text-[14px] bg-white dark:bg-[#252422] border border-[#e8e3db] dark:border-[#3b3a37] rounded-lg text-[#1a1915] dark:text-[#d3d0c9] placeholder:text-[#b0a99f] dark:placeholder:text-[#66645e] focus:outline-none focus:border-[#d7a16f]"
+      />
+      <div class="mt-1 text-[12px] text-[#9a9284] dark:text-[#77736b]">
+        这个选项会按 OpenAI 兼容协议请求，但 API Key、Base URL 和模型列表独立保存。
+      </div>
     </div>
 
     <!-- Custom Models List -->
