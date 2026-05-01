@@ -507,6 +507,23 @@ pub(crate) async fn execute_single_tool_call(
         }
     }
 
+    if is_error {
+        let error_text = serde_json::from_str::<serde_json::Value>(&final_output)
+            .ok()
+            .and_then(|v| {
+                v.get("error")
+                    .and_then(|e| e.as_str())
+                    .map(|s| s.to_string())
+            })
+            .unwrap_or_else(|| final_output.clone());
+        crate::llm::utils::error_event::emit_backend_error(
+            app,
+            "tool.execute",
+            format!("工具 {} 执行失败：{}", name, error_text),
+            Some(name.as_str()),
+        );
+    }
+
     ToolCallResult {
         id,
         name,

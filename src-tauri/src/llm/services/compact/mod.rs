@@ -753,6 +753,15 @@ async fn apply_full_compact_with_limits(
                     "[compact] model-driven auto compact failed consecutive_failures={} error={}",
                     failures, error
                 );
+                crate::llm::utils::error_event::emit_backend_error(
+                    app,
+                    "compact.full_compact",
+                    format!(
+                        "会话上下文压缩失败（连续失败 {} 次），本次跳过压缩：{}",
+                        failures, error
+                    ),
+                    Some("model_driven_compact"),
+                );
                 return messages.to_vec();
             }
         }
