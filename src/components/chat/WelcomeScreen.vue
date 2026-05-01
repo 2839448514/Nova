@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import InputArea from '../layout/InputArea.vue';
-import type { AgentMode, PendingUploadFile } from '../../lib/chat-types';
+import type { AgentMode, ContextUsage, PendingUploadFile } from '../../lib/chat-types';
 
 defineProps<{
   isGenerating?: boolean;
   agentMode?: AgentMode;
   pendingUploads?: PendingUploadFile[];
+  contextUsage?: ContextUsage;
+  contextTokens?: number;
 }>();
 
 const emit = defineEmits<{
@@ -35,6 +37,8 @@ const handleSend = (msg: string) => {
         :isGenerating="isGenerating"
         :agentMode="agentMode"
         :pendingUploads="pendingUploads"
+        :contextUsage="contextUsage"
+        :contextTokens="contextTokens"
         @send="handleSend"
         @mode-change="emit('mode-change', $event)"
         @upload-files="emit('upload-files', $event)"

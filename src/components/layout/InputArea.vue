@@ -6,6 +6,7 @@ import type {
   PendingUploadFile,
   UploadedImageFile,
   UploadedRagFile,
+  ContextUsage,
 } from '../../lib/chat-types';
 import {
   buildDocumentAcceptAttribute,
@@ -14,11 +15,14 @@ import {
 } from '../../lib/document-upload';
 import { emitToast } from '../../lib/toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import ContextUsageIndicator from './ContextUsageIndicator.vue';
 
 const props = defineProps<{
   isGenerating?: boolean;
   agentMode?: AgentMode;
   pendingUploads?: PendingUploadFile[];
+  contextUsage?: ContextUsage;
+  contextTokens?: number;
 }>();
 
 const emit = defineEmits<{
@@ -463,9 +467,9 @@ defineExpose({
             </Select>
           </div>
 
-          <div v-if="availableModels.length > 0 && settings" class="w-[200px]">
+          <div v-if="availableModels.length > 0 && settings" class="flex items-center gap-1.5">
             <Select :model-value="currentModel" @update:model-value="onModelValueChange">
-              <SelectTrigger size="sm" class="w-full text-xs">
+              <SelectTrigger size="sm" class="w-[200px] text-xs">
                 <SelectValue placeholder="选择模型" />
               </SelectTrigger>
               <SelectContent class="text-xs">
@@ -474,6 +478,7 @@ defineExpose({
                 </SelectItem>
               </SelectContent>
             </Select>
+            <ContextUsageIndicator :usage="contextUsage" :usedTokens="contextTokens" />
           </div>
         </div>
         <button class="w-8 h-8 rounded-full flex items-center justify-center transition-colors shadow-sm"

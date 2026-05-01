@@ -9,6 +9,7 @@ import type {
   AskUserAnswerSubmission,
   ChatAttachment,
   ChatMessage,
+  ContextUsage,
   PendingUploadFile,
   TurnCost,
 } from "../../../lib/chat-types";
@@ -50,6 +51,8 @@ type SendOpsDeps = {
   currentToolStartedAt: Ref<number | null>;
   currentToolCalls: Ref<number>;
   currentToolDurationMs: Ref<number>;
+  currentContextUsage: Ref<ContextUsage | undefined>;
+  currentContextTokens: Ref<number>;
   currentInputTokens: Ref<number>;
   currentOutputTokens: Ref<number>;
   chatScreenRef: Ref<ChatScreenHandle | null>;
@@ -82,6 +85,8 @@ export function createSendOperations(deps: SendOpsDeps) {
     currentToolStartedAt,
     currentToolCalls,
     currentToolDurationMs,
+    currentContextUsage,
+    currentContextTokens,
     currentInputTokens,
     currentOutputTokens,
     chatScreenRef,
@@ -194,6 +199,8 @@ export function createSendOperations(deps: SendOpsDeps) {
     currentToolStartedAt.value = null;
     currentToolCalls.value = 0;
     currentToolDurationMs.value = 0;
+    currentContextUsage.value = undefined;
+    currentContextTokens.value = 0;
     currentOutputTokens.value = 0;
     currentInputTokens.value = 0;
     resetToolTrackingState(activeRuntimeRefs);

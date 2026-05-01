@@ -9,6 +9,7 @@ import type {
   AgentMode,
   ChatMessage,
   ChatMessageEvent,
+  ContextUsage,
   ToolExecutionEntry,
 } from "../../../lib/chat-types";
 import { estimateTokens } from "../utils/session-memory";
@@ -51,6 +52,14 @@ type TokenUsagePayload = {
   source?: string;
 };
 
+type ContextCompactPayload = {
+  level?: string;
+  reason?: string;
+  beforeTokens?: number;
+  afterTokens?: number;
+  savedTokens?: number;
+};
+
 function parseTokenUsagePayload(raw?: string): TokenUsagePayload | null {
   if (!raw?.trim()) {
     return null;
@@ -61,6 +70,43 @@ function parseTokenUsagePayload(raw?: string): TokenUsagePayload | null {
   } catch {
     return null;
   }
+}
+
+function parseContextUsagePayload(raw?: string): ContextUsage | null {
+  if (!raw?.trim()) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(raw) as ContextUsage;
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function parseContextCompactPayload(raw?: string): ContextCompactPayload | null {
+  if (!raw?.trim()) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(raw) as ContextCompactPayload;
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function formatCompactTokens(value?: number): string {
+  if (typeof value !== "number" || value <= 0) {
+    return "0";
+  }
+  if (value >= 1_000_000) {
+    return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1)}m`;
+  }
+  if (value >= 1_000) {
+    return `${(value / 1_000).toFixed(value >= 100_000 ? 0 : 1)}k`;
+  }
+  return String(Math.round(value));
 }
 
 type StreamOpsDeps = {
@@ -158,6 +204,8 @@ export function createChatStreamOperations(deps: StreamOpsDeps) {
     state.currentToolStartedAt = null;
     state.currentToolCalls = 0;
     state.currentToolDurationMs = 0;
+    state.currentContextUsage = undefined;
+    state.currentContextTokens = 0;
     state.currentInputTokens = 0;
     state.currentOutputTokens = 0;
     if (!preservePendingPrompt) {
@@ -241,6 +289,8 @@ export function createChatStreamOperations(deps: StreamOpsDeps) {
     state.currentToolStartedAt = null;
     state.currentToolCalls = 0;
     state.currentToolDurationMs = 0;
+    state.currentContextUsage = undefined;
+    state.currentContextTokens = 0;
     state.currentInputTokens = 0;
     state.currentOutputTokens = 0;
     state.currentTurnToolIds = [];
@@ -456,6 +506,42 @@ export function createChatStreamOperations(deps: StreamOpsDeps) {
       return;
     }
 
+    if (payload.type === "context-usage") {
+      const usage = parseContextUsagePayload(payload.text);
+      const usedTokens =
+        typeof usage?.usedTokens === "number" && usage.usedTokens > 0
+          ? usage.usedTokens
+          : 0;
+      state.currentContextUsage = usage
+        ? {
+            ...usage,
+            usedTokens,
+          }
+        : undefined;
+      state.currentContextTokens = usedTokens;
+      return;
+    }
+
+    if (payload.type === "context-compact") {
+      const compact = parseContextCompactPayload(payload.text);
+      const beforeTokens = compact?.beforeTokens ?? 0;
+      const afterTokens = compact?.afterTokens ?? 0;
+      const savedTokens =
+        typeof compact?.savedTokens === "number"
+          ? compact.savedTokens
+          : Math.max(0, beforeTokens - afterTokens);
+      const detail =
+        beforeTokens > 0 || afterTokens > 0
+          ? `上下文 ${formatCompactTokens(beforeTokens)} -> ${formatCompactTokens(afterTokens)}，节省约 ${formatCompactTokens(savedTokens)} tokens。`
+          : "已减少发送给模型的历史上下文。";
+      emitToast({
+        variant: "info",
+        source: "context-compact",
+        message: `${compact?.reason || "Nova 已自动压缩对话上下文。"} ${detail}`,
+      });
+      return;
+    }
+
     if (payload.type === "token-usage") {
       const usage = parseTokenUsagePayload(payload.text);
       const nextInputTokens =
@@ -471,6 +557,12 @@ export function createChatStreamOperations(deps: StreamOpsDeps) {
 
       if (nextInputTokens > 0) {
         state.currentInputTokens += nextInputTokens;
+        state.currentContextTokens = state.currentInputTokens;
+        state.currentContextUsage = {
+          ...(state.currentContextUsage ?? { usedTokens: state.currentInputTokens }),
+          usedTokens: state.currentInputTokens,
+          source: "actual",
+        };
       }
       if (nextOutputTokens > 0) {
         state.currentOutputTokens += nextOutputTokens;

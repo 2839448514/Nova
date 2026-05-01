@@ -26,6 +26,8 @@ const {
   activeConversationId,
   conversationFiles,
   pendingUploads,
+  currentContextUsage,
+  currentContextTokens,
   pendingQuestion,
   pendingPermissionRequestId,
   agentMode,
@@ -133,6 +135,8 @@ const isDrawerOpen = ref(false);
           :isGenerating="isGenerating"
           :agentMode="agentMode"
           :pendingUploads="pendingUploads"
+          :contextUsage="currentContextUsage"
+          :contextTokens="currentContextTokens"
           @send="handleSendMessage" 
           @mode-change="handleAgentModeChange"
           @upload-files="handleUploadFiles"
@@ -153,6 +157,8 @@ const isDrawerOpen = ref(false);
           :agentMode="agentMode"
           :planMode="planMode"
           :pendingUploads="pendingUploads"
+          :contextUsage="currentContextUsage"
+          :contextTokens="currentContextTokens"
           @send="handleSendMessage"
           @cancel="handleCancelGeneration"
           @mode-change="handleAgentModeChange"

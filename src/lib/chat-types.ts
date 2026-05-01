@@ -6,6 +6,22 @@ export interface TurnCost {
   toolSummary?: ToolTurnSummary;
 }
 
+export interface ContextUsageBreakdown {
+  systemInstructions?: number;
+  toolDefinitions?: number;
+  messages?: number;
+  toolResults?: number;
+  other?: number;
+}
+
+export interface ContextUsage {
+  usedTokens: number;
+  windowTokens?: number;
+  responseReserveTokens?: number;
+  source?: string;
+  breakdown?: ContextUsageBreakdown;
+}
+
 export interface ToolTurnCategoryCount {
   label: string;
   count: number;

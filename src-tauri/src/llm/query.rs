@@ -3,9 +3,11 @@ use tauri::{AppHandle, Emitter};
 use crate::llm::providers::LlmProvider;
 use crate::llm::query_engine::ChatMessageEvent;
 use crate::llm::services::compact;
+use crate::llm::tools;
 use crate::llm::types::{AgentMode, Content, ContentBlock, Message, Role};
 use crate::llm::utils::context_assembler::{self, AssembleOptions};
 use crate::llm::utils::error_event::emit_backend_error;
+use crate::llm::utils::system_prompt::load_system_prompt;
 
 mod state_machine;
 
@@ -16,6 +18,8 @@ const SESSION_RAG_SEARCH_LIMIT: usize = 5;
 const DIRECT_ATTACHMENT_CONTEXT_LIMIT: usize = 2;
 const DIRECT_ATTACHMENT_SNIPPET_CHARS: usize = 2200;
 const MCP_SERVER_CONTEXT_MARKER: &str = "[MCP Server Catalog]";
+const CONTEXT_WINDOW_TOKENS: u32 = 160_000;
+const RESPONSE_RESERVE_TOKENS: u32 = 8_000;
 
 fn clamp_i64_to_u32(value: i64) -> u32 {
 	if value <= 0 {
@@ -64,6 +68,137 @@ fn emit_token_usage_event(
 		},
 	)
 	.ok();
+}
+
+fn emit_context_compact_event(
+	app: &AppHandle,
+	conversation_id: Option<&str>,
+	level: &str,
+	reason: &str,
+	before_tokens: u32,
+	after_tokens: u32,
+) {
+	let saved_tokens = before_tokens.saturating_sub(after_tokens);
+	app.emit(
+		"chat-stream",
+		ChatMessageEvent {
+			r#type: "context-compact".into(),
+			text: Some(
+				serde_json::json!({
+					"level": level,
+					"reason": reason,
+					"beforeTokens": before_tokens,
+					"afterTokens": after_tokens,
+					"savedTokens": saved_tokens,
+				})
+				.to_string(),
+			),
+			tool_use_id: None,
+			tool_use_name: None,
+			tool_use_input: None,
+			tool_result: None,
+			token_usage: None,
+			stop_reason: None,
+			turn_state: Some("context_compacted".into()),
+			conversation_id: conversation_id.map(str::to_string),
+		},
+	)
+	.ok();
+}
+
+fn estimate_text_for_context_usage(text: &str) -> u32 {
+	clamp_i64_to_u32(compact::estimate_tokens_for_messages(&[Message {
+		role: Role::User,
+		content: Content::Text(text.to_string()),
+	}]))
+}
+
+fn estimate_messages_for_context_usage(messages: Vec<Message>) -> u32 {
+	clamp_i64_to_u32(compact::estimate_tokens_for_messages(&messages))
+}
+
+fn message_is_uncategorized_context(message: &Message) -> bool {
+	let text = text_from_content(&message.content);
+	text.contains(SESSION_RAG_CONTEXT_MARKER)
+		|| text.contains(MCP_SERVER_CONTEXT_MARKER)
+		|| text.contains("[Session Restore Context]")
+		|| text.contains("[Auto Compact Summary]")
+}
+
+fn context_usage_breakdown(
+	app: &AppHandle,
+	agent_mode: AgentMode,
+	current_messages: &[Message],
+) -> serde_json::Value {
+	let system_instructions = load_system_prompt(app, agent_mode)
+		.map(|prompt| estimate_text_for_context_usage(&prompt))
+		.unwrap_or(0);
+	let tool_definitions = serde_json::to_string(&tools::get_available_tools())
+		.map(|tools_json| estimate_text_for_context_usage(&tools_json))
+		.unwrap_or(0);
+
+	let mut message_estimate_inputs = Vec::new();
+	let mut tool_result_estimate_inputs = Vec::new();
+	let mut other_estimate_inputs = Vec::new();
+
+	for message in current_messages {
+		if message_is_uncategorized_context(message) {
+			other_estimate_inputs.push(message.clone());
+			continue;
+		}
+
+		match &message.content {
+			Content::Text(_) => message_estimate_inputs.push(message.clone()),
+			Content::Blocks(blocks) => {
+				let mut normal_blocks = Vec::new();
+				let mut tool_result_blocks = Vec::new();
+
+				for block in blocks {
+					if matches!(block, ContentBlock::ToolResult { .. }) {
+						tool_result_blocks.push(block.clone());
+					} else {
+						normal_blocks.push(block.clone());
+					}
+				}
+
+				if !normal_blocks.is_empty() {
+					message_estimate_inputs.push(Message {
+						role: message.role.clone(),
+						content: Content::Blocks(normal_blocks),
+					});
+				}
+				if !tool_result_blocks.is_empty() {
+					tool_result_estimate_inputs.push(Message {
+						role: message.role.clone(),
+						content: Content::Blocks(tool_result_blocks),
+					});
+				}
+			}
+		}
+	}
+
+	let messages = estimate_messages_for_context_usage(message_estimate_inputs);
+	let tool_results = estimate_messages_for_context_usage(tool_result_estimate_inputs);
+	let other = estimate_messages_for_context_usage(other_estimate_inputs);
+	let used_tokens = system_instructions
+		.saturating_add(tool_definitions)
+		.saturating_add(messages)
+		.saturating_add(tool_results)
+		.saturating_add(other);
+
+	serde_json::json!({
+		"usedTokens": used_tokens,
+		"windowTokens": CONTEXT_WINDOW_TOKENS,
+		"responseReserveTokens": RESPONSE_RESERVE_TOKENS,
+		"source": "estimated",
+		"breakdown": {
+			"systemInstructions": system_instructions,
+			"toolDefinitions": tool_definitions,
+			"messages": messages,
+			"toolResults": tool_results,
+			"other": other,
+		},
+	})
 }
 
 fn text_from_content(content: &Content) -> String {
@@ -391,6 +526,15 @@ pub async fn send_chat_message(
 	let mut current_messages = compact_outcome.messages;
 	if did_compact {
 		apply_post_compact_hook(&app, conversation_id.as_deref(), &mut current_messages);
+		let after_tokens = clamp_i64_to_u32(compact::estimate_tokens_for_messages(&current_messages));
+		emit_context_compact_event(
+			&app,
+			conversation_id.as_deref(),
+			compact_outcome.level,
+			"自动压缩历史上下文，减少发送给模型的背景信息体积。",
+			clamp_i64_to_u32(compact_outcome.estimated_tokens),
+			after_tokens,
+		);
 	}
 
 	if let Some(query_text) = rag_query.as_deref() {
@@ -428,11 +572,16 @@ pub async fn send_chat_message(
 
 		let context_editing = compact::apply_tool_result_context_editing(&current_messages);
 		if context_editing.applied {
-			eprintln!(
-				"[context_editing] cleared_tool_pairs={} estimated_tokens {} -> {}",
-				context_editing.cleared_tool_pairs,
-				context_editing.original_estimated_tokens,
-				context_editing.edited_estimated_tokens
+			emit_context_compact_event(
+				&app,
+				conversation_id.as_deref(),
+				"tool_result",
+				&format!(
+					"清理了 {} 组较早的工具结果，避免大型工具输出占满上下文。",
+					context_editing.cleared_tool_pairs
+				),
+				clamp_i64_to_u32(context_editing.original_estimated_tokens),
+				clamp_i64_to_u32(context_editing.edited_estimated_tokens),
 			);
 			current_messages = context_editing.messages;
 		}
@@ -450,6 +599,24 @@ pub async fn send_chat_message(
 
 		let request_input_estimate =
 			clamp_i64_to_u32(compact::estimate_tokens_for_messages(&current_messages));
+		app.emit(
+			"chat-stream",
+			ChatMessageEvent {
+				r#type: "context-usage".into(),
+				text: Some(
+					context_usage_breakdown(&app, agent_mode, &current_messages).to_string(),
+				),
+				tool_use_id: None,
+				tool_use_name: None,
+				tool_use_input: None,
+				tool_result: None,
+				token_usage: None,
+				stop_reason: None,
+				turn_state: Some("usage".into()),
+				conversation_id: conversation_id.clone(),
+			},
+		)
+		.ok();
 
 		// 发起 provider 请求并等待结果。
 		let provider_result = match provider
@@ -467,8 +634,20 @@ pub async fn send_chat_message(
 					)
 					.await
 					{
+						let before_tokens =
+							clamp_i64_to_u32(compact::estimate_tokens_for_messages(&current_messages));
+						let after_tokens =
+							clamp_i64_to_u32(compact::estimate_tokens_for_messages(&recovered_messages));
 						current_messages = recovered_messages;
 						apply_post_compact_hook(&app, conversation_id.as_deref(), &mut current_messages);
+						emit_context_compact_event(
+							&app,
+							conversation_id.as_deref(),
+							"reactive",
+							"模型提示上下文过长，已自动压缩后重试。",
+							before_tokens,
+							after_tokens,
+						);
 						has_attempted_reactive_compact = true;
 						continue;
 					}

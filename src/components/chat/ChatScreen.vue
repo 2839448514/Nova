@@ -4,6 +4,7 @@ import type {
   AgentMode,
   AskUserAnswerSubmission,
   ChatMessage,
+  ContextUsage,
   NeedsUserInputPayload,
   PendingUploadFile,
   ToolExecutionEntry,
@@ -27,6 +28,8 @@ const props = defineProps<{
   planMode?: boolean;
   agentMode?: AgentMode;
   pendingUploads?: PendingUploadFile[];
+  contextUsage?: ContextUsage;
+  contextTokens?: number;
 }>();
 
 const emit = defineEmits<{
@@ -270,6 +273,8 @@ defineExpose({
           :isGenerating="isGenerating"
           :agentMode="agentMode"
           :pendingUploads="pendingUploads"
+          :contextUsage="contextUsage"
+          :contextTokens="contextTokens"
           @send="handleSend"
           @cancel="emit('cancel')"
           @mode-change="emit('mode-change', $event)"

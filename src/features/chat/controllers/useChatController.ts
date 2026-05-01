@@ -17,6 +17,7 @@ import type {
   PendingUploadFile,
   ToolExecutionEntry,
   TurnCost,
+  ContextUsage,
 } from "../../../lib/chat-types";
 import {
   type BackendErrorEvent,
@@ -51,6 +52,8 @@ export function useChatController() {
   const currentToolStartedAt = ref<number | null>(null);
   const currentToolCalls = ref(0);
   const currentToolDurationMs = ref(0);
+  const currentContextUsage = ref<ContextUsage | undefined>(undefined);
+  const currentContextTokens = ref(0);
   const currentInputTokens = ref(0);
   const currentOutputTokens = ref(0);
   const agentMode = ref<AgentMode>("agent");
@@ -74,6 +77,8 @@ export function useChatController() {
     currentToolStartedAt,
     currentToolCalls,
     currentToolDurationMs,
+    currentContextUsage,
+    currentContextTokens,
     currentInputTokens,
     currentOutputTokens,
     toolExecutionLogs,
@@ -85,6 +90,33 @@ export function useChatController() {
   const currentTurnToolExecutionLogs = computed(() => {
     const ids = new Set(currentTurnToolIds.value);
     return toolExecutionLogs.value.filter((entry) => ids.has(entry.id));
+  });
+  const latestPersistedPromptTokens = computed(() => {
+    for (let index = messages.value.length - 1; index >= 0; index -= 1) {
+      const message = messages.value[index];
+      if (message.role === "assistant" && (message.cost?.inputTokens ?? 0) > 0) {
+        return message.cost?.inputTokens ?? 0;
+      }
+    }
+    return 0;
+  });
+  const displayContextUsage = computed<ContextUsage | undefined>(() => {
+    if ((currentContextUsage.value?.usedTokens ?? 0) > 0) {
+      return currentContextUsage.value;
+    }
+    if (latestPersistedPromptTokens.value > 0) {
+      return {
+        usedTokens: latestPersistedPromptTokens.value,
+        source: "actual",
+      };
+    }
+    return undefined;
+  });
+  const displayContextTokens = computed(() => {
+    if (currentContextTokens.value > 0) {
+      return currentContextTokens.value;
+    }
+    return latestPersistedPromptTokens.value;
   });
 
   let unlistenChatStream: UnlistenFn | null = null;
@@ -165,6 +197,8 @@ export function useChatController() {
     currentToolStartedAt,
     currentToolCalls,
     currentToolDurationMs,
+    currentContextUsage,
+    currentContextTokens,
     currentInputTokens,
     currentOutputTokens,
     chatScreenRef,
@@ -282,6 +316,8 @@ export function useChatController() {
     pendingPermissionRequestId,
     pendingUploads,
     conversationFiles,
+    currentContextUsage: displayContextUsage,
+    currentContextTokens: displayContextTokens,
     agentMode,
     planMode,
     currentTurnToolExecutionLogs,

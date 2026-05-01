@@ -1,10 +1,20 @@
 import type { Ref } from "vue";
 import type {
   NeedsUserInputPayload,
+  ContextUsage,
   ToolExecutionEntry,
   TurnCost,
 } from "../../../lib/chat-types";
 import type { ConversationTurnRuntimeState } from "./chat-controller-types";
+
+function cloneContextUsage(usage: ContextUsage | undefined): ContextUsage | undefined {
+  return usage
+    ? {
+        ...usage,
+        breakdown: usage.breakdown ? { ...usage.breakdown } : undefined,
+      }
+    : undefined;
+}
 
 export type ActiveRuntimeRefs = {
   isGenerating: Ref<boolean>;
@@ -17,6 +27,8 @@ export type ActiveRuntimeRefs = {
   currentToolStartedAt: Ref<number | null>;
   currentToolCalls: Ref<number>;
   currentToolDurationMs: Ref<number>;
+  currentContextUsage: Ref<ContextUsage | undefined>;
+  currentContextTokens: Ref<number>;
   currentInputTokens: Ref<number>;
   currentOutputTokens: Ref<number>;
   toolExecutionLogs: Ref<ToolExecutionEntry[]>;
@@ -87,6 +99,18 @@ export function bindActiveRuntimeState(active: ActiveRuntimeRefs): ConversationT
     set currentToolDurationMs(value: number) {
       active.currentToolDurationMs.value = value;
     },
+    get currentContextUsage() {
+      return active.currentContextUsage.value;
+    },
+    set currentContextUsage(value: ContextUsage | undefined) {
+      active.currentContextUsage.value = value;
+    },
+    get currentContextTokens() {
+      return active.currentContextTokens.value;
+    },
+    set currentContextTokens(value: number) {
+      active.currentContextTokens.value = value;
+    },
     get currentInputTokens() {
       return active.currentInputTokens.value;
     },
@@ -144,6 +168,8 @@ export function createEmptyRuntimeState(): ConversationTurnRuntimeState {
     currentToolStartedAt: null,
     currentToolCalls: 0,
     currentToolDurationMs: 0,
+    currentContextUsage: undefined,
+    currentContextTokens: 0,
     currentInputTokens: 0,
     currentOutputTokens: 0,
     toolExecutionLogs: [],
@@ -184,6 +210,8 @@ export function snapshotActiveRuntimeState(
     currentToolStartedAt: active.currentToolStartedAt.value,
     currentToolCalls: active.currentToolCalls.value,
     currentToolDurationMs: active.currentToolDurationMs.value,
+    currentContextUsage: cloneContextUsage(active.currentContextUsage.value),
+    currentContextTokens: active.currentContextTokens.value,
     currentInputTokens: active.currentInputTokens.value,
     currentOutputTokens: active.currentOutputTokens.value,
     toolExecutionLogs: active.toolExecutionLogs.value.map((entry) => ({ ...entry })),
@@ -207,6 +235,8 @@ export function applyRuntimeStateToActive(
   active.currentToolStartedAt.value = state.currentToolStartedAt;
   active.currentToolCalls.value = state.currentToolCalls;
   active.currentToolDurationMs.value = state.currentToolDurationMs;
+  active.currentContextUsage.value = cloneContextUsage(state.currentContextUsage);
+  active.currentContextTokens.value = state.currentContextTokens;
   active.currentInputTokens.value = state.currentInputTokens;
   active.currentOutputTokens.value = state.currentOutputTokens;
   active.toolExecutionLogs.value = state.toolExecutionLogs.map((entry) => ({ ...entry }));
@@ -234,6 +264,8 @@ export function clearActiveRuntimeState(active: ActiveRuntimeRefs) {
   active.currentToolStartedAt.value = null;
   active.currentToolCalls.value = 0;
   active.currentToolDurationMs.value = 0;
+  active.currentContextUsage.value = undefined;
+  active.currentContextTokens.value = 0;
   active.currentInputTokens.value = 0;
   active.currentOutputTokens.value = 0;
   active.toolExecutionLogs.value = [];

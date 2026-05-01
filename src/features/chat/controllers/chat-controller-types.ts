@@ -1,5 +1,6 @@
 import type {
   NeedsUserInputPayload,
+  ContextUsage,
   ToolExecutionEntry,
   TurnCost,
 } from "../../../lib/chat-types";
@@ -60,6 +61,8 @@ export type ConversationTurnRuntimeState = {
   currentToolStartedAt: number | null;
   currentToolCalls: number;
   currentToolDurationMs: number;
+  currentContextUsage?: ContextUsage;
+  currentContextTokens: number;
   currentInputTokens: number;
   currentOutputTokens: number;
   toolExecutionLogs: ToolExecutionEntry[];
