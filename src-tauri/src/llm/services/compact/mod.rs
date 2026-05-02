@@ -154,7 +154,7 @@ fn estimate_block_tokens(block: &ContentBlock) -> i64 {
     match block {
         // 文本块：块开销 + 文本估算
         ContentBlock::Text { text } => TOKEN_OVERHEAD_PER_BLOCK + estimate_text_tokens(text),
-        ContentBlock::Thinking { thinking } => {
+        ContentBlock::Thinking { thinking, .. } => {
             TOKEN_OVERHEAD_PER_BLOCK + estimate_text_tokens(thinking)
         }
         // 图片块：采用固定近似开销，避免按 base64 字符长度严重高估。

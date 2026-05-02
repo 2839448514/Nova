@@ -60,8 +60,9 @@ pub enum ContentBlock {
     Text { text: String },
 
     // 推理/思考块。
+    // signature 是 Anthropic 的密码学签名，回传时必须原样带回，否则 API 返回 400。
     #[serde(rename = "thinking")]
-    Thinking { thinking: String },
+    Thinking { thinking: String, signature: String },
 
     // 图片输入块（用于多模态请求）。
     #[serde(rename = "image")]
@@ -208,8 +209,11 @@ pub struct MessageDelta {
     pub stop_reason: Option<String>,
 }
 
-// 流式 usage 子结构（当前仅输出 token）。
+// 流式 usage 子结构（message_delta 中携带最终 token 统计）。
 #[derive(Debug, Deserialize)]
 pub struct StreamUsage {
     pub output_tokens: u32,
+    // 部分 provider（如 mimo）在 message_delta 而非 message_start 里更新真实 input_tokens。
+    #[serde(default)]
+    pub input_tokens: u32,
 }

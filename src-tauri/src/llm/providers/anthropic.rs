@@ -253,6 +253,10 @@ impl AnthropicProvider {
     let mut tool_result_blocks: Vec<ContentBlock> = Vec::new();
     // 流内待执行工具调用批次。
     let mut pending_tool_calls: Vec<tools::ToolCallRequest> = Vec::new();
+    // 当前正在累积的思考块文本（ThinkingDelta 增量拼接）。
+    let mut current_thinking = String::new();
+    // 当前思考块的密码学签名（SignatureDelta 增量拼接），回传时原样带回。
+    let mut current_sig = String::new();
     // 是否已发过 stop 事件。
     let mut emitted_stop = false;
     // 当前输入 token 数（来自 message_start usage）。
@@ -408,25 +412,10 @@ impl AnthropicProvider {
                                         )
                                         .ok();
                                     }
-                                    StreamContentBlock::Thinking { thinking } => {
-                                        if !thinking.is_empty() {
-                                            app.emit(
-                                                "chat-stream",
-                                                ChatMessageEvent {
-                                                    r#type: "reasoning".into(),
-                                                    text: Some(thinking),
-                                                    tool_use_id: None,
-                                                    tool_use_name: None,
-                                                    tool_use_input: None,
-                                                    tool_result: None,
-                                                    token_usage: None,
-                                                    stop_reason: None,
-                                                    turn_state: Some("streaming_reasoning".into()),
-                                                    conversation_id: conversation_id.map(str::to_string),
-                                                },
-                                            )
-                                            .ok();
-                                        }
+                                    StreamContentBlock::Thinking { .. } => {
+                                        // 新 thinking 块开始，清空上一块的状态。
+                                        current_thinking.clear();
+                                        current_sig.clear();
                                     }
                                     StreamContentBlock::Text { .. } => {}
                                 }
@@ -453,6 +442,8 @@ impl AnthropicProvider {
                                     .ok();
                                 }
                                 StreamDelta::ThinkingDelta { thinking } => {
+                                    // 累积 thinking 文本并实时推送到前端。
+                                    current_thinking.push_str(&thinking);
                                     app.emit(
                                         "chat-stream",
                                         ChatMessageEvent {
@@ -470,7 +461,9 @@ impl AnthropicProvider {
                                     )
                                     .ok();
                                 }
-                                StreamDelta::SignatureDelta { .. } => {}
+                                StreamDelta::SignatureDelta { signature } => {
+                                    current_sig.push_str(&signature);
+                                }
                                 StreamDelta::InputJsonDelta { partial_json } => {
                                     // 工具输入 JSON 增量追加并回传。
                                     current_tool_input.push_str(&partial_json);
@@ -573,6 +566,12 @@ impl AnthropicProvider {
                                             );
                                         }
                                     }
+                                } else if !current_thinking.is_empty() {
+                                    // thinking 块结束：写入完整 thinking block。
+                                    output_blocks.push(ContentBlock::Thinking {
+                                        thinking: std::mem::take(&mut current_thinking),
+                                        signature: std::mem::take(&mut current_sig),
+                                    });
                                 } else if !generated_text.is_empty() {
                                     // 无工具时把累计文本落到输出块。
                                     output_blocks.push(ContentBlock::Text {
@@ -587,6 +586,10 @@ impl AnthropicProvider {
                                     last_stop_reason = Some(reason);
                                 }
                                 current_output_tokens = Some(usage.output_tokens);
+                                // 部分 provider 在 message_delta 里才给出真实 input_tokens（message_start 里为 0）。
+                                if usage.input_tokens > 0 {
+                                    current_input_tokens = Some(usage.input_tokens);
+                                }
                             }
                             StreamEvent::MessageStop => {
                                 // message stop 前执行剩余待处理工具调用。

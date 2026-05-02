@@ -1,7 +1,9 @@
 // Anthropic provider 实现。
 pub mod anthropic;
-// OpenAI provider 实现。
+// OpenAI Chat Completions provider 实现。
 pub mod openai;
+// OpenAI Responses API provider 实现。
+pub mod responses;
 
 use tauri::AppHandle;
 use crate::llm::types::{AgentMode, Message};
@@ -23,8 +25,10 @@ pub struct ProviderTurnResult {
 pub enum LlmProvider {
     // Anthropic provider 分支。
     Anthropic(anthropic::AnthropicProvider),
-    // OpenAI provider 分支。
+    // OpenAI Chat Completions provider 分支。
     OpenAi(openai::OpenAiProvider),
+    // OpenAI Responses API provider 分支。
+    Responses(responses::ResponsesProvider),
 }
 
 impl LlmProvider {
@@ -34,9 +38,11 @@ impl LlmProvider {
         // profile key 只负责选中配置；真正路由按 profile.protocol 判断。
         let protocol = settings.active_provider_protocol();
         
-        // Anthropic 协议走 AnthropicProvider，其余默认走 OpenAI 兼容协议实现。
+        // Anthropic 协议走 AnthropicProvider，openai_responses 走 ResponsesProvider，其余默认走 OpenAI 兼容协议实现。
         if protocol == "anthropic" {
             LlmProvider::Anthropic(anthropic::AnthropicProvider)
+        } else if protocol == "openai_responses" {
+            LlmProvider::Responses(responses::ResponsesProvider)
         } else {
             LlmProvider::OpenAi(openai::OpenAiProvider)
         }
@@ -53,6 +59,7 @@ impl LlmProvider {
         match self {
             LlmProvider::Anthropic(p) => p.send_request(app, messages, agent_mode, conversation_id).await,
             LlmProvider::OpenAi(p) => p.send_request(app, messages, agent_mode, conversation_id).await,
+            LlmProvider::Responses(p) => p.send_request(app, messages, agent_mode, conversation_id).await,
         }
     }
 }

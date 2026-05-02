@@ -23,3 +23,6 @@ pub mod context_assembler;
 // 统一后端错误事件输出到前端 telemetry 和 toast。
 // 封装 backend-error 事件结构与发射方法。
 pub mod error_event;
+
+// 每轮 LLM 请求/响应原始数据，以 JSONL 格式追加写入 app_data_dir/turn_logs/。
+pub mod turn_log;

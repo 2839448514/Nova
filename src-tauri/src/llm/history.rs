@@ -98,6 +98,12 @@ async fn ensure_schema(pool: &SqlitePool) -> Result<(), String> {
             created_at INTEGER NOT NULL,
             FOREIGN KEY (conversation_id) REFERENCES conversations(id)
         );
+
+        CREATE TABLE IF NOT EXISTS conversation_turn_snapshots (
+            conversation_id TEXT PRIMARY KEY,
+            snapshot_json TEXT NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
         "#,
     )
     .execute(pool)
@@ -513,6 +519,11 @@ pub async fn clear_history(app: &AppHandle, conversation_id: Option<String>) -> 
             .execute(&mut *tx)
             .await
             .map_err(|e| e.to_string())?;
+        sqlx::query("DELETE FROM conversation_turn_snapshots WHERE conversation_id = ?")
+            .bind(&id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?;
 
         tx.commit().await.map_err(|e| e.to_string())?;
         crate::command::rag::rag_remove_conversation_documents(app, &id)?;
@@ -530,6 +541,10 @@ pub async fn clear_history(app: &AppHandle, conversation_id: Option<String>) -> 
             .await
             .map_err(|e| e.to_string())?;
         sqlx::query("DELETE FROM conversation_compact_boundaries")
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?;
+        sqlx::query("DELETE FROM conversation_turn_snapshots")
             .execute(&mut *tx)
             .await
             .map_err(|e| e.to_string())?;
@@ -578,6 +593,12 @@ pub async fn delete_conversation(app: &AppHandle, conversation_id: &str) -> Resu
         .await
         .map_err(|e| e.to_string())?;
 
+    sqlx::query("DELETE FROM conversation_turn_snapshots WHERE conversation_id = ?")
+        .bind(conversation_id)
+        .execute(&pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
     sqlx::query("DELETE FROM conversations WHERE id = ?")
         .bind(conversation_id)
         .execute(&pool)
@@ -587,4 +608,48 @@ pub async fn delete_conversation(app: &AppHandle, conversation_id: &str) -> Resu
     crate::command::rag::rag_remove_conversation_documents(app, conversation_id)?;
 
     Ok(())
+}
+
+pub async fn save_turn_snapshot(
+    app: &AppHandle,
+    conversation_id: &str,
+    messages: &[crate::llm::types::Message],
+) -> Result<(), String> {
+    let pool = get_pool_with_schema(app).await?;
+    let json = serde_json::to_string(messages).map_err(|e| e.to_string())?;
+    let now = chrono::Utc::now().timestamp();
+    sqlx::query(
+        "INSERT OR REPLACE INTO conversation_turn_snapshots (conversation_id, snapshot_json, updated_at) VALUES (?, ?, ?)",
+    )
+    .bind(conversation_id)
+    .bind(&json)
+    .bind(now)
+    .execute(&pool)
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+pub async fn load_turn_snapshot(
+    app: &AppHandle,
+    conversation_id: &str,
+) -> Result<Option<Vec<crate::llm::types::Message>>, String> {
+    let pool = get_pool_with_schema(app).await?;
+    let row: Option<String> = sqlx::query_scalar(
+        "SELECT snapshot_json FROM conversation_turn_snapshots WHERE conversation_id = ?",
+    )
+    .bind(conversation_id)
+    .fetch_optional(&pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    match row {
+        None => Ok(None),
+        Some(json) => {
+            let messages =
+                serde_json::from_str::<Vec<crate::llm::types::Message>>(&json)
+                    .map_err(|e| e.to_string())?;
+            Ok(Some(messages))
+        }
+    }
 }

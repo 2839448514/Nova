@@ -373,6 +373,21 @@ fn apply_post_compact_hook(
 	}
 }
 
+// 从消息列表中移除每轮动态注入的上下文消息（RAG、MCP catalog、会话恢复、全局记忆）。
+// 保存快照前调用，确保快照只包含真实对话内容。
+fn strip_injected_context(messages: &mut Vec<Message>) {
+	const MARKERS: &[&str] = &[
+		SESSION_RAG_CONTEXT_MARKER,
+		MCP_SERVER_CONTEXT_MARKER,
+		"[Session Restore Context]",
+		"[Global Memory]",
+	];
+	messages.retain(|m| {
+		let text = text_from_content(&m.content);
+		!MARKERS.iter().any(|marker| text.starts_with(marker))
+	});
+}
+
 // 入口函数：发送用户聊天消息，驱动整轮 LLM 编排。
 // 它负责：
 // 1) 在真正请求模型前准备上下文（hooks / session restore / compact / session RAG）
@@ -421,6 +436,8 @@ pub async fn send_chat_message(
 ) -> Result<(), String> {
 	let rag_query = latest_user_query_text(&messages);
 	let session_start_turn = is_session_start_turn(&messages);
+	// 记录前端传入消息数量，用于之后从 turn_messages 中定位"本轮新消息"起始位置。
+	let frontend_msg_count = messages.len();
 	let mut turn_messages = messages;
 
 	let prompt_submit_hook = crate::llm::services::hooks::run_user_prompt_submit_hooks(
@@ -441,12 +458,36 @@ pub async fn send_chat_message(
 		}
 	}
 
+	// 尝试加载上一轮保存的完整消息快照（含 tool_use / tool_result blocks）。
+	// 若快照存在：用快照作为历史基础，只从 turn_messages 中取本轮新增消息追加。
+	// 若快照不存在（首轮或已清除）：直接使用前端传来的全量消息。
+	let (working_messages, had_snapshot) = if let Some(conv_id) = conversation_id.as_deref() {
+		match crate::llm::history::load_turn_snapshot(&app, conv_id).await {
+			Ok(Some(mut snap)) => {
+				// 剥离快照中的临时注入上下文（每轮都会重新注入）。
+				strip_injected_context(&mut snap);
+				// 本轮新消息 = turn_messages 中从 (frontend_msg_count-1) 开始的部分
+				// （最后一条前端消息 = 用户本轮输入，加上 hooks 追加的内容）。
+				let new_start = frontend_msg_count.saturating_sub(1);
+				snap.extend_from_slice(&turn_messages[new_start..]);
+				(snap, true)
+			}
+			_ => (turn_messages, false),
+		}
+	} else {
+		(turn_messages, false)
+	};
+
 	// 1. 先组装上下文（会话恢复等），再执行压缩。
+	// 若已有快照，则跳过 session_restore（快照本身即完整历史，无需摘要替代）。
 	let mut assembled_messages = context_assembler::assemble_messages_for_turn(
 		&app,
 		conversation_id.as_deref(),
-		&turn_messages,
-		AssembleOptions::default(),
+		&working_messages,
+		AssembleOptions {
+			include_session_restore: !had_snapshot,
+			include_env_contexts: false,
+		},
 	)
 	.await;
 
@@ -554,6 +595,15 @@ pub async fn send_chat_message(
 			"estimated",
 		);
 
+		// 记录本轮请求日志（含 system prompt）。
+		let system_for_log = crate::llm::utils::system_prompt::load_system_prompt(&app, agent_mode).ok();
+		crate::llm::utils::turn_log::log_request(
+			&app,
+			conversation_id.as_deref(),
+			system_for_log.as_deref(),
+			&current_messages,
+		);
+
 		// 发起 provider 请求并等待结果。
 		let provider_result = match provider
 			.send_request(&app, &current_messages, agent_mode, conversation_id.as_deref())
@@ -636,6 +686,15 @@ pub async fn send_chat_message(
 		if provider_result.stop_reason.as_deref() == Some("cancelled") {
 			break TurnOutcome::cancelled();
 		}
+
+		// 记录本轮响应日志。
+		crate::llm::utils::turn_log::log_response(
+			&app,
+			conversation_id.as_deref(),
+			&provider_result.messages,
+			provider_result.input_tokens,
+			provider_result.output_tokens,
+		);
 
 		let input_tokens = provider_result
 			.input_tokens
@@ -776,6 +835,14 @@ pub async fn send_chat_message(
 	);
 	if let Some(hooked_reason) = session_end_hook.stop_reason {
 		final_outcome.stop_reason = hooked_reason;
+	}
+
+	// 保存本轮完整消息快照（含 tool_use / tool_result blocks），供下一轮直接复用。
+	// 保存前剥离动态注入上下文（RAG/MCP/session_restore/global_memory），它们每轮重新生成。
+	if let Some(conv_id) = conversation_id.as_deref() {
+		let mut snapshot = current_messages.clone();
+		strip_injected_context(&mut snapshot);
+		crate::llm::history::save_turn_snapshot(&app, conv_id, &snapshot).await.ok();
 	}
 
 	// 4. 业务终止：告知前端本轮结束，并携带 stop_reason/turn_state 以区分 completed/needs_user_input/error。

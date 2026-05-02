@@ -60,6 +60,7 @@ fn normalize_provider_key(provider: &str) -> String {
 fn normalize_provider_protocol(protocol: &str) -> String {
     match protocol.trim().to_ascii_lowercase().as_str() {
         "anthropic" | "claude" => "anthropic".to_string(),
+        "openai_responses" | "responses" => "openai_responses".to_string(),
         _ => "openai".to_string(),
     }
 }
