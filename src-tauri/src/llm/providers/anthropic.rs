@@ -227,6 +227,11 @@ impl AnthropicProvider {
             }
         }
 
+        // @@日志记录 wire_request — 记录实际发出的 HTTP 请求 JSON。
+        if let Ok(wire) = serde_json::to_string(&request) {
+            crate::llm::utils::turn_log::log_wire_request(app, conversation_id, &url, &wire);
+        }
+
         // 发送请求并设置认证头。
         let resp = client
             .post(&url)
