@@ -1,0 +1,605 @@
+// 所有 provider 共用的流式 SSE 运行器。
+//
+// 架构：
+//   - `StreamParser` trait：每个 provider 实现，只负责"把一行 SSE data 解析成 Delta 列表"
+//   - `Delta` enum：统一的语义事件，与具体协议无关
+//   - `run_streaming`：共享的 SSE 缓冲循环 + emit + 工具执行 + ProviderTurnResult 组装
+//
+// 添加新 provider 只需实现 `StreamParser`，不需要写任何 SSE 循环或 emit 代码。
+
+use futures_util::StreamExt;
+use std::time::Duration;
+use tauri::{AppHandle, Emitter};
+use tokio::time::timeout;
+
+use crate::llm::query_engine::ChatMessageEvent;
+use crate::llm::providers::ProviderTurnResult;
+use crate::llm::tools;
+use crate::llm::types::{ContentBlock, Message, Role};
+use crate::llm::utils::error_event::emit_backend_error;
+use super::sse_utils::{extract_sse_data, find_sse_event_delimiter, truncate_for_log};
+
+// ─────────────────────────────────────────────
+// Delta — 协议无关的流语义事件
+// ─────────────────────────────────────────────
+
+/// 一个已完成的工具调用，包含解析后的输入 JSON。
+#[derive(Debug)]
+pub struct ReadyToolCall {
+    pub id: String,
+    pub name: String,
+    pub input: serde_json::Value,
+}
+
+/// 流式解析过程中产生的语义事件。
+/// parser 的 `parse_event` / `flush` 返回此 enum 的列表，runner 负责处理。
+#[derive(Debug)]
+pub enum Delta {
+    /// 文本内容增量。
+    Text(String),
+    /// 推理/思考增量（reasoning_content / thinking delta）。
+    Reasoning(String),
+    /// 工具调用开始（首次出现工具名）。
+    ToolStart {
+        id: Option<String>,
+        name: String,
+    },
+    /// 工具参数 JSON 增量。
+    ToolArgsDelta {
+        id: Option<String>,
+        args: String,
+    },
+    /// 一批已完整累积的工具调用，parser 决定何时 emit（触发执行）。
+    ToolsReady(Vec<ReadyToolCall>),
+    /// Token 用量更新。
+    Usage {
+        input: Option<u32>,
+        output: Option<u32>,
+    },
+    /// 流结束信号，附带可选 stop_reason。
+    Stop {
+        reason: Option<String>,
+    },
+    /// 完整的 Anthropic thinking/reasoning 块（写入 output_blocks 供多轮上下文传递）。
+    ThinkingBlock {
+        thinking: String,
+        signature: String,
+    },
+    /// 流内发生错误，附带错误消息（runner 会上报并返回 Err）。
+    Error(String),
+}
+
+// ─────────────────────────────────────────────
+// StreamParser trait
+// ─────────────────────────────────────────────
+
+/// provider 协议适配层。每个 provider 实现此 trait，只需关注：
+/// 1. 如何把一行 SSE `data:` 内容解析为若干 `Delta`
+/// 2. 流结束后是否有需要清理的残余状态
+pub trait StreamParser: Send {
+    /// 解析一行 SSE data 字符串，返回零个或多个语义事件。
+    /// 返回 `Err(msg)` 时 runner 会上报错误并中止。
+    fn parse_event(&mut self, data: &str) -> Result<Vec<Delta>, String>;
+
+    /// 流结束（bytes stream 耗尽）后调用，用于 flush 残余状态。
+    /// 例如 openai 的 pending_tool_calls 如果未经 finish_reason 触发，可在此处理。
+    fn flush(&mut self) -> Vec<Delta> {
+        Vec::new()
+    }
+
+    /// provider 标识字符串，用于错误日志。
+    fn provider_name(&self) -> &'static str;
+}
+
+// ─────────────────────────────────────────────
+// run_streaming — 共享 SSE 循环
+// ─────────────────────────────────────────────
+
+/// 运行 SSE 流式响应处理循环。
+///
+/// 负责：
+/// - SSE 字节缓冲 + 事件分帧 + UTF-8 解码
+/// - 取消检查
+/// - 调用 `parser.parse_event` 解析每个 data 行
+/// - 将 Delta 转换为前端 `chat-stream` 事件（emit）
+/// - 执行工具调用（`ToolsReady` delta 触发）
+/// - 组装并返回 `ProviderTurnResult`
+pub async fn run_streaming<P: StreamParser>(
+    parser: &mut P,
+    app: &AppHandle,
+    response: reqwest::Response,
+    conversation_id: Option<&str>,
+) -> Result<ProviderTurnResult, String> {
+    let provider = parser.provider_name();
+    let mut stream = response.bytes_stream();
+    let mut sse_buffer: Vec<u8> = Vec::new();
+
+    // 累积文本输出（最终写入 Text ContentBlock）。
+    let mut generated_text = String::new();
+    // assistant 输出块：Text / ToolUse / Thinking 等。
+    let mut output_blocks: Vec<ContentBlock> = Vec::new();
+    // 工具结果块（下一轮作为 user 消息回灌）。
+    let mut tool_result_blocks: Vec<ContentBlock> = Vec::new();
+    // hooks 注入的附加上下文消息。
+    let mut additional_context_messages: Vec<Message> = Vec::new();
+    // hooks 是否阻断续跑。
+    let mut prevent_continuation = false;
+    // hooks 给出的停止原因。
+    let mut hook_stop_reason: Option<String> = None;
+    // 是否已经向前端发过 stop 事件。
+    let mut emitted_stop = false;
+    // 流内最近一次 stop_reason。
+    let mut last_stop_reason: Option<String> = None;
+    // token 用量。
+    let mut current_input_tokens: Option<u32> = None;
+    let mut current_output_tokens: Option<u32> = None;
+
+    // ── 主循环 ──────────────────────────────────────────────────────
+    loop {
+        // 每轮先检查取消标记。
+        if crate::llm::cancellation::is_cancelled(conversation_id) {
+            return Ok(ProviderTurnResult {
+                messages: Vec::new(),
+                stop_reason: Some("cancelled".into()),
+                input_tokens: current_input_tokens,
+                output_tokens: current_output_tokens,
+                prevent_continuation: false,
+            });
+        }
+
+        // 200ms 超时轮询下一 chunk，避免永久阻塞。
+        let next_chunk = match timeout(Duration::from_millis(200), stream.next()).await {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+
+        // 流结束。
+        let Some(chunk) = next_chunk else {
+            break;
+        };
+
+        // 读取字节 chunk，失败时上报并返回错误。
+        let bytes = match chunk {
+            Ok(v) => v,
+            Err(e) => {
+                let msg = format!("{} stream chunk error: {}", provider, e);
+                emit_backend_error(app, &format!("llm.providers.{}", provider), msg.clone(), Some("stream.chunk"));
+                return Err(msg);
+            }
+        };
+        sse_buffer.extend_from_slice(&bytes);
+
+        // 在缓冲区内消费所有完整 SSE 事件。
+        while let Some((event_end, delimiter_len)) = find_sse_event_delimiter(&sse_buffer) {
+            let event_bytes = sse_buffer[..event_end].to_vec();
+            sse_buffer.drain(..event_end + delimiter_len);
+
+            // UTF-8 解码失败时上报并中止。
+            let event_raw = match String::from_utf8(event_bytes) {
+                Ok(s) => s,
+                Err(e) => {
+                    let preview = String::from_utf8_lossy(e.as_bytes()).into_owned();
+                    let msg = format!(
+                        "{} stream returned non-UTF-8 SSE event. Preview: {}",
+                        provider,
+                        truncate_for_log(&preview, 800)
+                    );
+                    emit_backend_error(app, &format!("llm.providers.{}", provider), msg.clone(), Some("stream.utf8"));
+                    return Err(msg);
+                }
+            };
+
+            let data = extract_sse_data(&event_raw);
+            if data.is_empty() || data == "[DONE]" {
+                continue;
+            }
+
+            // 每个 SSE data 行先 emit raw-json 给前端调试。
+            app.emit(
+                "chat-stream",
+                ChatMessageEvent {
+                    r#type: "raw-json".into(),
+                    text: Some(data.clone()),
+                    tool_use_id: None,
+                    tool_use_name: None,
+                    tool_use_input: None,
+                    tool_result: None,
+                    token_usage: None,
+                    stop_reason: None,
+                    turn_state: Some("raw_stream".into()),
+                    conversation_id: conversation_id.map(str::to_string),
+                },
+            ).ok();
+
+            // 调用 provider parser 解析 data 行 → Delta 列表。
+            let deltas = match parser.parse_event(&data) {
+                Ok(d) => d,
+                Err(e) => {
+                    emit_backend_error(app, &format!("llm.providers.{}", provider), e.clone(), Some("stream.parse"));
+                    return Err(e);
+                }
+            };
+
+            // 处理每个 Delta。
+            for delta in deltas {
+                if let Err(e) = process_delta(
+                    delta,
+                    app,
+                    conversation_id,
+                    provider,
+                    &mut generated_text,
+                    &mut output_blocks,
+                    &mut tool_result_blocks,
+                    &mut additional_context_messages,
+                    &mut prevent_continuation,
+                    &mut hook_stop_reason,
+                    &mut emitted_stop,
+                    &mut last_stop_reason,
+                    &mut current_input_tokens,
+                    &mut current_output_tokens,
+                ).await {
+                    return Err(e);
+                }
+            }
+        }
+    }
+
+    // 流结束后 flush parser 残余状态。
+    let flush_deltas = parser.flush();
+    for delta in flush_deltas {
+        if let Err(e) = process_delta(
+            delta,
+            app,
+            conversation_id,
+            provider,
+            &mut generated_text,
+            &mut output_blocks,
+            &mut tool_result_blocks,
+            &mut additional_context_messages,
+            &mut prevent_continuation,
+            &mut hook_stop_reason,
+            &mut emitted_stop,
+            &mut last_stop_reason,
+            &mut current_input_tokens,
+            &mut current_output_tokens,
+        ).await {
+            return Err(e);
+        }
+    }
+
+    // 检查缓冲区是否有未消费的残余字节（不应出现）。
+    if !sse_buffer.iter().all(u8::is_ascii_whitespace) {
+        let preview = String::from_utf8_lossy(&sse_buffer).into_owned();
+        let msg = format!(
+            "{} stream ended with incomplete SSE event buffered. pending_bytes={}, preview={}",
+            provider,
+            sse_buffer.len(),
+            truncate_for_log(&preview, 800)
+        );
+        emit_backend_error(app, &format!("llm.providers.{}", provider), msg.clone(), Some("stream.incomplete_event"));
+        return Err(msg);
+    }
+
+    // 将剩余累积文本写入输出块。
+    if !generated_text.is_empty() {
+        output_blocks.push(ContentBlock::Text { text: generated_text.clone() });
+    }
+
+    // 若流内未发 stop，这里补发一次。
+    if !emitted_stop {
+        app.emit(
+            "chat-stream",
+            ChatMessageEvent {
+                r#type: "stop".into(),
+                text: None,
+                tool_use_id: None,
+                tool_use_name: None,
+                tool_use_input: None,
+                tool_result: None,
+                token_usage: current_output_tokens,
+                stop_reason: last_stop_reason.clone(),
+                turn_state: Some("intermediate".into()),
+                conversation_id: conversation_id.map(str::to_string),
+            },
+        ).ok();
+    }
+
+    let output_blocks_empty = output_blocks.is_empty();
+    let tool_result_blocks_empty = tool_result_blocks.is_empty();
+
+    // 组装 assistant 消息。
+    let mut result_messages = vec![Message {
+        role: Role::Assistant,
+        content: crate::llm::types::Content::Blocks(output_blocks),
+    }];
+
+    // 有工具结果时追加 user/tool_result 消息。
+    if !tool_result_blocks.is_empty() {
+        result_messages.push(Message {
+            role: Role::User,
+            content: crate::llm::types::Content::Blocks(tool_result_blocks),
+        });
+    }
+
+    // 追加 hooks 附加上下文消息。
+    if !additional_context_messages.is_empty() {
+        result_messages.extend(additional_context_messages);
+    }
+
+    // 统一 stop_reason：hook 优先，其次流内 finish_reason，兜底 "hook_stopped_continuation"。
+    let final_stop_reason = if prevent_continuation {
+        hook_stop_reason
+            .or(last_stop_reason)
+            .or_else(|| Some("hook_stopped_continuation".to_string()))
+    } else {
+        last_stop_reason
+    };
+
+    // @@日志记录 wire_response — 记录 AI 完整回复文本及 token 用量（流结束后写一次）。
+    if !generated_text.is_empty() {
+        crate::llm::utils::turn_log::log_wire_response(app, conversation_id, &generated_text, current_input_tokens, current_output_tokens);
+    }
+
+    if output_blocks_empty && tool_result_blocks_empty {
+        let msg = format!(
+            "{} provider returned empty assistant message. stop_reason={:?}, input_tokens={:?}, output_tokens={:?}",
+            provider, final_stop_reason, current_input_tokens, current_output_tokens
+        );
+        emit_backend_error(app, &format!("llm.providers.{}", provider), msg.clone(), Some("stream.empty_assistant"));
+        return Err(msg);
+    }
+
+    Ok(ProviderTurnResult {
+        messages: result_messages,
+        stop_reason: final_stop_reason,
+        input_tokens: current_input_tokens,
+        output_tokens: current_output_tokens,
+        prevent_continuation,
+    })
+}
+
+// ─────────────────────────────────────────────
+// process_delta — 处理单个 Delta
+// ─────────────────────────────────────────────
+
+/// 处理一个 `Delta`：更新状态、emit 前端事件、执行工具调用。
+#[allow(clippy::too_many_arguments)]
+async fn process_delta(
+    delta: Delta,
+    app: &AppHandle,
+    conversation_id: Option<&str>,
+    provider: &str,
+    generated_text: &mut String,
+    output_blocks: &mut Vec<ContentBlock>,
+    tool_result_blocks: &mut Vec<ContentBlock>,
+    additional_context_messages: &mut Vec<Message>,
+    prevent_continuation: &mut bool,
+    hook_stop_reason: &mut Option<String>,
+    emitted_stop: &mut bool,
+    last_stop_reason: &mut Option<String>,
+    current_input_tokens: &mut Option<u32>,
+    current_output_tokens: &mut Option<u32>,
+) -> Result<(), String> {
+    match delta {
+        Delta::Text(text) => {
+            generated_text.push_str(&text);
+            app.emit(
+                "chat-stream",
+                ChatMessageEvent {
+                    r#type: "text".into(),
+                    text: Some(text),
+                    tool_use_id: None,
+                    tool_use_name: None,
+                    tool_use_input: None,
+                    tool_result: None,
+                    token_usage: None,
+                    stop_reason: None,
+                    turn_state: Some("streaming_text".into()),
+                    conversation_id: conversation_id.map(str::to_string),
+                },
+            ).ok();
+        }
+
+        Delta::Reasoning(text) => {
+            app.emit(
+                "chat-stream",
+                ChatMessageEvent {
+                    r#type: "reasoning".into(),
+                    text: Some(text),
+                    tool_use_id: None,
+                    tool_use_name: None,
+                    tool_use_input: None,
+                    tool_result: None,
+                    token_usage: None,
+                    stop_reason: None,
+                    turn_state: Some("streaming_reasoning".into()),
+                    conversation_id: conversation_id.map(str::to_string),
+                },
+            ).ok();
+        }
+
+        Delta::ToolStart { id, name } => {
+            app.emit(
+                "chat-stream",
+                ChatMessageEvent {
+                    r#type: "tool-use-start".into(),
+                    text: None,
+                    tool_use_id: id,
+                    tool_use_name: Some(name),
+                    tool_use_input: None,
+                    tool_result: None,
+                    token_usage: None,
+                    stop_reason: None,
+                    turn_state: Some("tool_running".into()),
+                    conversation_id: conversation_id.map(str::to_string),
+                },
+            ).ok();
+        }
+
+        Delta::ToolArgsDelta { id, args } => {
+            app.emit(
+                "chat-stream",
+                ChatMessageEvent {
+                    r#type: "tool-json-delta".into(),
+                    text: None,
+                    tool_use_id: id,
+                    tool_use_name: None,
+                    tool_use_input: Some(args),
+                    tool_result: None,
+                    token_usage: None,
+                    stop_reason: None,
+                    turn_state: Some("tool_input_streaming".into()),
+                    conversation_id: conversation_id.map(str::to_string),
+                },
+            ).ok();
+        }
+
+        Delta::ToolsReady(ready_calls) => {
+            // 先将所有工具写入 output_blocks，再批量执行。
+            let mut call_requests: Vec<tools::ToolCallRequest> = Vec::new();
+            for call in ready_calls {
+                output_blocks.push(ContentBlock::ToolUse {
+                    id: call.id.clone(),
+                    name: call.name.clone(),
+                    input: call.input.clone(),
+                });
+                app.emit(
+                    "chat-stream",
+                    ChatMessageEvent {
+                        r#type: "tool-executing".into(),
+                        text: None,
+                        tool_use_id: Some(call.id.clone()),
+                        tool_use_name: Some(call.name.clone()),
+                        tool_use_input: None,
+                        tool_result: None,
+                        token_usage: *current_output_tokens,
+                        stop_reason: None,
+                        turn_state: Some("tool_executing".into()),
+                        conversation_id: conversation_id.map(str::to_string),
+                    },
+                ).ok();
+                call_requests.push(tools::ToolCallRequest {
+                    id: call.id,
+                    name: call.name,
+                    input: call.input,
+                });
+            }
+
+            let executed_calls = tools::execute_tool_calls_with_app(
+                app,
+                conversation_id,
+                call_requests,
+            ).await;
+
+            for executed in executed_calls {
+                let serialized_input = serde_json::to_string_pretty(&executed.input)
+                    .unwrap_or_else(|_| executed.input.to_string());
+
+                app.emit(
+                    "chat-stream",
+                    ChatMessageEvent {
+                        r#type: "tool-result".into(),
+                        text: None,
+                        tool_use_id: Some(executed.id.clone()),
+                        tool_use_name: Some(executed.name.clone()),
+                        tool_use_input: Some(serialized_input),
+                        tool_result: Some(executed.output.clone()),
+                        token_usage: *current_output_tokens,
+                        stop_reason: None,
+                        turn_state: Some("tool_completed".into()),
+                        conversation_id: conversation_id.map(str::to_string),
+                    },
+                ).ok();
+
+                // Anthropic 特有：工具结果为 needs_user_input 时补发 stop。
+                if is_needs_user_input_payload(&executed.output) {
+                    app.emit(
+                        "chat-stream",
+                        ChatMessageEvent {
+                            r#type: "stop".into(),
+                            text: None,
+                            tool_use_id: None,
+                            tool_use_name: None,
+                            tool_use_input: None,
+                            tool_result: None,
+                            token_usage: *current_output_tokens,
+                            stop_reason: Some("needs_user_input".into()),
+                            turn_state: Some("awaiting_user_input".into()),
+                            conversation_id: conversation_id.map(str::to_string),
+                        },
+                    ).ok();
+                }
+
+                tool_result_blocks.push(ContentBlock::ToolResult {
+                    tool_use_id: executed.id,
+                    is_error: executed.is_error,
+                    content: vec![ContentBlock::Text { text: executed.output }],
+                });
+
+                if !executed.additional_messages.is_empty() {
+                    additional_context_messages.extend(executed.additional_messages);
+                }
+                if executed.prevent_continuation {
+                    *prevent_continuation = true;
+                    if hook_stop_reason.is_none() {
+                        *hook_stop_reason = executed.stop_reason;
+                    }
+                }
+            }
+        }
+
+        Delta::Usage { input, output } => {
+            if let Some(v) = input {
+                *current_input_tokens = Some(v);
+            }
+            if let Some(v) = output {
+                *current_output_tokens = Some(v);
+            }
+        }
+
+        Delta::Stop { reason } => {
+            if reason.is_some() {
+                *last_stop_reason = reason.clone();
+            }
+            *emitted_stop = true;
+            app.emit(
+                "chat-stream",
+                ChatMessageEvent {
+                    r#type: "stop".into(),
+                    text: None,
+                    tool_use_id: None,
+                    tool_use_name: None,
+                    tool_use_input: None,
+                    tool_result: None,
+                    token_usage: *current_output_tokens,
+                    stop_reason: reason,
+                    turn_state: Some("intermediate".into()),
+                    conversation_id: conversation_id.map(str::to_string),
+                },
+            ).ok();
+        }
+
+        Delta::ThinkingBlock { thinking, signature } => {
+            output_blocks.push(ContentBlock::Thinking { thinking, signature });
+        }
+
+        Delta::Error(msg) => {
+            emit_backend_error(
+                app,
+                &format!("llm.providers.{}", provider),
+                msg.clone(),
+                Some("stream.provider_error"),
+            );
+            return Err(msg);
+        }
+    }
+    Ok(())
+}
+
+/// 工具结果是否表示需要用户输入（type == "needs_user_input"）。
+fn is_needs_user_input_payload(raw: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(raw)
+        .ok()
+        .and_then(|v| v.get("type").and_then(|t| t.as_str()).map(|s| s == "needs_user_input"))
+        .unwrap_or(false)
+}

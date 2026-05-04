@@ -198,10 +198,10 @@ pub async fn assemble_messages_for_turn(
             assembled.push(msg);
         }
     }
-    println!("Assembled messages for turn ({} messages):", assembled.len());
-    for (idx, msg) in assembled.iter().enumerate() {
-        println!("  {}. [{:?}] {}", idx + 1, msg.role, text_from_content(&msg.content));
-    }
+    // println!("Assembled messages for turn ({} messages):", assembled.len());
+    // for (idx, msg) in assembled.iter().enumerate() {
+    //     println!("  {}. [{:?}] {}", idx + 1, msg.role, text_from_content(&msg.content));
+    // }
     // 返回的是本轮模型请求候选上下文；是否 compact、是否保存 snapshot 由 query 层处理。
     assembled
 }

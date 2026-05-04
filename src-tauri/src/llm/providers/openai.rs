@@ -1,18 +1,17 @@
-use futures_util::StreamExt;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap, VecDeque};
-use std::time::Duration;
-use tauri::{AppHandle, Emitter};
-use tokio::time::timeout;
+use tauri::AppHandle;
 
-use crate::llm::query_engine::ChatMessageEvent;
 use crate::llm::providers::ProviderTurnResult;
+use crate::llm::providers::stream_runner::{Delta, ReadyToolCall, StreamParser, run_streaming};
 use crate::llm::tools;
 use crate::llm::types::{AgentMode, ContentBlock, Message, Role};
 use crate::llm::utils::error_event::emit_backend_error;
 use crate::llm::utils::system_prompt::load_system_prompt;
+
+use super::sse_utils::truncate_for_log;
 
 // OpenAI Provider 相关结构体定义。
 // 主要负责：
@@ -169,16 +168,6 @@ fn extract_reasoning_text(value: &Value) -> String {
     }
 }
 
-fn truncate_for_log(input: &str, max_chars: usize) -> String {
-    let mut chars = input.chars();
-    let preview: String = chars.by_ref().take(max_chars).collect();
-    if chars.next().is_some() {
-        format!("{}...", preview)
-    } else {
-        preview
-    }
-}
-
 #[derive(Debug, Clone)]
 struct StreamDiagnosticEvent {
     seq: u64,
@@ -189,35 +178,6 @@ struct StreamDiagnosticEvent {
     finish_reasons: Vec<String>,
     tool_delta_count: usize,
     tool_delta_summaries: Vec<String>,
-}
-
-fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    haystack
-        .windows(needle.len())
-        .position(|window| window == needle)
-}
-
-fn find_sse_event_delimiter(input: &[u8]) -> Option<(usize, usize)> {
-    let lf = find_bytes(input, b"\n\n").map(|idx| (idx, 2));
-    let crlf = find_bytes(input, b"\r\n\r\n").map(|idx| (idx, 4));
-    match (lf, crlf) {
-        (Some(left), Some(right)) => Some(if left.0 <= right.0 { left } else { right }),
-        (Some(found), None) | (None, Some(found)) => Some(found),
-        (None, None) => None,
-    }
-}
-
-fn extract_sse_data(event_raw: &str) -> String {
-    event_raw
-        .lines()
-        .filter_map(|line| {
-            let trimmed = line.trim_start();
-            trimmed
-                .strip_prefix("data:")
-                .map(|data| data.trim_start().to_string())
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
 }
 
 fn summarize_tool_delta(tool_call: &OpenAiToolCall) -> String {
@@ -330,7 +290,7 @@ fn format_stream_diagnostics(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::super::sse_utils::{extract_sse_data, find_sse_event_delimiter};
 
     #[test]
     fn finds_sse_event_delimiters() {
@@ -362,8 +322,6 @@ mod tests {
     }
 }
 
-pub struct OpenAiProvider;
-
 #[derive(Debug, Default)]
 struct PendingToolCall {
     // 累积到的调用 ID。
@@ -392,6 +350,192 @@ fn build_openai_image_part(source: &crate::llm::types::ImageSource) -> Option<Va
         }
     }))
 }
+
+// ─────────────────────────────────────────────
+// OpenAiStreamParser — 实现 StreamParser trait
+// ─────────────────────────────────────────────
+
+struct OpenAiStreamParser {
+    pending: BTreeMap<usize, PendingToolCall>,
+    recent_events: VecDeque<StreamDiagnosticEvent>,
+    seq: u64,
+}
+
+impl OpenAiStreamParser {
+    fn new() -> Self {
+        Self {
+            pending: BTreeMap::new(),
+            recent_events: VecDeque::with_capacity(STREAM_DIAGNOSTIC_EVENT_LIMIT),
+            seq: 0,
+        }
+    }
+
+    fn push_diagnostic(&mut self, event: StreamDiagnosticEvent) {
+        push_stream_diagnostic_event(&mut self.recent_events, event);
+    }
+
+    fn diag_ctx(&self) -> String {
+        format_stream_diagnostics(&self.recent_events, 0)
+    }
+}
+
+impl StreamParser for OpenAiStreamParser {
+    fn provider_name(&self) -> &'static str {
+        "openai"
+    }
+
+    fn parse_event(&mut self, data: &str) -> Result<Vec<Delta>, String> {
+        self.seq += 1;
+
+        let chunk: OpenAiStreamChunk = match serde_json::from_str(data) {
+            Ok(c) => {
+                let diag = build_stream_diagnostic_event(self.seq, data, Ok(&c));
+                self.push_diagnostic(diag);
+                c
+            }
+            Err(e) => {
+                let err_str = e.to_string();
+                let diag = build_stream_diagnostic_event(self.seq, data, Err(err_str.clone()));
+                self.push_diagnostic(diag);
+                return Err(format!(
+                    "Failed to parse OpenAI SSE event JSON: {}. Data preview: {}. {}",
+                    err_str,
+                    truncate_for_log(data, 800),
+                    self.diag_ctx()
+                ));
+            }
+        };
+
+        let mut deltas: Vec<Delta> = Vec::new();
+
+        // Token usage（末尾 chunk 中）。
+        if let Some(usage) = chunk.usage {
+            let output = usage.completion_tokens.or_else(|| {
+                usage.total_tokens.zip(usage.prompt_tokens)
+                    .and_then(|(total, prompt)| total.checked_sub(prompt))
+            });
+            deltas.push(Delta::Usage { input: usage.prompt_tokens, output });
+        }
+
+        for choice in chunk.choices {
+            let OpenAiDelta { content, tool_calls, extra } = choice.delta;
+
+            // 文本增量。
+            if let Some(text) = content {
+                if !text.is_empty() {
+                    deltas.push(Delta::Text(text));
+                }
+            }
+
+            // 推理增量（OpenAI o 系列 / 各兼容厂商扩展字段）。
+            for key in ["reasoning", "reasoning_content"] {
+                if let Some(value) = extra.get(key) {
+                    let text = extract_reasoning_text(value);
+                    if !text.is_empty() {
+                        deltas.push(Delta::Reasoning(text));
+                    }
+                }
+            }
+
+            // 工具调用增量：累积到 pending map 中。
+            if let Some(tool_call_deltas) = tool_calls {
+                for tc in tool_call_deltas {
+                    let entry = self.pending.entry(tc.index).or_default();
+
+                    if let Some(id) = tc.id {
+                        entry.id = Some(id);
+                    }
+
+                    if let Some(func) = tc.function {
+                        if let Some(name) = func.name {
+                            if entry.name.is_none() {
+                                // 首次出现工具名时通知前端。
+                                deltas.push(Delta::ToolStart {
+                                    id: entry.id.clone(),
+                                    name: name.clone(),
+                                });
+                            }
+                            entry.name = Some(name);
+                        }
+                        if let Some(args) = func.arguments {
+                            deltas.push(Delta::ToolArgsDelta {
+                                id: entry.id.clone(),
+                                args: args.clone(),
+                            });
+                            entry.arguments.push_str(&args);
+                        }
+                    }
+                }
+            }
+
+            // finish_reason 驱动工具执行。
+            if let Some(finish_reason) = choice.finish_reason {
+                if finish_reason == "tool_calls" {
+                    let drained: Vec<(usize, PendingToolCall)> = std::mem::take(&mut self.pending)
+                        .into_iter()
+                        .collect();
+
+                    if drained.is_empty() {
+                        return Err(format!(
+                            "OpenAI stream reported finish_reason=tool_calls but no pending tool call deltas were captured. {}",
+                            self.diag_ctx()
+                        ));
+                    }
+
+                    let mut ready: Vec<ReadyToolCall> = Vec::new();
+                    for (index, tc) in drained {
+                        let (id, name) = match (tc.id, tc.name) {
+                            (Some(id), Some(name)) => (id, name),
+                            (id, name) => {
+                                return Err(format!(
+                                    "OpenAI tool call at index={} incomplete at finish_reason=tool_calls: has_id={:?}, has_name={:?}, args_preview={}. {}",
+                                    index, id, name,
+                                    truncate_for_log(&tc.arguments, 800),
+                                    self.diag_ctx()
+                                ));
+                            }
+                        };
+                        let input: serde_json::Value = match serde_json::from_str(&tc.arguments) {
+                            Ok(v) => v,
+                            Err(e) => {
+                                return Err(format!(
+                                    "Failed to parse OpenAI tool call arguments for '{}': {}. Args preview: {}. {}",
+                                    name, e,
+                                    truncate_for_log(&tc.arguments, 800),
+                                    self.diag_ctx()
+                                ));
+                            }
+                        };
+                        ready.push(ReadyToolCall { id, name, input });
+                    }
+                    deltas.push(Delta::ToolsReady(ready));
+                } else if finish_reason == "stop" {
+                    deltas.push(Delta::Stop { reason: Some(finish_reason) });
+                }
+            }
+        }
+
+        Ok(deltas)
+    }
+
+    fn flush(&mut self) -> Vec<Delta> {
+        if self.pending.is_empty() {
+            return Vec::new();
+        }
+        let drained: Vec<(usize, PendingToolCall)> = std::mem::take(&mut self.pending).into_iter().collect();
+        let mut ready: Vec<ReadyToolCall> = Vec::new();
+        for (_index, tc) in drained {
+            if let (Some(id), Some(name)) = (tc.id, tc.name) {
+                if let Ok(input) = serde_json::from_str::<serde_json::Value>(&tc.arguments) {
+                    ready.push(ReadyToolCall { id, name, input });
+                }
+            }
+        }
+        if ready.is_empty() { Vec::new() } else { vec![Delta::ToolsReady(ready)] }
+    }
+}
+
+pub struct OpenAiProvider;
 
 impl OpenAiProvider {
     pub async fn send_request(
@@ -606,6 +750,11 @@ impl OpenAiProvider {
             req_builder = req_builder.header("Authorization", format!("Bearer {}", profile.api_key));
         }
 
+        // @@日志记录 wire_request — 记录实际发出的 HTTP 请求 JSON。
+        if let Ok(wire) = serde_json::to_string(&request) {
+            crate::llm::utils::turn_log::log_wire_request(app, conversation_id, &url, &wire);
+        }
+
         // 发起请求。
         let resp = req_builder.json(&request).send().await;
 
@@ -622,7 +771,10 @@ impl OpenAiProvider {
                     return Err(msg);
                 }
 
-                self.process_stream_response(app, res, conversation_id).await
+                {
+                    let mut parser = OpenAiStreamParser::new();
+                    run_streaming(&mut parser, app, res, conversation_id).await
+                }
             }
             Err(e) => {
                 let msg = e.to_string();
@@ -630,604 +782,5 @@ impl OpenAiProvider {
                 Err(msg)
             }
         }
-    }
-
-    // 处理 OpenAI 的数据流响应。将网络 chunk 缓冲成完整 SSE event 后再解析并即时 emit：
-    // - raw-json
-    // - text (content delta)
-    // - tool-use / tool-json-delta / tool-result
-    // - token-usage + stop
-    // 最终合成 ProviderTurnResult 供 query_engine 继续回合决策。
-    async fn process_stream_response(
-        &self,
-        app: &AppHandle,
-        response: reqwest::Response,
-        conversation_id: Option<&str>,
-    ) -> Result<ProviderTurnResult, String> {
-        // 获取响应字节流。
-        let mut stream = response.bytes_stream();
-        // 累积文本输出。
-        let mut generated_text = String::new();
-        // 按 index 累积未完成的工具调用增量。
-        let mut pending_tool_calls: BTreeMap<usize, PendingToolCall> = BTreeMap::new();
-        
-        // assistant 最终输出块。
-        let mut output_blocks: Vec<ContentBlock> = Vec::new();
-        // 工具结果块（作为下一轮 user blocks 回灌）。
-        let mut tool_result_blocks: Vec<ContentBlock> = Vec::new();
-        // hooks 注入的附加上下文消息。
-        let mut additional_context_messages: Vec<Message> = Vec::new();
-        // 是否阻止后续续跑。
-        let mut prevent_continuation = false;
-        // hook 给出的停止原因。
-        let mut hook_stop_reason: Option<String> = None;
-        
-        // 是否已经发过 stop 事件。
-        let mut emitted_stop = false;
-        // 最后一条 finish_reason。
-        let mut last_finish_reason: Option<String> = None;
-        // 本次请求实际输入 token（OpenAI usage.prompt_tokens）。
-        let mut current_input_tokens: Option<u32> = None;
-        // 本次请求实际输出 token（OpenAI usage.completion_tokens）。
-        let mut current_output_tokens: Option<u32> = None;
-        // SSE event 和 UTF-8 字符都可能跨网络 chunk，必须按字节缓冲到完整 event 再解码。
-        let mut sse_buffer: Vec<u8> = Vec::new();
-        let mut sse_next_seq = 0u64;
-        let mut recent_sse_events: VecDeque<StreamDiagnosticEvent> =
-            VecDeque::with_capacity(STREAM_DIAGNOSTIC_EVENT_LIMIT);
-
-        loop {
-            // 每轮先检查是否取消。
-            if crate::llm::cancellation::is_cancelled(conversation_id) {
-                return Ok(ProviderTurnResult {
-                    messages: Vec::new(),
-                    stop_reason: Some("cancelled".into()),
-                    input_tokens: current_input_tokens,
-                    output_tokens: current_output_tokens,
-                    prevent_continuation: false,
-                });
-            }
-
-            // 200ms 轮询读取下一块，避免阻塞过久。
-            let next_chunk = match timeout(Duration::from_millis(200), stream.next()).await {
-                Ok(v) => v,
-                Err(_) => continue,
-            };
-
-            // 流结束。
-            let Some(chunk) = next_chunk else {
-                break;
-            };
-
-            // 提取字节块，错误时上报并返回。
-            let bytes = match chunk {
-                Ok(v) => v,
-                Err(e) => {
-                    let msg = format!("OpenAI stream chunk error: {}", e);
-                    emit_backend_error(app, "llm.providers.openai", msg.clone(), Some("stream.chunk"));
-                    return Err(msg);
-                }
-            };
-            sse_buffer.extend_from_slice(&bytes);
-            while let Some((event_idx, delimiter_len)) = find_sse_event_delimiter(&sse_buffer) {
-                let event_bytes = sse_buffer[..event_idx].to_vec();
-                sse_buffer.drain(..event_idx + delimiter_len);
-
-                let event_raw = match String::from_utf8(event_bytes) {
-                    Ok(event_raw) => event_raw,
-                    Err(e) => {
-                        sse_next_seq += 1;
-                        let invalid_bytes = e.into_bytes();
-                        let preview = String::from_utf8_lossy(&invalid_bytes).into_owned();
-                        let msg = format!(
-                            "OpenAI stream returned a non-UTF-8 SSE event. Event preview: {}. {}",
-                            truncate_for_log(&preview, 800),
-                            format_stream_diagnostics(&recent_sse_events, sse_buffer.len())
-                        );
-                        push_stream_diagnostic_event(
-                            &mut recent_sse_events,
-                            StreamDiagnosticEvent {
-                                seq: sse_next_seq,
-                                parse_ok: false,
-                                parse_error: Some("non-UTF-8 SSE event".to_string()),
-                                data_preview: truncate_for_log(&preview, STREAM_DIAGNOSTIC_PREVIEW_CHARS),
-                                choices_len: None,
-                                finish_reasons: Vec::new(),
-                                tool_delta_count: 0,
-                                tool_delta_summaries: Vec::new(),
-                            },
-                        );
-                        emit_backend_error(
-                            app,
-                            "llm.providers.openai",
-                            msg.clone(),
-                            Some("stream.utf8"),
-                        );
-                        return Err(msg);
-                    }
-                };
-
-                let data = extract_sse_data(&event_raw);
-                if data.is_empty() {
-                    continue;
-                }
-
-                sse_next_seq += 1;
-                if data == "[DONE]" {
-                    push_stream_diagnostic_event(
-                        &mut recent_sse_events,
-                        StreamDiagnosticEvent {
-                            seq: sse_next_seq,
-                            parse_ok: true,
-                            parse_error: None,
-                            data_preview: "[DONE]".to_string(),
-                            choices_len: Some(0),
-                            finish_reasons: vec!["[DONE]".to_string()],
-                            tool_delta_count: 0,
-                            tool_delta_summaries: Vec::new(),
-                        },
-                    );
-                    continue;
-                }
-
-                app.emit(
-                    "chat-stream",
-                    ChatMessageEvent {
-                        r#type: "raw-json".into(),
-                        text: Some(data.clone()),
-                        tool_use_id: None,
-                        tool_use_name: None,
-                        tool_use_input: None,
-                        tool_result: None,
-                        token_usage: None,
-                        stop_reason: None,
-                        turn_state: Some("raw_stream".into()),
-                        conversation_id: conversation_id.map(str::to_string),
-                    },
-                )
-                .ok();
-
-                let chunk = match serde_json::from_str::<OpenAiStreamChunk>(&data) {
-                    Ok(chunk) => {
-                        push_stream_diagnostic_event(
-                            &mut recent_sse_events,
-                            build_stream_diagnostic_event(sse_next_seq, &data, Ok(&chunk)),
-                        );
-                        chunk
-                    }
-                    Err(e) => {
-                        let parse_error = e.to_string();
-                        let msg = format!(
-                            "Failed to parse OpenAI SSE event JSON: {}. Data preview: {}. {}",
-                            parse_error,
-                            truncate_for_log(&data, 800),
-                            format_stream_diagnostics(&recent_sse_events, sse_buffer.len())
-                        );
-                        push_stream_diagnostic_event(
-                            &mut recent_sse_events,
-                            build_stream_diagnostic_event(
-                                sse_next_seq,
-                                &data,
-                                Err(parse_error.clone()),
-                            ),
-                        );
-                        emit_backend_error(
-                            app,
-                            "llm.providers.openai",
-                            msg.clone(),
-                            Some("stream.parse"),
-                        );
-                        return Err(msg);
-                    }
-                };
-
-                if let Some(usage) = chunk.usage {
-                    current_input_tokens = usage.prompt_tokens;
-                    current_output_tokens = usage.completion_tokens.or_else(|| {
-                        usage
-                            .total_tokens
-                            .zip(usage.prompt_tokens)
-                            .and_then(|(total, prompt)| total.checked_sub(prompt))
-                    });
-                }
-
-                for choice in chunk.choices {
-                    let OpenAiDelta {
-                        content,
-                        tool_calls,
-                        extra,
-                    } = choice.delta;
-
-                    if let Some(content) = content {
-                        generated_text.push_str(&content);
-                        app.emit(
-                            "chat-stream",
-                            ChatMessageEvent {
-                                r#type: "text".into(),
-                                text: Some(content),
-                                tool_use_id: None,
-                                tool_use_name: None,
-                                tool_use_input: None,
-                                tool_result: None,
-                                token_usage: None,
-                                stop_reason: None,
-                                turn_state: Some("streaming_text".into()),
-                                conversation_id: conversation_id.map(str::to_string),
-                            },
-                        )
-                        .ok();
-                    }
-
-                    for key in ["reasoning", "reasoning_content"] {
-                        if let Some(value) = extra.get(key) {
-                            let reasoning_text = extract_reasoning_text(value);
-                            if !reasoning_text.is_empty() {
-                                app.emit(
-                                    "chat-stream",
-                                    ChatMessageEvent {
-                                        r#type: "reasoning".into(),
-                                        text: Some(reasoning_text),
-                                        tool_use_id: None,
-                                        tool_use_name: None,
-                                        tool_use_input: None,
-                                        tool_result: None,
-                                        token_usage: None,
-                                        stop_reason: None,
-                                        turn_state: Some("streaming_reasoning".into()),
-                                        conversation_id: conversation_id.map(str::to_string),
-                                    },
-                                )
-                                .ok();
-                            }
-                        }
-                    }
-
-                    if let Some(tool_calls) = tool_calls {
-                        for tc in tool_calls {
-                            let entry = pending_tool_calls.entry(tc.index).or_default();
-
-                            if let Some(id) = tc.id {
-                                entry.id = Some(id);
-                            }
-
-                            if let Some(func) = tc.function {
-                                if let Some(name) = func.name {
-                                    if entry.name.is_none() {
-                                        app.emit(
-                                            "chat-stream",
-                                            ChatMessageEvent {
-                                                r#type: "tool-use-start".into(),
-                                                text: None,
-                                                tool_use_id: entry.id.clone(),
-                                                tool_use_name: Some(name.clone()),
-                                                tool_use_input: None,
-                                                tool_result: None,
-                                                token_usage: None,
-                                                stop_reason: None,
-                                                turn_state: Some("tool_running".into()),
-                                                conversation_id: conversation_id.map(str::to_string),
-                                            },
-                                        )
-                                        .ok();
-                                    }
-                                    entry.name = Some(name);
-                                }
-
-                                if let Some(args) = func.arguments {
-                                    entry.arguments.push_str(&args);
-                                    app.emit(
-                                        "chat-stream",
-                                        ChatMessageEvent {
-                                            r#type: "tool-json-delta".into(),
-                                            text: None,
-                                            tool_use_id: entry.id.clone(),
-                                            tool_use_name: None,
-                                            tool_use_input: Some(args),
-                                            tool_result: None,
-                                            token_usage: None,
-                                            stop_reason: None,
-                                            turn_state: Some("tool_input_streaming".into()),
-                                            conversation_id: conversation_id.map(str::to_string),
-                                        },
-                                    )
-                                    .ok();
-                                }
-                            }
-                        }
-                    }
-
-                    if let Some(finish_reason) = choice.finish_reason {
-                        last_finish_reason = Some(finish_reason.clone());
-                        if finish_reason == "tool_calls" {
-                            let drained_calls: Vec<(usize, PendingToolCall)> = pending_tool_calls
-                                .iter()
-                                .map(|(k, v)| {
-                                    (
-                                        *k,
-                                        PendingToolCall {
-                                            id: v.id.clone(),
-                                            name: v.name.clone(),
-                                            arguments: v.arguments.clone(),
-                                        },
-                                    )
-                                })
-                                .collect();
-
-                            pending_tool_calls.clear();
-                            if drained_calls.is_empty() {
-                                let msg = format!(
-                                    "OpenAI stream reported finish_reason=tool_calls, but no pending tool call deltas were captured. {}",
-                                    format_stream_diagnostics(&recent_sse_events, sse_buffer.len())
-                                );
-                                emit_backend_error(
-                                    app,
-                                    "llm.providers.openai",
-                                    msg.clone(),
-                                    Some("stream.tool_calls.empty_pending"),
-                                );
-                                return Err(msg);
-                            }
-
-                            let mut call_requests: Vec<tools::ToolCallRequest> = Vec::new();
-                            for (index, tc) in drained_calls {
-                                let raw_arguments = tc.arguments;
-                                let (id, name) = match (tc.id, tc.name) {
-                                    (Some(id), Some(name)) => (id, name),
-                                    (id, name) => {
-                                        let msg = format!(
-                                            "OpenAI tool call delta at index {} was incomplete when finish_reason=tool_calls arrived: has_id={}, has_name={}, arguments_preview={}. {}",
-                                            index,
-                                            id.is_some(),
-                                            name.is_some(),
-                                            truncate_for_log(&raw_arguments, 800),
-                                            format_stream_diagnostics(&recent_sse_events, sse_buffer.len())
-                                        );
-                                        emit_backend_error(
-                                            app,
-                                            "llm.providers.openai",
-                                            msg.clone(),
-                                            Some("stream.tool_calls.incomplete"),
-                                        );
-                                        return Err(msg);
-                                    }
-                                };
-
-                                let input_value: Value = match serde_json::from_str(&raw_arguments) {
-                                    Ok(value) => value,
-                                    Err(e) => {
-                                        let msg = format!(
-                                            "Failed to parse OpenAI tool call arguments for '{}': {}. Raw arguments preview: {}. {}",
-                                            name,
-                                            e,
-                                            truncate_for_log(&raw_arguments, 800),
-                                            format_stream_diagnostics(&recent_sse_events, sse_buffer.len())
-                                        );
-                                        emit_backend_error(
-                                            app,
-                                            "llm.providers.openai",
-                                            msg.clone(),
-                                            Some("stream.tool_arguments.parse"),
-                                        );
-                                        return Err(msg);
-                                    }
-                                };
-
-                                output_blocks.push(ContentBlock::ToolUse {
-                                    id: id.clone(),
-                                    name: name.clone(),
-                                    input: input_value.clone(),
-                                });
-
-                                app.emit(
-                                    "chat-stream",
-                                    ChatMessageEvent {
-                                        r#type: "tool-executing".into(),
-                                        text: None,
-                                        tool_use_id: Some(id.clone()),
-                                        tool_use_name: Some(name.clone()),
-                                        tool_use_input: None,
-                                        tool_result: None,
-                                        token_usage: None,
-                                        stop_reason: None,
-                                        turn_state: Some("tool_executing".into()),
-                                        conversation_id: conversation_id.map(str::to_string),
-                                    },
-                                )
-                                .ok();
-
-                                call_requests.push(tools::ToolCallRequest {
-                                    id,
-                                    name,
-                                    input: input_value,
-                                });
-                            }
-
-                            if call_requests.is_empty() {
-                                let msg = format!(
-                                    "OpenAI stream reported finish_reason=tool_calls, but no complete tool calls were queued for execution. {}",
-                                    format_stream_diagnostics(&recent_sse_events, sse_buffer.len())
-                                );
-                                emit_backend_error(
-                                    app,
-                                    "llm.providers.openai",
-                                    msg.clone(),
-                                    Some("stream.tool_calls.empty_queue"),
-                                );
-                                return Err(msg);
-                            }
-
-                            let executed_calls = tools::execute_tool_calls_with_app(
-                                app,
-                                conversation_id,
-                                call_requests,
-                            )
-                            .await;
-
-                            for executed in executed_calls {
-                                let serialized_input =
-                                    serde_json::to_string_pretty(&executed.input)
-                                        .unwrap_or_else(|_| executed.input.to_string());
-                                app.emit(
-                                    "chat-stream",
-                                    ChatMessageEvent {
-                                        r#type: "tool-result".into(),
-                                        text: None,
-                                        tool_use_id: Some(executed.id.clone()),
-                                        tool_use_name: Some(executed.name.clone()),
-                                        tool_use_input: Some(serialized_input),
-                                        tool_result: Some(executed.output.clone()),
-                                        token_usage: None,
-                                        stop_reason: None,
-                                        turn_state: Some("tool_completed".into()),
-                                        conversation_id: conversation_id.map(str::to_string),
-                                    },
-                                )
-                                .ok();
-
-                                tool_result_blocks.push(ContentBlock::ToolResult {
-                                    tool_use_id: executed.id,
-                                    is_error: executed.is_error,
-                                    content: vec![ContentBlock::Text {
-                                        text: executed.output,
-                                    }],
-                                });
-
-                                if !executed.additional_messages.is_empty() {
-                                    additional_context_messages.extend(executed.additional_messages);
-                                }
-                                if executed.prevent_continuation {
-                                    prevent_continuation = true;
-                                    if hook_stop_reason.is_none() {
-                                        hook_stop_reason = executed.stop_reason;
-                                    }
-                                }
-                            }
-                        } else if finish_reason == "stop" {
-                            emitted_stop = true;
-                            app.emit(
-                                "chat-stream",
-                                ChatMessageEvent {
-                                    r#type: "stop".into(),
-                                    text: None,
-                                    tool_use_id: None,
-                                    tool_use_name: None,
-                                    tool_use_input: None,
-                                    tool_result: None,
-                                    token_usage: None,
-                                    stop_reason: Some(finish_reason),
-                                    turn_state: Some("intermediate".into()),
-                                    conversation_id: conversation_id.map(str::to_string),
-                                },
-                            )
-                            .ok();
-                        }
-                    }
-                }
-            }
-        }
-        if !sse_buffer.iter().all(u8::is_ascii_whitespace) {
-            let preview = String::from_utf8_lossy(&sse_buffer);
-            let msg = format!(
-                "OpenAI stream ended with an incomplete SSE event still buffered. Pending bytes={}, preview={}. {}",
-                sse_buffer.len(),
-                truncate_for_log(&preview, 800),
-                format_stream_diagnostics(&recent_sse_events, sse_buffer.len())
-            );
-            emit_backend_error(
-                app,
-                "llm.providers.openai",
-                msg.clone(),
-                Some("stream.incomplete_event"),
-            );
-            return Err(msg);
-        }
-
-        // 将剩余文本写入输出块。
-        if !generated_text.is_empty() {
-            output_blocks.push(ContentBlock::Text {
-                text: generated_text.clone(),
-            });
-        }
-
-        // 若流内未发 stop，这里补发一次。
-        if !emitted_stop {
-            app.emit(
-                "chat-stream",
-                ChatMessageEvent {
-                    r#type: "stop".into(),
-                    text: None,
-                    tool_use_id: None,
-                    tool_use_name: None,
-                    tool_use_input: None,
-                    tool_result: None,
-                    token_usage: None,
-                    stop_reason: None,
-                    turn_state: Some("intermediate".into()),
-                    conversation_id: conversation_id.map(str::to_string),
-                },
-            )
-            .ok();
-        }
-
-        let output_blocks_empty = output_blocks.is_empty();
-        let tool_result_blocks_empty = tool_result_blocks.is_empty();
-
-        // 组装 assistant 消息。
-        let mut result_messages = vec![Message {
-            role: Role::Assistant,
-            content: crate::llm::types::Content::Blocks(output_blocks),
-        }];
-
-        // 有工具结果时附加 user/tool_result 消息。
-        if !tool_result_blocks.is_empty() {
-            result_messages.push(Message {
-                role: Role::User,
-                content: crate::llm::types::Content::Blocks(tool_result_blocks),
-            });
-        }
-
-        // 附加 hooks 上下文消息。
-        let additional_context_messages_len = additional_context_messages.len();
-        if !additional_context_messages.is_empty() {
-            result_messages.extend(additional_context_messages);
-        }
-
-        // 统一最终 stop_reason：hook 优先，其次 finish_reason。
-        let final_stop_reason = if prevent_continuation {
-            hook_stop_reason
-                .or(last_finish_reason)
-                .or_else(|| Some("hook_stopped_continuation".to_string()))
-        } else {
-            last_finish_reason
-        };
-
-        if output_blocks_empty && tool_result_blocks_empty {
-            let msg = format!(
-                "OpenAI provider is returning an empty assistant message. final_stop_reason={:?}, emitted_stop={}, input_tokens={:?}, output_tokens={:?}, prevent_continuation={}, additional_context_messages={}, {}",
-                final_stop_reason,
-                emitted_stop,
-                current_input_tokens,
-                current_output_tokens,
-                prevent_continuation,
-                additional_context_messages_len,
-                format_stream_diagnostics(&recent_sse_events, sse_buffer.len())
-            );
-            emit_backend_error(
-                app,
-                "llm.providers.openai",
-                msg.clone(),
-                Some("stream.empty_assistant"),
-            );
-            return Err(msg);
-        }
-
-        // 返回 provider 回合结果。
-        Ok(ProviderTurnResult {
-            messages: result_messages,
-            stop_reason: final_stop_reason,
-            input_tokens: current_input_tokens,
-            output_tokens: current_output_tokens,
-            prevent_continuation,
-        })
     }
 }

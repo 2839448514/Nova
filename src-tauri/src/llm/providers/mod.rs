@@ -4,6 +4,10 @@ pub mod anthropic;
 pub mod openai;
 // OpenAI Responses API provider 实现。
 pub mod responses;
+// 共享 SSE 解析工具函数。
+pub mod sse_utils;
+// 共享流式运行器（StreamParser trait + run_streaming + Delta）。
+pub mod stream_runner;
 
 use tauri::AppHandle;
 use crate::llm::types::{AgentMode, Message};

@@ -625,16 +625,6 @@ pub async fn send_chat_message(
             "estimated",
         );
 
-        // 记录本轮请求日志（含 system prompt）。
-        let system_for_log =
-            crate::llm::utils::system_prompt::load_system_prompt(&app, agent_mode).ok();
-        crate::llm::utils::turn_log::log_request(
-            &app,
-            conversation_id.as_deref(),
-            system_for_log.as_deref(),
-            &current_messages,
-        );
-
         // 发起 provider 请求并等待结果。
         let provider_result = match provider
             .send_request(
@@ -759,15 +749,6 @@ pub async fn send_chat_message(
 
             break TurnOutcome::cancelled();
         }
-
-        // 记录本轮响应日志。
-        crate::llm::utils::turn_log::log_response(
-            &app,
-            conversation_id.as_deref(),
-            &provider_result.messages,
-            provider_result.input_tokens,
-            provider_result.output_tokens,
-        );
 
         let input_tokens = provider_result
             .input_tokens

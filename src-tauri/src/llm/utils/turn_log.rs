@@ -3,7 +3,8 @@ use std::io::Write as IoWrite;
 
 use tauri::{AppHandle, Manager};
 
-use crate::llm::types::Message;
+/// 设为 false 可全局关闭 turn_log 日志输出。
+const TURN_LOG_ENABLED: bool = true;
 
 fn log_path(app: &AppHandle, conversation_id: Option<&str>) -> Option<std::path::PathBuf> {
 	let base = app.path().app_data_dir().ok()?;
@@ -22,6 +23,9 @@ fn log_path(app: &AppHandle, conversation_id: Option<&str>) -> Option<std::path:
 }
 
 fn append_to_log(app: &AppHandle, conversation_id: Option<&str>, text: &str) {
+	if !TURN_LOG_ENABLED {
+		return;
+	}
 	let Some(path) = log_path(app, conversation_id) else {
 		return;
 	};
@@ -37,34 +41,34 @@ fn append_to_log(app: &AppHandle, conversation_id: Option<&str>, text: &str) {
 	}
 }
 
-pub fn log_request(
+pub fn log_wire_request(
 	app: &AppHandle,
 	conversation_id: Option<&str>,
-	system: Option<&str>,
-	messages: &[Message],
+	url: &str,
+	body: &str,
 ) {
 	let entry = serde_json::json!({
-		"type": "request",
+		"type": "wire_request",
 		"ts": chrono::Local::now().to_rfc3339(),
-		"system": system,
-		"messages": messages,
+		"url": url,
+		"body": serde_json::from_str::<serde_json::Value>(body).unwrap_or(serde_json::Value::String(body.to_string())),
 	});
 	append_to_log(app, conversation_id, &entry.to_string());
 }
 
-pub fn log_response(
+pub fn log_wire_response(
 	app: &AppHandle,
 	conversation_id: Option<&str>,
-	messages: &[Message],
+	data: &str,
 	input_tokens: Option<u32>,
 	output_tokens: Option<u32>,
 ) {
 	let entry = serde_json::json!({
-		"type": "response",
+		"type": "wire_response",
 		"ts": chrono::Local::now().to_rfc3339(),
 		"input_tokens": input_tokens,
 		"output_tokens": output_tokens,
-		"messages": messages,
+		"data": serde_json::from_str::<serde_json::Value>(data).unwrap_or(serde_json::Value::String(data.to_string())),
 	});
 	append_to_log(app, conversation_id, &entry.to_string());
 }
