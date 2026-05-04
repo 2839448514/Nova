@@ -572,7 +572,7 @@ pub async fn send_chat_message(
         if crate::llm::cancellation::is_cancelled(conversation_id.as_deref()) {
             break TurnOutcome::cancelled();
         }
-        
+
         // 每次请求 provider 前重新读取当前模型配置，拿到该模型的上下文窗口大小。
         // 模型可能在设置中切换，因此这里不复用回合开始时的窗口值。
         let model = crate::command::settings::get_settings(app.clone())
@@ -611,6 +611,9 @@ pub async fn send_chat_message(
         //     context_editing.original_estimated_tokens,
         //     context_editing.edited_estimated_tokens
         // );
+
+        // 请求 provider 前先估算当前 prompt 占用，并通知前端更新 context window UI。
+        // 这是本地估算值，不参与模型调用；provider 返回真实 usage 后会再用 actual 数据校正。
 
         let request_input_estimate =
             clamp_i64_to_u32(compact::estimate_tokens_for_messages(&current_messages));
@@ -917,9 +920,16 @@ pub async fn send_chat_message(
     if let Some(conv_id) = conversation_id.as_deref() {
         let mut snapshot = current_messages.clone();
         strip_injected_context(&mut snapshot);
-        crate::llm::history::save_turn_snapshot(&app, conv_id, &snapshot)
-            .await
-            .ok();
+        if let Err(e) = crate::llm::history::save_turn_snapshot(&app, conv_id, &snapshot).await {
+            let error_text = format!("保存会话 {} 的 turn snapshot 失败: {}", conv_id, e);
+            emit_backend_error(
+                &app,
+                "llm.turn_snapshot.save",
+                error_text.clone(),
+                Some("save_turn_snapshot"),
+            );
+            return Err(error_text);
+        }
     }
 
     // 4. 业务终止：告知前端本轮结束，并携带 stop_reason/turn_state 以区分 completed/needs_user_input/error。
