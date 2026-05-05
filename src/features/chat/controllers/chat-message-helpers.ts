@@ -84,7 +84,7 @@ export function formatMessageContentForModel(msg: ChatMessage): string {
       .filter(Boolean) ?? [];
   const ragNotice =
     names.length > 0
-      ? `\n\n已上传文件（可在会话RAG中检索）：${names.join("，")}\n若你不确定答案，请先在RAG中检索相关片段，再视情况使用 web_search / web_fetch。`
+      ? `\n\n已上传文件（可在会话RAG中检索）：${names.join("，")}\n文件全文已在本轮上下文中直接提供，请直接使用。会话压缩后如需重新获取，可调用 rag_search 工具检索。`
       : "";
 
   if (content) {

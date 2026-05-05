@@ -37,7 +37,7 @@ const currentInput = ref("");
 const textareaRef = ref<HTMLTextAreaElement | null>(null);
 const fileInputRef = ref<HTMLInputElement | null>(null);
 
-const MAX_UPLOAD_FILE_SIZE_BYTES = 2 * 1024 * 1024;
+const MAX_UPLOAD_FILE_SIZE_BYTES = 100 * 1024 * 1024;
 const MAX_IMAGE_FILE_SIZE_BYTES = 5 * 1024 * 1024;
 const MAX_UPLOAD_FILE_CHARS = 200_000;
 const SUPPORTED_IMAGE_MIME_TYPES = new Set([
@@ -209,7 +209,7 @@ const buildPendingUploadFiles = async (files: File[]): Promise<{
     }
 
     if (file.size > MAX_UPLOAD_FILE_SIZE_BYTES) {
-      rejected.push(`${file.name || `文件${i + 1}`}: 超过 2MB 限制`);
+      rejected.push(`${file.name || `文件${i + 1}`}: 超过 100MB 限制`);
       continue;
     }
 

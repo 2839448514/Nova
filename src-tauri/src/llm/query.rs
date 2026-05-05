@@ -13,8 +13,6 @@ use state_machine::TurnOutcome;
 
 const SESSION_RAG_CONTEXT_MARKER: &str = "[Session RAG Context]";
 const SESSION_RAG_SEARCH_LIMIT: usize = 5;
-const DIRECT_ATTACHMENT_CONTEXT_LIMIT: usize = 2;
-const DIRECT_ATTACHMENT_SNIPPET_CHARS: usize = 2200;
 const MCP_SERVER_CONTEXT_MARKER: &str = "[MCP Server Catalog]";
 const RESPONSE_RESERVE_TOKENS: u32 = 8_000;
 
@@ -224,12 +222,8 @@ fn build_direct_attachment_context(
     )?;
 
     let mut lines = Vec::new();
-    let mut included = 0usize;
 
     for source_name in source_names {
-        if included >= DIRECT_ATTACHMENT_CONTEXT_LIMIT {
-            break;
-        }
 
         let Some(doc) = documents.iter().find(|doc| doc.source_name == *source_name) else {
             continue;
@@ -244,11 +238,7 @@ fn build_direct_attachment_context(
             "Attached document: {} (id={}, chars={})",
             content.source_name, content.id, content.content_chars
         ));
-        lines.push(format!(
-            "   excerpt: {}",
-            truncate_chars(&content.content, DIRECT_ATTACHMENT_SNIPPET_CHARS)
-        ));
-        included += 1;
+        lines.push(content.content.clone());
     }
 
     Ok(lines)

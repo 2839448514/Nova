@@ -1,4 +1,10 @@
 import JSZip from "jszip";
+import * as pdfjsLib from "pdfjs-dist";
+import type { TextItem } from "pdfjs-dist/types/src/display/api";
+pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+  "pdfjs-dist/build/pdf.worker.min.mjs",
+  import.meta.url,
+).toString();
 
 export const SUPPORTED_PLAIN_TEXT_EXTENSIONS = [
   "txt",
@@ -35,7 +41,7 @@ export const SUPPORTED_PLAIN_TEXT_EXTENSIONS = [
   "bat",
 ] as const;
 
-export const SUPPORTED_OFFICE_EXTENSIONS = ["docx", "pptx"] as const;
+export const SUPPORTED_OFFICE_EXTENSIONS = ["docx", "pptx", "pdf"] as const;
 
 export const SUPPORTED_DOCUMENT_EXTENSIONS = [
   ...SUPPORTED_PLAIN_TEXT_EXTENSIONS,
@@ -47,7 +53,7 @@ export const LEGACY_OFFICE_EXTENSIONS = ["doc", "ppt"] as const;
 export const SUPPORTED_DOCUMENT_EXTENSION_SET = new Set<string>(SUPPORTED_DOCUMENT_EXTENSIONS);
 const LEGACY_OFFICE_EXTENSION_SET = new Set<string>(LEGACY_OFFICE_EXTENSIONS);
 
-type ParsedDocumentKind = "plain_text" | "docx" | "pptx";
+type ParsedDocumentKind = "plain_text" | "docx" | "pptx" | "pdf";
 
 export type ParsedDocumentUpload = {
   content: string;
@@ -285,6 +291,25 @@ export function buildDocumentAcceptAttribute(includeImages = false): string {
   return [...documentPatterns, "image/png", "image/jpeg", "image/webp", "image/gif"].join(",");
 }
 
+async function parsePdfFile(file: File): Promise<ParsedDocumentUpload> {
+  const arrayBuffer = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  const pages: string[] = [];
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const textContent = await page.getTextContent();
+    const pageText = textContent.items
+      .filter((item): item is TextItem => "str" in item)
+      .map((item) => item.str)
+      .join(" ");
+    const normalized = collapseConsecutiveBlankLines(pageText);
+    if (normalized) pages.push(`Page ${i}\n${normalized}`);
+  }
+  const content = collapseConsecutiveBlankLines(pages.join("\n\n"));
+  if (!content) throw new Error("PDF 中未提取到可读文本");
+  return { content, kind: "pdf", extension: "pdf" };
+}
+
 export async function parseDocumentUploadFile(file: File): Promise<ParsedDocumentUpload> {
   const extension = extensionOf(file.name);
   if (isLegacyOfficeExtension(extension)) {
@@ -299,6 +324,9 @@ export async function parseDocumentUploadFile(file: File): Promise<ParsedDocumen
   }
   if (extension === "pptx") {
     return parsePptxFile(file);
+  }
+  if (extension === "pdf") {
+    return parsePdfFile(file);
   }
 
   const content = collapseConsecutiveBlankLines(await file.text());
