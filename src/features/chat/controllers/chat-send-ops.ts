@@ -269,7 +269,14 @@ export function createSendOperations(deps: SendOpsDeps) {
   async function handleCancelGeneration() {
     if (!isGenerating.value) return;
     try {
-      await cancelChatMessage(activeConversationId.value || null);
+      const hit = await cancelChatMessage(activeConversationId.value || null);
+      if (!hit) {
+        emitToast({
+          variant: "warning",
+          source: "cancel",
+          message: "取消信号已发送，但未命中活动会话。",
+        });
+      }
     } catch (err) {
       console.error("Failed to cancel generation:", err);
       emitToast({

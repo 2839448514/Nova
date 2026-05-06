@@ -138,8 +138,14 @@ pub async fn run_streaming<P: StreamParser>(
     loop {
         // 每轮先检查取消标记。
         if crate::llm::cancellation::is_cancelled(conversation_id) {
+            // 把已流式输出的部分内容封装成 partial assistant 消息返回，
+            // 确保 turn_snapshot 与 UI 历史（conversation_messages）保持一致。
+            let partial_messages = build_partial_cancelled_messages(
+                &generated_text,
+                &mut output_blocks,
+            );
             return Ok(ProviderTurnResult {
-                messages: Vec::new(),
+                messages: partial_messages,
                 stop_reason: Some("cancelled".into()),
                 input_tokens: current_input_tokens,
                 output_tokens: current_output_tokens,
@@ -356,6 +362,29 @@ pub async fn run_streaming<P: StreamParser>(
         output_tokens: current_output_tokens,
         prevent_continuation,
     })
+}
+
+// ─────────────────────────────────────────────
+// build_partial_cancelled_messages — 取消时组装已输出的部分 assistant 消息
+// ─────────────────────────────────────────────
+
+/// 取消时将已积累的流式输出打包成 assistant Message，
+/// 使 turn_snapshot 与前端 conversation_messages 保持一致。
+/// 若尚无任何内容，返回空 Vec（query.rs 侧会补 [Request interrupted by user]）。
+fn build_partial_cancelled_messages(
+    generated_text: &str,
+    output_blocks: &mut Vec<ContentBlock>,
+) -> Vec<Message> {
+    if !generated_text.is_empty() {
+        output_blocks.push(ContentBlock::Text { text: generated_text.to_string() });
+    }
+    if output_blocks.is_empty() {
+        return Vec::new();
+    }
+    vec![Message {
+        role: Role::Assistant,
+        content: crate::llm::types::Content::Blocks(std::mem::take(output_blocks)),
+    }]
 }
 
 // ─────────────────────────────────────────────

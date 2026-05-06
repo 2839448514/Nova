@@ -556,6 +556,14 @@ async fn execute_read_only_batch(
     let conversation_owned = conversation_id.map(|v| v.to_string());
 
     while !queue.is_empty() || !tasks.is_empty() {
+        // 用户取消时立即中止所有已起飞的并发任务。
+        if crate::llm::cancellation::is_cancelled(conversation_id) {
+            tasks.abort_all();
+            while tasks.join_next().await.is_some() {}
+            cascade_reason = Some("cancelled".into());
+            break;
+        }
+
         while cascade_reason.is_none() && tasks.len() < max_concurrency && !queue.is_empty() {
             let Some((index, call)) = queue.pop_front() else {
                 break;

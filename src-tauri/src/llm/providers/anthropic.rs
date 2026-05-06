@@ -232,16 +232,31 @@ impl AnthropicProvider {
             crate::llm::utils::turn_log::log_wire_request(app, conversation_id, &url, &wire);
         }
 
-        // 发送请求并设置认证头。
-        let resp = client
-            .post(&url)
-            .header("Authorization", format!("Bearer {}", api_key))
-            .header("x-api-key", &api_key)
-            .header("anthropic-version", "2023-06-01")
-            .header("content-type", "application/json")
-            .json(&request)
-            .send()
-            .await;
+        // 发送请求；tokio::select! 竞争取消轮询，避免卡在 DNS/TLS/建连阶段无法响应取消。
+        let resp = tokio::select! {
+            res = client
+                .post(&url)
+                .header("Authorization", format!("Bearer {}", api_key))
+                .header("x-api-key", &api_key)
+                .header("anthropic-version", "2023-06-01")
+                .header("content-type", "application/json")
+                .json(&request)
+                .send() => res,
+            _ = async {
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                    if crate::llm::cancellation::is_cancelled(conversation_id) { break; }
+                }
+            } => {
+                return Ok(ProviderTurnResult {
+                    messages: Vec::new(),
+                    stop_reason: Some("cancelled".into()),
+                    input_tokens: None,
+                    output_tokens: None,
+                    prevent_continuation: false,
+                });
+            }
+        };
 
         // 发起 REST 请求（stream=true），本函数本身不做流数据解析，交给 process_stream_response 处理。
         match resp {

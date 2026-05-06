@@ -373,7 +373,24 @@ impl ResponsesProvider {
             crate::llm::utils::turn_log::log_wire_request(app, conversation_id, &url, &wire);
         }
 
-        let resp = req_builder.json(&request).send().await;
+        // 发起请求；tokio::select! 竞争取消轮询，避免卡在 DNS/TLS/建连阶段无法响应取消。
+        let resp = tokio::select! {
+            res = req_builder.json(&request).send() => res,
+            _ = async {
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                    if crate::llm::cancellation::is_cancelled(conversation_id) { break; }
+                }
+            } => {
+                return Ok(ProviderTurnResult {
+                    messages: Vec::new(),
+                    stop_reason: Some("cancelled".into()),
+                    input_tokens: None,
+                    output_tokens: None,
+                    prevent_continuation: false,
+                });
+            }
+        };
 
         match resp {
             Ok(res) => {

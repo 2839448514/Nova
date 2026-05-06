@@ -1,19 +1,18 @@
-use crate::llm::tools::{sync_tool, ToolRegistration};
+use crate::llm::tools::{app_tool, AppExecuteFuture, ToolRegistration};
 use crate::llm::types::Tool;
 use serde_json::{json, Value};
-use std::thread;
 use std::time::Duration;
+use tauri::AppHandle;
 
 const MAX_SLEEP_MS: u64 = 5 * 60 * 1000;
 
 // 返回 Sleep 工具的注册信息。
 // 这个工具只等待时间流逝，不修改任何外部状态，所以标成只读。
 pub(crate) fn registration() -> ToolRegistration {
-    sync_tool(tool, execute, true, None)
+    app_tool(tool, execute_sync_stub, execute_with_app_boxed, true, None)
 }
 
 // 返回模型可见的 Sleep 元数据。
-// 当前接口统一使用 `duration_ms`。
 pub fn tool() -> Tool {
     Tool {
         name: "Sleep".into(),
@@ -28,19 +27,11 @@ pub fn tool() -> Tool {
     }
 }
 
-// 把任意 JSON 值尝试解析成正整数毫秒/秒数。
-// 支持 number、integer、string 这几种常见输入形式。
 fn parse_positive_u64(value: &Value) -> Option<u64> {
-    if let Some(v) = value.as_u64() {
-        return (v > 0).then_some(v);
-    }
-    if let Some(v) = value.as_i64() {
-        return (v > 0).then_some(v as u64);
-    }
+    if let Some(v) = value.as_u64() { return (v > 0).then_some(v); }
+    if let Some(v) = value.as_i64() { return (v > 0).then_some(v as u64); }
     if let Some(v) = value.as_f64() {
-        if v.is_finite() && v > 0.0 {
-            return Some(v.round() as u64);
-        }
+        if v.is_finite() && v > 0.0 { return Some(v.round() as u64); }
     }
     if let Some(v) = value.as_str() {
         let parsed = v.trim().parse::<u64>().ok()?;
@@ -49,14 +40,17 @@ fn parse_positive_u64(value: &Value) -> Option<u64> {
     None
 }
 
-// 从 input 中读取 `duration_ms` 并做基础校验。
 fn parse_sleep_ms(input: &Value) -> Option<u64> {
     input.get("duration_ms").and_then(parse_positive_u64)
 }
 
-// 阻塞当前线程等待指定时长，并返回实际等待结果。
-// `requested_ms` 是模型想等待的时长，`slept_ms` 是经过上限裁剪后的真实等待时长。
-pub fn execute(input: Value) -> String {
+// execute_with_app 优先；此路径仅在脱离 AppHandle 的同步调用链中触发（极少见）。
+pub fn execute_sync_stub(_input: Value) -> String {
+    json!({ "ok": false, "error": "SleepTool requires async execution context" }).to_string()
+}
+
+// 分块异步 sleep，每 50ms 检查一次取消标记，保证用户取消可以中断等待。
+async fn execute_async(conversation_id: Option<&str>, input: Value) -> String {
     let requested_ms = match parse_sleep_ms(&input) {
         Some(v) => v,
         None => {
@@ -67,11 +61,17 @@ pub fn execute(input: Value) -> String {
             .to_string();
         }
     };
-
-    // slept_ms: 应用真正执行的等待时长，最多 5 分钟，防止模型一次睡太久。
     let slept_ms = requested_ms.min(MAX_SLEEP_MS);
-    thread::sleep(Duration::from_millis(slept_ms));
-
+    let chunk_ms: u64 = 50;
+    let mut elapsed: u64 = 0;
+    while elapsed < slept_ms {
+        if crate::llm::cancellation::is_cancelled(conversation_id) {
+            return json!({ "ok": false, "error": "cancelled", "slept_ms": elapsed }).to_string();
+        }
+        let to_sleep = (slept_ms - elapsed).min(chunk_ms);
+        tokio::time::sleep(Duration::from_millis(to_sleep)).await;
+        elapsed += to_sleep;
+    }
     json!({
         "ok": true,
         "requested_ms": requested_ms,
@@ -80,3 +80,13 @@ pub fn execute(input: Value) -> String {
     })
     .to_string()
 }
+
+fn execute_with_app_boxed(
+    _app: AppHandle,
+    conversation_id: Option<String>,
+    input: Value,
+) -> AppExecuteFuture {
+    Box::pin(async move { execute_async(conversation_id.as_deref(), input).await })
+}
+
+
