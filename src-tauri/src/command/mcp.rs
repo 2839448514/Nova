@@ -3,15 +3,15 @@ use tauri::AppHandle;
 
 // 复用 services 层的 MCP 对外类型。
 pub use crate::llm::services::mcp::{
-    McpResourceInfo,
-    McpServerConfig,
-    McpServerEntry,
-    McpServerStatus,
-    McpToolInfo,
+    McpResourceInfo, McpServerConfig, McpServerEntry, McpServerStatus, McpToolInfo,
 };
 
 #[tauri::command]
-pub async fn add_mcp_server(app: AppHandle, name: String, config: McpServerConfig) -> Result<(), String> {
+pub async fn add_mcp_server(
+    app: AppHandle,
+    name: String,
+    config: McpServerConfig,
+) -> Result<(), String> {
     // 将 tauri 命令直接转发到 MCP service。
     crate::llm::services::mcp::add_mcp_server(app, name, config).await
 }
@@ -52,25 +52,39 @@ pub async fn reload_all_mcp_servers(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn set_mcp_server_enabled(app: AppHandle, name: String, enabled: bool) -> Result<(), String> {
+pub async fn set_mcp_server_enabled(
+    app: AppHandle,
+    name: String,
+    enabled: bool,
+) -> Result<(), String> {
     // 启用或禁用指定 MCP server。
     crate::llm::services::mcp::set_mcp_server_enabled(app, name, enabled).await
 }
 
 #[tauri::command]
-pub async fn list_mcp_tools(app: AppHandle, server_name: String) -> Result<Vec<McpToolInfo>, String> {
+pub async fn list_mcp_tools(
+    app: AppHandle,
+    server_name: String,
+) -> Result<Vec<McpToolInfo>, String> {
     // 列出指定 server 的工具。
     crate::llm::services::mcp::list_mcp_tools(app, server_name).await
 }
 
 #[tauri::command]
-pub async fn list_mcp_resources(app: AppHandle, server_name: String) -> Result<Vec<McpResourceInfo>, String> {
+pub async fn list_mcp_resources(
+    app: AppHandle,
+    server_name: String,
+) -> Result<Vec<McpResourceInfo>, String> {
     // 列出指定 server 的资源。
     crate::llm::services::mcp::list_mcp_resources(app, server_name).await
 }
 
 #[tauri::command]
-pub async fn read_mcp_resource(app: AppHandle, server_name: String, uri: String) -> Result<Value, String> {
+pub async fn read_mcp_resource(
+    app: AppHandle,
+    server_name: String,
+    uri: String,
+) -> Result<Value, String> {
     // 读取指定资源 URI 的内容。
     crate::llm::services::mcp::read_mcp_resource(app, server_name, uri).await
 }

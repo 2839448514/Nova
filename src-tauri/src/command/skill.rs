@@ -1,7 +1,7 @@
 use crate::llm::tools::skill_tool::{list_skill_summaries_with_app, SkillSummary};
+use std::path::PathBuf;
 use tauri::AppHandle;
 use tauri::Manager;
-use std::path::PathBuf;
 
 #[tauri::command]
 pub fn list_skills(app: AppHandle) -> Result<Vec<SkillSummary>, String> {
@@ -33,6 +33,5 @@ pub fn delete_skill(app: AppHandle, path: String) -> Result<(), String> {
         return Err("技能目录不存在".to_string());
     }
 
-    std::fs::remove_dir_all(&skill_dir)
-        .map_err(|e| format!("删除技能目录失败: {}", e))
+    std::fs::remove_dir_all(&skill_dir).map_err(|e| format!("删除技能目录失败: {}", e))
 }

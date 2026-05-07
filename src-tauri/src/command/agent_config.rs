@@ -67,7 +67,8 @@ fn sanitize_agent_name(raw: &str) -> String {
 
     let mut result = String::with_capacity(trimmed.len());
     for ch in trimmed.chars() {
-        let invalid = matches!(ch, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*') || ch.is_control();
+        let invalid =
+            matches!(ch, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*') || ch.is_control();
         if invalid {
             result.push('_');
         } else {
@@ -219,10 +220,7 @@ pub fn delete_agent_profile(app: AppHandle, profile_id: String) -> Result<(), St
 }
 
 #[tauri::command]
-pub fn load_agent_profile_markdown(
-    app: AppHandle,
-    profile_id: String,
-) -> Result<String, String> {
+pub fn load_agent_profile_markdown(app: AppHandle, profile_id: String) -> Result<String, String> {
     let path = resolve_profile_path(&app, &profile_id)?;
     if !path.exists() {
         return Err(format!("Agent profile not found: {}", profile_id));

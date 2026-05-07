@@ -411,46 +411,60 @@ fn strip_injected_context(messages: &mut Vec<Message>) {
     });
 }
 
-// 入口函数：发送用户聊天消息，驱动整轮 LLM 编排。
-// 它负责：
-// 1) 在真正请求模型前准备上下文（hooks / session restore / compact / session RAG）
-// 2) 循环调用 provider，并把 provider 返回的新消息与 tool_result 回灌到 current_messages
-// 3) 根据 needs_user_input / cancelled / prevent_continuation / has_tool_result 决定是否续跑
-// 4) 在正常结束路径统一执行 session_end_hooks 并发送 stop 事件
-// 5) 在 provider 错误路径执行 error_hooks，发送 stop(error) 后直接返回 Err
+// 入口函数：发送用户聊天消息，驱动一整个 agent turn。
+// 它负责把“前端输入 → 后端可信模型上下文 → provider 流式输出 → 工具环回 → snapshot 持久化”
+// 收敛成一条可恢复、可取消、ToolUse/ToolResult 成对合法的主流程。
+//
+// 核心职责：
+// 1) 从 turn snapshot 恢复可信历史；非首轮缺 snapshot 时直接失败，不用前端 UI 历史兜底。
+// 2) 每轮重新注入动态上下文（global memory / hooks / session RAG / MCP catalog），保存前再剥离。
+// 3) 循环调用 provider，把 assistant 输出、tool_use、tool_result 和工具 side-channel 消息回灌进 current_messages。
+// 4) 处理 cancelled / needs_user_input / stop hook 阻断 / provider error / prompt too long reactive compact。
+// 5) 正常收尾时执行 session_end_hooks、保存 clean snapshot，并向前端发送最终 stop 事件。
 //
 // send_chat_message
 //     │
-//     ├─ 1. 回合前准备
+//     ├─ 1. 回合前输入准备
+//     │       ├─ latest user text                  → 提取 RAG query / 原始上传文件行
 //     │       ├─ run_user_prompt_submit_hooks      → 追加提示提交上下文
 //     │       └─ (首轮) run_session_start_hooks    → 追加会话开始上下文
 //     │
-//     ├─ 2. 上下文构建
-//     │       ├─ context_assembler                 → 注入会话恢复上下文
-//     │       ├─ run_pre_compact_hooks             → 压缩前上下文扩展
-//     │       ├─ compact                           → 压缩历史消息 / 大型 tool_result
-//     │       └─ session rag retrieval             → 仅按当前会话文档检索并注入上下文
+//     ├─ 2. 可信历史恢复
+//     │       ├─ load_turn_snapshot                → 恢复上一轮完整模型上下文
+//     │       ├─ strip_injected_context            → 移除上一轮动态注入内容
+//     │       ├─ append current turn input/hooks   → 只追加本轮新增用户输入
+//     │       └─ missing snapshot on non-first turn → Err
 //     │
-//     ├─ 3. 主循环 loop
-//     │       ├─ 取消检查                          → cancelled → break
-//     │       ├─ 应用已提交的权限决策 / 维持审批状态
-//     │       ├─ provider.send_request (流式)
-//     │       │       └─ 错误: run_error_hooks + emit stop(error) + return Err
-//     │       ├─ provider 报告 cancelled           → break
-//     │       ├─ 合并新消息到 current_messages
+//     ├─ 3. 请求前上下文构建
+//     │       ├─ context_assembler                 → 注入 global memory；正常 agent 流不注入 session_restore
+//     │       ├─ run_pre_compact_hooks             → 压缩前临时上下文
+//     │       ├─ compact                           → proactive compact / 大型 tool_result 瘦身
+//     │       ├─ run_post_compact_hooks            → 仅在发生 compact 后追加
+//     │       ├─ session RAG                       → 当前会话文档检索 / 直接附件上下文
+//     │       └─ MCP server catalog                → 注入已连接 MCP server 概览
+//     │
+//     ├─ 4. 主循环 loop
+//     │       ├─ cancellation check                → cancelled
+//     │       ├─ apply_tool_result_context_editing → 清理较早的大型工具结果
+//     │       ├─ provider.send_request             → 流式输出 + 工具执行
+//     │       │       ├─ prompt too long           → reactive compact 后重试一次
+//     │       │       └─ other error               → 保存 partial snapshot + error hooks + stop(error)
+//     │       ├─ provider returned cancelled       → 保留 partial，补齐缺失 ToolResult，写入 interrupted marker
+//     │       ├─ merge provider_result.messages    → 回灌 assistant / tool_result / side-channel messages
+//     │       ├─ tool_call invariant check         → tool_use stop_reason 必须带 ToolResult
 //     │       ├─ needs_user_input                  → break
-//     │       ├─ provider_result.prevent_continuation
-//     │       │       └─ stop_hook_prevented       → break
-//     │       ├─ has_tool_result                   → continue (下一轮，等待模型消费 tool_result)
-//     │       └─ !has_tool_result
+//     │       ├─ prevent_continuation              → stop_hook_prevented
+//     │       ├─ has_tool_result                   → continue，让模型消费工具结果
+//     │       └─ no tool_result
 //     │               ├─ run_stop_hooks
-//     │               │       ├─ prevent_continuation → break
-//     │               │       └─ added_context → current_messages.extend → continue
-//     │               └─ 正常结束                 → completed → break
+//     │               ├─ added_context             → current_messages.extend + continue
+//     │               └─ completed                 → break
 //     │
-//     └─ 4. 回合收尾（正常路径）
+//     └─ 5. 回合收尾（非 provider error 路径）
 //             ├─ run_session_end_hooks             → 可覆盖 stop_reason
-//             └─ emit stop                         → return Ok
+//             ├─ strip_injected_context
+//             ├─ save_turn_snapshot                → 持久化 clean model context
+//             └─ emit final stop                   → return Ok
 pub async fn send_chat_message(
     app: AppHandle,
     conversation_id: Option<String>,

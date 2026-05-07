@@ -12,7 +12,7 @@ Nova is a local coding assistant focused on real project execution, controllable
 - MCP connectivity: register MCP servers, inspect tools/resources, and invoke MCP tools during tasks through explicit tool names such as `mcp__server__tool`.
 - Human clarification flow: pauses and asks focused questions when key details are missing.
 - Approval controls: supports allow once, allow for session, and deny decisions for sensitive operations.
-- Conversation continuity: includes conversation history, resume context, compact context, and memory updates.
+- Conversation continuity: restores trusted model context from turn snapshots, with compact context and memory updates for long-running sessions.
 - File-backed cross-session memory: long-term memory is stored under the app data `memory/` directory, retrieved per request, and auto-maintained from stable user preferences and rules.
 - Streaming responses: sends intermediate progress and final completion states clearly.
 - Multi-conversation stream routing: stream events are scoped by conversation so concurrent turns do not mix outputs.
@@ -25,6 +25,16 @@ Nova is a local coding assistant focused on real project execution, controllable
 - Each tool module owns its own registration metadata instead of spreading behavior across global `match` branches.
 - New tools can be scaffolded from `src-tauri/src/llm/tools/NewToolTemplate/`.
 - MCP tools are exposed as explicit names like `mcp__playwright__browser_navigate` instead of a generic dispatcher tool.
+
+## Agent Turn Flow
+
+- Turn orchestration lives in `src-tauri/src/llm/query.rs`; provider-specific request and stream handling lives under `src-tauri/src/llm/providers/`.
+- Non-first turns restore model context from the saved turn snapshot. If a non-first turn has no snapshot, Nova fails fast instead of trusting frontend-rendered chat history as a fallback.
+- Dynamic context, including session RAG, MCP server catalog, global memory, and hook-injected messages, is stripped before saving the turn snapshot and regenerated on the next turn. Session restore remains available for explicit resume flows, but the normal agent turn uses snapshots instead.
+- Providers normalize stream events into shared `Delta` values through `stream_runner.rs`. Tool calls are executed when ready, then returned as assistant `ToolUse` blocks followed by user `ToolResult` blocks.
+- Persisted snapshots must keep tool pairs valid: every assistant `ToolUse` must have exactly one matching user `ToolResult`, and duplicate `ToolResult` blocks for the same `tool_use_id` are invalid for Anthropic.
+- Cancellation keeps partial assistant output and closes only missing tool results with a synthetic `"Interrupted by user"` result. Existing tool results must not be duplicated.
+- Tool and hook side-channel messages are part of the model context. For example, screenshot tools may remove large base64 payloads from the textual tool result and attach the image as an additional context message.
 
 ## Memory System
 
@@ -81,3 +91,4 @@ Nova includes a built-in scheduled task system for recurring or one-shot prompt 
 - Start Tauri desktop app: npm run tauri
 - Build frontend bundle: npm run build
 - Build desktop app: npm run tauri:build
+- Check Rust backend: cargo check --manifest-path src-tauri/Cargo.toml

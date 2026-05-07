@@ -1,5 +1,5 @@
-pub mod llm;
 pub mod command;
+pub mod llm;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -30,7 +30,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            greet, 
+            greet,
             llm::client::send_chat_message,
             llm::client::cancel_chat_message,
             llm::client::submit_permission_decision,

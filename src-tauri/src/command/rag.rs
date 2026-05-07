@@ -211,10 +211,7 @@ fn normalize_source_name(raw: &str, fallback_index: usize) -> String {
 }
 
 fn preview_text(content: &str) -> String {
-    let compact = content
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ");
+    let compact = content.split_whitespace().collect::<Vec<_>>().join(" ");
 
     let mut chars = compact.chars();
     let preview: String = chars.by_ref().take(160).collect();
@@ -253,7 +250,11 @@ fn split_into_chunks(content: &str) -> Vec<String> {
             while bp > start && !chars[bp - 1].is_whitespace() {
                 bp -= 1;
             }
-            if bp > start { bp } else { end }
+            if bp > start {
+                bp
+            } else {
+                end
+            }
         } else {
             end
         };
@@ -368,12 +369,17 @@ fn rag_search_documents_with_scope(
     // Tokenize each chunk into lowercase words (reused for TF and DF)
     let tokenized: Vec<Vec<String>> = candidates
         .iter()
-        .map(|doc| doc.content.split_whitespace().map(|w| w.to_lowercase()).collect())
+        .map(|doc| {
+            doc.content
+                .split_whitespace()
+                .map(|w| w.to_lowercase())
+                .collect()
+        })
         .collect();
 
     // Average chunk length in terms
-    let avg_doc_terms = tokenized.iter().map(|t| t.len()).sum::<usize>() as f64
-        / corpus_size as f64;
+    let avg_doc_terms =
+        tokenized.iter().map(|t| t.len()).sum::<usize>() as f64 / corpus_size as f64;
 
     // Document frequency per query term (number of chunks containing the term)
     let mut doc_freq: HashMap<String, usize> = HashMap::new();
@@ -401,13 +407,22 @@ fn rag_search_documents_with_scope(
                 if source_lower.contains(term.as_str()) {
                     score += 3.0;
                 }
-                let tf = doc_words.iter().filter(|w| w.contains(term.as_str())).count() as f64;
+                let tf = doc_words
+                    .iter()
+                    .filter(|w| w.contains(term.as_str()))
+                    .count() as f64;
                 if tf == 0.0 {
                     continue;
                 }
                 let df = *doc_freq.get(term).unwrap_or(&1) as f64;
-                let idf = ((corpus_size as f64 - df + 0.5) / (df + 0.5) + 1.0).ln().max(0.0);
-                let norm_len = if avg_doc_terms > 0.0 { doc_len / avg_doc_terms } else { 1.0 };
+                let idf = ((corpus_size as f64 - df + 0.5) / (df + 0.5) + 1.0)
+                    .ln()
+                    .max(0.0);
+                let norm_len = if avg_doc_terms > 0.0 {
+                    doc_len / avg_doc_terms
+                } else {
+                    1.0
+                };
                 let norm_tf = tf * (K1 + 1.0) / (tf + K1 * (1.0 - B + B * norm_len));
                 score += idf * norm_tf;
             }
@@ -484,7 +499,11 @@ pub fn rag_read_document(
 
     chunks.sort_by_key(|c| c.chunk_index);
     let first = &chunks[0];
-    let full_content = chunks.iter().map(|c| c.content.as_str()).collect::<Vec<_>>().join("\n\n");
+    let full_content = chunks
+        .iter()
+        .map(|c| c.content.as_str())
+        .collect::<Vec<_>>()
+        .join("\n\n");
     let total_chars: usize = chunks.iter().map(|c| c.content_chars).sum();
     let created_at = chunks.iter().map(|c| c.created_at).min().unwrap_or(0);
     let updated_at = chunks.iter().map(|c| c.updated_at).max().unwrap_or(0);
@@ -595,7 +614,11 @@ pub fn rag_upsert_documents(
         let scope_key = conversation_id.clone();
 
         // Same content already stored — only update metadata
-        if store.documents.iter().any(|d| d.group_id == group_id && d.conversation_id == scope_key) {
+        if store
+            .documents
+            .iter()
+            .any(|d| d.group_id == group_id && d.conversation_id == scope_key)
+        {
             for doc in store.documents.iter_mut() {
                 if doc.group_id == group_id && doc.conversation_id == scope_key {
                     doc.source_name = source_name.clone();
@@ -609,14 +632,15 @@ pub fn rag_upsert_documents(
         }
 
         // Track whether a previous version existed under this source_name
-        let had_previous = store.documents.iter().any(|d| {
-            d.source_name == source_name && d.conversation_id == scope_key
-        });
+        let had_previous = store
+            .documents
+            .iter()
+            .any(|d| d.source_name == source_name && d.conversation_id == scope_key);
 
         // Remove any previous chunks for this source_name in scope
-        store.documents.retain(|d| {
-            !(d.source_name == source_name && d.conversation_id == scope_key)
-        });
+        store
+            .documents
+            .retain(|d| !(d.source_name == source_name && d.conversation_id == scope_key));
 
         // Split into chunks and insert
         for (chunk_index, chunk_content) in split_into_chunks(&content).into_iter().enumerate() {
@@ -637,7 +661,11 @@ pub fn rag_upsert_documents(
             });
         }
 
-        if had_previous { updated += 1; } else { added += 1; }
+        if had_previous {
+            updated += 1;
+        } else {
+            added += 1;
+        }
     }
 
     if added > 0 || updated > 0 {
@@ -678,14 +706,16 @@ pub fn rag_remove_conversation_documents(
     app: &AppHandle,
     conversation_id: &str,
 ) -> Result<usize, String> {
-    let normalized_conversation_id = normalize_optional_conversation_id(Some(conversation_id.to_string()));
+    let normalized_conversation_id =
+        normalize_optional_conversation_id(Some(conversation_id.to_string()));
     let Some(scope_id) = normalized_conversation_id else {
         return Ok(0);
     };
 
     let mut store = load_store(app)?;
     let before = store.documents.len();
-    store.documents
+    store
+        .documents
         .retain(|doc| doc.conversation_id.as_deref() != Some(scope_id.as_str()));
     let removed = before.saturating_sub(store.documents.len());
 

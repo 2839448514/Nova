@@ -1,5 +1,5 @@
-use crate::llm::tools::shared::cron_store::{add_job, list_jobs, remove_job, CronJob};
 use crate::llm::commands::types::HistoryMessage;
+use crate::llm::tools::shared::cron_store::{add_job, list_jobs, remove_job, CronJob};
 use crate::llm::types::{AgentMode, Content, Message, Role};
 use chrono::{DateTime, Datelike, Local, Timelike, Utc};
 use serde::Serialize;
@@ -75,11 +75,7 @@ fn validate_cron_segment(segment: &str, min: u32, max: u32) -> bool {
     };
 
     if let Some(step_raw) = step {
-        let valid_step = step_raw
-            .parse::<u32>()
-            .ok()
-            .map(|v| v > 0)
-            .unwrap_or(false);
+        let valid_step = step_raw.parse::<u32>().ok().map(|v| v > 0).unwrap_or(false);
         if !valid_step {
             return false;
         }
@@ -109,13 +105,7 @@ fn validate_cron_field(field: &str, min: u32, max: u32) -> bool {
         .all(|segment| validate_cron_segment(segment.trim(), min, max))
 }
 
-fn cron_segment_matches(
-    segment: &str,
-    value: u32,
-    min: u32,
-    max: u32,
-    day_of_week: bool,
-) -> bool {
+fn cron_segment_matches(segment: &str, value: u32, min: u32, max: u32, day_of_week: bool) -> bool {
     let (base, step) = match segment.split_once('/') {
         Some((base, step)) => (base.trim(), Some(step.trim())),
         None => (segment.trim(), None),
@@ -343,7 +333,8 @@ pub async fn run_scheduler_loop(app: AppHandle) {
                 continue;
             }
 
-            if let Err(e) = append_trigger_prompt_to_bound_conversation(&app, &job, &now_utc).await {
+            if let Err(e) = append_trigger_prompt_to_bound_conversation(&app, &job, &now_utc).await
+            {
                 eprintln!(
                     "[cron.scheduler] Failed to append trigger prompt to conversation for {}: {}",
                     job.id, e
@@ -462,7 +453,9 @@ pub async fn create_scheduled_task(
     match add_job(&app, job) {
         Ok(saved) => Ok(saved),
         Err(e) => {
-            if let Err(cleanup_error) = crate::llm::history::delete_conversation(&app, &conversation_id).await {
+            if let Err(cleanup_error) =
+                crate::llm::history::delete_conversation(&app, &conversation_id).await
+            {
                 eprintln!(
                     "[cron.create] Failed to cleanup conversation {} after add_job error: {}",
                     conversation_id, cleanup_error

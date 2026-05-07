@@ -188,7 +188,10 @@ impl AppSettings {
     pub fn active_provider_profile(&self) -> ProviderProfile {
         // 计算当前 provider key。
         let key = self.active_provider_key();
-        self.provider_profiles.get(&key).cloned().unwrap_or_default()
+        self.provider_profiles
+            .get(&key)
+            .cloned()
+            .unwrap_or_default()
     }
 
     pub fn active_provider_protocol(&self) -> String {
@@ -254,10 +257,7 @@ fn validate_hook_env(settings: &AppSettings) -> Result<(), String> {
         }
     }
 
-    if let Some(raw_value) = settings
-        .hook_env
-        .get(STOP_HOOK_MAX_ASSISTANT_MESSAGES_KEY)
-    {
+    if let Some(raw_value) = settings.hook_env.get(STOP_HOOK_MAX_ASSISTANT_MESSAGES_KEY) {
         let trimmed = raw_value.trim();
         if !trimmed.is_empty() {
             trimmed.parse::<usize>().map_err(|_| {

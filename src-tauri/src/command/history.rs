@@ -104,7 +104,8 @@ pub async fn get_conversation_compact_context(
     // 获取带 schema 的连接池。
     let pool = history::get_pool_with_schema(&app).await?;
     // 基于 memory 先构造 handover。
-    let handover = memory::get_conversation_handover_by_pool(&pool, &conversation_id, recent_limit).await?;
+    let handover =
+        memory::get_conversation_handover_by_pool(&pool, &conversation_id, recent_limit).await?;
     // 在 handover 基础上构造 compact context。
     Ok(compact::build_compact_context(
         conversation_id,
@@ -145,13 +146,15 @@ pub async fn get_conversation_resume_context(
     // 获取带 schema 的连接池。
     let pool = history::get_pool_with_schema(&app).await?;
     // 先找最新 compact 边界。
-    let boundary = match compact::get_latest_compact_boundary_by_pool(&pool, &conversation_id).await? {
-        Some(v) => v,
-        // 无边界则无 resume 上下文。
-        None => return Ok(None),
-    };
+    let boundary =
+        match compact::get_latest_compact_boundary_by_pool(&pool, &conversation_id).await? {
+            Some(v) => v,
+            // 无边界则无 resume 上下文。
+            None => return Ok(None),
+        };
     // 计算边界之后的 resume 上下文。
-    let ctx = resume::get_conversation_resume_context_by_pool(&pool, &conversation_id, boundary).await?;
+    let ctx =
+        resume::get_conversation_resume_context_by_pool(&pool, &conversation_id, boundary).await?;
     // 包装为 Some 返回。
     Ok(Some(ctx))
 }
