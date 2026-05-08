@@ -161,10 +161,3 @@ pub fn init(app: &AppHandle) -> Result<(), String> {
     );
     Ok(())
 }
-
-pub fn log_result<T>(operation: &str, result: Result<T, String>) -> Result<T, String> {
-    if let Err(error) = &result {
-        tracing::error!(operation = %operation, error = %error, "operation failed");
-    }
-    result
-}

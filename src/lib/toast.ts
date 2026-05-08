@@ -1,4 +1,4 @@
-import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { listen } from '@tauri-apps/api/event';
 import { formatUserFacingError } from './error-display';
 import { formatBackendErrorEvent } from './error-display';
 
@@ -14,21 +14,6 @@ export type ToastPayload = {
 
 let handlersInstalled = false;
 let backendErrorListenerInstalled = false;
-let unlistenBackendError: UnlistenFn | null = null;
-
-export function normalizeErrorMessage(err: unknown): string {
-  if (err instanceof Error) {
-    return err.message;
-  }
-  if (typeof err === 'string') {
-    return err;
-  }
-  try {
-    return JSON.stringify(err);
-  } catch {
-    return String(err);
-  }
-}
 
 export function emitToast(payload: ToastPayload): void {
   if (typeof window === 'undefined') {
@@ -68,7 +53,7 @@ export async function installBackendErrorToastListener(): Promise<void> {
   }
 
   backendErrorListenerInstalled = true;
-  unlistenBackendError = await listen<{
+  await listen<{
     source?: string;
     code?: string;
     title?: string;
@@ -81,10 +66,4 @@ export async function installBackendErrorToastListener(): Promise<void> {
       message: formatBackendErrorEvent(event.payload ?? {}),
     });
   });
-}
-
-export function disposeBackendErrorToastListener(): void {
-  unlistenBackendError?.();
-  unlistenBackendError = null;
-  backendErrorListenerInstalled = false;
 }

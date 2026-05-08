@@ -12,7 +12,7 @@ import {
   extensionOf,
   parseDocumentUploadFile,
 } from '@/lib/document-upload'
-import { emitToast, normalizeErrorMessage } from '@/lib/toast'
+import { emitToast } from '@/lib/toast'
 
 type RagSettings = {
   embeddingModel: string
@@ -202,7 +202,7 @@ const refresh = async () => {
       )
     }
   } catch (error) {
-    setStatus(`加载 RAG 数据失败：${normalizeErrorMessage(error)}`, 'error')
+    console.error('Failed to refresh RAG tab:', error)
   } finally {
     loading.value = false
   }
@@ -227,7 +227,7 @@ const saveRagSettings = async () => {
     setStatus('RAG 设置已保存。', 'success')
     emitToast({ message: 'RAG 设置已保存', variant: 'success' })
   } catch (error) {
-    setStatus(`保存 RAG 设置失败：${normalizeErrorMessage(error)}`, 'error')
+    console.error('Failed to save RAG settings:', error)
   } finally {
     savingSettings.value = false
   }
@@ -273,7 +273,7 @@ const importText = async () => {
     const msg = summarizeUpsertResult(result, '文本')
     setStatus(msg, result.added > 0 || result.updated > 0 ? 'success' : 'error')
   } catch (error) {
-    setStatus(`文本导入失败：${normalizeErrorMessage(error)}`, 'error')
+    console.error('Failed to import RAG text:', error)
   } finally {
     importingText.value = false
   }
@@ -361,7 +361,7 @@ const importFiles = async () => {
     const msg = summarizeUpsertResult(mergedResult, '文件')
     setStatus(msg, mergedResult.added > 0 || mergedResult.updated > 0 ? 'success' : 'error')
   } catch (error) {
-    setStatus(`文件导入失败：${normalizeErrorMessage(error)}`, 'error')
+    console.error('Failed to import RAG files:', error)
   } finally {
     uploadingFiles.value = false
   }
@@ -378,7 +378,7 @@ const removeDocument = async (id: string) => {
     }
     setStatus('文档不存在或已被删除。', 'muted')
   } catch (error) {
-    setStatus(`删除文档失败：${normalizeErrorMessage(error)}`, 'error')
+    console.error(`Failed to remove RAG document (${id}):`, error)
   } finally {
     deletingDocumentId.value = null
   }
@@ -393,7 +393,7 @@ const clearKnowledgeBase = async () => {
     setStatus('知识库已清空。', 'success')
     emitToast({ message: 'RAG 知识库已清空', variant: 'success' })
   } catch (error) {
-    setStatus(`清空知识库失败：${normalizeErrorMessage(error)}`, 'error')
+    console.error('Failed to clear RAG knowledge base:', error)
   } finally {
     clearing.value = false
   }

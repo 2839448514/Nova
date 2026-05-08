@@ -164,8 +164,6 @@ const submit = async () => {
       : 'MCP 服务已添加并触发连接。', 'success')
   }
   catch (e) {
-    const msg = `${isEditing ? '更新失败' : '添加失败'}: ${String(e)}`
-    error.value = msg
     console.error('Failed to submit MCP server:', e)
   }
   finally { adding.value = false }
