@@ -81,11 +81,7 @@ async function loadAgentProfiles() {
 
     await loadSelectedProfileContent();
   } catch (err) {
-    emitToast({
-      variant: "error",
-      source: "agent-config",
-      message: `读取智能体列表失败: ${String(err)}`,
-    });
+    console.error("Failed to load agent profiles:", err);
   } finally {
     loadingList.value = false;
   }
@@ -110,11 +106,7 @@ async function loadSelectedProfileContent() {
     content.value = text ?? "";
     originalContent.value = content.value;
   } catch (err) {
-    emitToast({
-      variant: "error",
-      source: "agent-config",
-      message: `读取智能体配置失败: ${String(err)}`,
-    });
+    console.error("Failed to load agent profile markdown:", err);
   } finally {
     loadingContent.value = false;
   }
@@ -195,11 +187,7 @@ async function createAgentProfile() {
       message: "已创建智能体。",
     });
   } catch (err) {
-    emitToast({
-      variant: "error",
-      source: "agent-config",
-      message: `创建智能体失败: ${String(err)}`,
-    });
+    console.error("Failed to create agent profile:", err);
   } finally {
     creating.value = false;
   }
@@ -225,11 +213,7 @@ async function saveAgentMarkdown() {
       message: "智能体配置已保存。",
     });
   } catch (err) {
-    emitToast({
-      variant: "error",
-      source: "agent-config",
-      message: `保存智能体配置失败: ${String(err)}`,
-    });
+    console.error("Failed to save agent profile markdown:", err);
   } finally {
     saving.value = false;
   }
@@ -258,11 +242,7 @@ async function deleteSelectedProfile() {
       message: `已删除智能体: ${targetName}`,
     });
   } catch (err) {
-    emitToast({
-      variant: "error",
-      source: "agent-config",
-      message: `删除智能体失败: ${String(err)}`,
-    });
+    console.error("Failed to delete agent profile:", err);
   } finally {
     deleting.value = false;
   }

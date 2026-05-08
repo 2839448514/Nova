@@ -11,6 +11,8 @@ export type LiveTurnStage = "processing" | "compacting";
 
 export type BackendErrorEvent = {
   source?: string;
+  code?: string;
+  title?: string;
   message?: string;
   stage?: string | null;
 };

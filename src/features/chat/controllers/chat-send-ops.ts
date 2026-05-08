@@ -170,11 +170,7 @@ export function createSendOperations(deps: SendOpsDeps) {
           });
         }
       } catch (err) {
-        emitToast({
-          variant: "error",
-          source: "upload",
-          message: `文件上传失败，本轮未发送: ${String(err)}`,
-        });
+        console.error("Failed to upload conversation documents:", err);
         return;
       }
     }
@@ -232,12 +228,6 @@ export function createSendOperations(deps: SendOpsDeps) {
       }
 
       console.error("Chat error:", err);
-      const errorMessage: ChatMessage = { role: "assistant", content: `API Error: ${err}` };
-      if (isActiveFailedConversation) {
-        messages.value.push(errorMessage);
-      }
-      await persistMessage(errorMessage, sendingConversationId);
-
       if (isActiveFailedConversation) {
         assistantResponse.value = "";
         assistantReasoning.value = "";
@@ -290,11 +280,6 @@ export function createSendOperations(deps: SendOpsDeps) {
       }
     } catch (err) {
       console.error("Failed to cancel generation:", err);
-      emitToast({
-        variant: "error",
-        source: "cancel",
-        message: `取消失败: ${String(err)}`,
-      });
     }
   }
 
@@ -318,11 +303,7 @@ export function createSendOperations(deps: SendOpsDeps) {
         );
         resetPendingPromptState(activeRuntimeRefs);
       } catch (err) {
-        emitToast({
-          variant: "error",
-          source: "permission",
-          message: `提交权限决策失败: ${String(err)}`,
-        });
+        console.error("Failed to submit permission decision:", err);
       }
       return;
     }
@@ -340,11 +321,7 @@ export function createSendOperations(deps: SendOpsDeps) {
         );
         resetPendingPromptState(activeRuntimeRefs);
       } catch (err) {
-        emitToast({
-          variant: "error",
-          source: "permission",
-          message: `提交权限拒绝失败: ${String(err)}`,
-        });
+        console.error("Failed to submit permission denial:", err);
       }
       return;
     }

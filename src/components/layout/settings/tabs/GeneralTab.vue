@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
-import { emitToast } from '../../../../lib/toast'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
   applyUiTheme,
@@ -19,6 +20,7 @@ import {
 
 const theme = ref<UiTheme>(getStoredUiTheme())
 const language = ref<UiLanguage>(getStoredUiLanguage())
+const enableAppLog = ref(true)
 const isSavingPreferences = ref(false)
 const cachedSettings = ref<Record<string, unknown> | null>(null)
 
@@ -28,6 +30,9 @@ const localeTexts = {
     appearanceDesc: '选择 Nova 在你的设备上的显示方式。',
     languageTitle: '语言',
     languageDesc: '切换界面显示语言。',
+    loggingTitle: '软件日志',
+    loggingDesc: '控制是否将统一软件日志写入本地日志文件。',
+    loggingSwitchLabel: '记录软件日志到本地文件',
     settingsSaveFailed: '保存设置失败：',
     themeSystem: '系统',
     themeLight: '浅色',
@@ -40,6 +45,9 @@ const localeTexts = {
     appearanceDesc: 'Select how Nova looks on your device.',
     languageTitle: 'Language',
     languageDesc: 'Change the interface language.',
+    loggingTitle: 'Application Logging',
+    loggingDesc: 'Control whether the unified application log is written to local log files.',
+    loggingSwitchLabel: 'Write application logs to local files',
     settingsSaveFailed: 'Failed to save settings: ',
     themeSystem: 'System',
     themeLight: 'Light',
@@ -72,8 +80,10 @@ const loadSettings = async () => {
 
     const nextLanguage = normalizeUiLanguage(settings.uiLanguage)
     const nextTheme = normalizeUiTheme(settings.uiTheme)
+    const nextEnableAppLog = settings.enableAppLog !== false
     language.value = nextLanguage
     theme.value = nextTheme
+    enableAppLog.value = nextEnableAppLog
 
     setStoredUiLanguage(nextLanguage)
     setStoredUiTheme(nextTheme)
@@ -98,6 +108,7 @@ const persistPreferences = async () => {
       ...baseSettings,
       uiLanguage: language.value,
       uiTheme: theme.value,
+      enableAppLog: enableAppLog.value,
     }
 
     cachedSettings.value = nextSettings
@@ -105,11 +116,6 @@ const persistPreferences = async () => {
     window.dispatchEvent(new CustomEvent('settings-updated'))
   } catch (error) {
     console.error('Failed to save general settings:', error)
-    emitToast({
-      variant: 'error',
-      source: 'settings',
-      message: `${t.value.settingsSaveFailed}${String(error)}`,
-    })
   } finally {
     isSavingPreferences.value = false
   }
@@ -134,6 +140,11 @@ const onLanguageChange = () => {
 const onLanguageSelect = (value: string) => {
   language.value = normalizeUiLanguage(value)
   onLanguageChange()
+}
+
+const onEnableAppLogChange = (checked: boolean | 'indeterminate') => {
+  enableAppLog.value = checked === true
+  void persistPreferences()
 }
 
 onMounted(() => {
@@ -179,6 +190,26 @@ onMounted(() => {
             <SelectItem value="en-US">{{ t.languageEnglish }}</SelectItem>
           </SelectContent>
         </Select>
+      </CardContent>
+    </Card>
+
+    <Card class="border-[#ebe9e3] dark:border-[#3b3a37]">
+      <CardHeader class="pb-2">
+        <CardTitle class="text-[0.9rem]">{{ t.loggingTitle }}</CardTitle>
+        <CardDescription>{{ t.loggingDesc }}</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div class="flex items-center gap-3">
+          <Checkbox
+            id="general-enable-app-log"
+            class="border-[#c8baa3] data-[state=checked]:border-[#da7756] data-[state=checked]:bg-[#da7756]"
+            :model-value="enableAppLog"
+            @update:model-value="onEnableAppLogChange"
+          />
+          <Label for="general-enable-app-log" class="text-[0.9rem] font-normal text-[#5f574a] dark:text-[#d8cfbf]">
+            {{ t.loggingSwitchLabel }}
+          </Label>
+        </div>
       </CardContent>
     </Card>
   </div>

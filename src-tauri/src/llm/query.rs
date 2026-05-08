@@ -1,4 +1,5 @@
 use tauri::{AppHandle, Emitter};
+use tracing::info;
 
 use std::collections::HashSet;
 
@@ -79,6 +80,15 @@ fn emit_context_compact_event(
     if saved_tokens == 0 {
         return;
     }
+    info!(
+        conversation_id = %conversation_id.unwrap_or("__default__"),
+        level = %level,
+        before_tokens,
+        after_tokens,
+        saved_tokens,
+        reason = %reason,
+        "context compact applied"
+    );
     eprintln!(
         "[compact] applied level={} before={} after={} saved={} reason={}",
         level, before_tokens, after_tokens, saved_tokens, reason

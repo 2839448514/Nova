@@ -5,6 +5,8 @@ use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
 use uuid::Uuid;
 
+use crate::llm::utils::error_event::report_backend_result;
+
 const RAG_STORE_VERSION: u32 = 2;
 const MAX_DOCUMENT_CHARS: usize = usize::MAX;
 const MAX_BATCH_SIZE: usize = 200;
@@ -481,68 +483,77 @@ pub fn rag_read_document(
     app: AppHandle,
     document_id: String,
 ) -> Result<Option<RagDocumentContent>, String> {
-    let id = document_id.trim();
-    if id.is_empty() {
-        return Err("document_id is required".to_string());
-    }
+    let result = (|| {
+        let id = document_id.trim();
+        if id.is_empty() {
+            return Err("document_id is required".to_string());
+        }
 
-    let store = load_store(&app)?;
-    let mut chunks: Vec<RagDocument> = store
-        .documents
-        .into_iter()
-        .filter(|doc| doc.group_id == id)
-        .collect();
+        let store = load_store(&app)?;
+        let mut chunks: Vec<RagDocument> = store
+            .documents
+            .into_iter()
+            .filter(|doc| doc.group_id == id)
+            .collect();
 
-    if chunks.is_empty() {
-        return Ok(None);
-    }
+        if chunks.is_empty() {
+            return Ok(None);
+        }
 
-    chunks.sort_by_key(|c| c.chunk_index);
-    let first = &chunks[0];
-    let full_content = chunks
-        .iter()
-        .map(|c| c.content.as_str())
-        .collect::<Vec<_>>()
-        .join("\n\n");
-    let total_chars: usize = chunks.iter().map(|c| c.content_chars).sum();
-    let created_at = chunks.iter().map(|c| c.created_at).min().unwrap_or(0);
-    let updated_at = chunks.iter().map(|c| c.updated_at).max().unwrap_or(0);
+        chunks.sort_by_key(|c| c.chunk_index);
+        let first = &chunks[0];
+        let full_content = chunks
+            .iter()
+            .map(|c| c.content.as_str())
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        let total_chars: usize = chunks.iter().map(|c| c.content_chars).sum();
+        let created_at = chunks.iter().map(|c| c.created_at).min().unwrap_or(0);
+        let updated_at = chunks.iter().map(|c| c.updated_at).max().unwrap_or(0);
 
-    Ok(Some(RagDocumentContent {
-        id: id.to_string(),
-        source_name: first.source_name.clone(),
-        source_type: first.source_type.clone(),
-        mime_type: first.mime_type.clone(),
-        content: full_content,
-        content_chars: total_chars,
-        checksum: first.checksum.clone(),
-        created_at,
-        updated_at,
-    }))
+        Ok(Some(RagDocumentContent {
+            id: id.to_string(),
+            source_name: first.source_name.clone(),
+            source_type: first.source_type.clone(),
+            mime_type: first.mime_type.clone(),
+            content: full_content,
+            content_chars: total_chars,
+            checksum: first.checksum.clone(),
+            created_at,
+            updated_at,
+        }))
+    })();
+    report_backend_result(&app, "command.rag.rag_read_document", result, None)
 }
 
 #[tauri::command]
 pub fn rag_get_stats(app: AppHandle) -> Result<RagStats, String> {
-    let store = load_store(&app)?;
-    let global_documents = store
-        .documents
-        .into_iter()
-        .filter(|doc| doc.conversation_id.is_none())
-        .collect::<Vec<_>>();
-    Ok(calculate_stats(&global_documents))
+    let result = (|| {
+        let store = load_store(&app)?;
+        let global_documents = store
+            .documents
+            .into_iter()
+            .filter(|doc| doc.conversation_id.is_none())
+            .collect::<Vec<_>>();
+        Ok(calculate_stats(&global_documents))
+    })();
+    report_backend_result(&app, "command.rag.rag_get_stats", result, None)
 }
 
 #[tauri::command]
 pub fn rag_list_documents(app: AppHandle) -> Result<Vec<RagDocumentMeta>, String> {
-    let store = load_store(&app)?;
-    let global_docs: Vec<RagDocument> = store
-        .documents
-        .into_iter()
-        .filter(|doc| doc.conversation_id.is_none())
-        .collect();
-    let mut items = group_chunks_by_source(&global_docs);
-    items.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
-    Ok(items)
+    let result = (|| {
+        let store = load_store(&app)?;
+        let global_docs: Vec<RagDocument> = store
+            .documents
+            .into_iter()
+            .filter(|doc| doc.conversation_id.is_none())
+            .collect();
+        let mut items = group_chunks_by_source(&global_docs);
+        items.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        Ok(items)
+    })();
+    report_backend_result(&app, "command.rag.rag_list_documents", result, None)
 }
 
 #[tauri::command]
@@ -550,18 +561,26 @@ pub fn rag_list_conversation_documents(
     app: AppHandle,
     conversation_id: String,
 ) -> Result<Vec<RagDocumentMeta>, String> {
-    let scope_id = normalize_optional_conversation_id(Some(conversation_id))
-        .ok_or_else(|| "conversation_id is required".to_string())?;
+    let result = (|| {
+        let scope_id = normalize_optional_conversation_id(Some(conversation_id))
+            .ok_or_else(|| "conversation_id is required".to_string())?;
 
-    let store = load_store(&app)?;
-    let scoped_docs: Vec<RagDocument> = store
-        .documents
-        .into_iter()
-        .filter(|doc| doc.conversation_id.as_deref() == Some(scope_id.as_str()))
-        .collect();
-    let mut items = group_chunks_by_source(&scoped_docs);
-    items.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
-    Ok(items)
+        let store = load_store(&app)?;
+        let scoped_docs: Vec<RagDocument> = store
+            .documents
+            .into_iter()
+            .filter(|doc| doc.conversation_id.as_deref() == Some(scope_id.as_str()))
+            .collect();
+        let mut items = group_chunks_by_source(&scoped_docs);
+        items.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        Ok(items)
+    })();
+    report_backend_result(
+        &app,
+        "command.rag.rag_list_conversation_documents",
+        result,
+        None,
+    )
 }
 
 #[tauri::command]
@@ -569,117 +588,117 @@ pub fn rag_upsert_documents(
     app: AppHandle,
     documents: Vec<RagDocumentInput>,
 ) -> Result<RagUpsertResult, String> {
-    if documents.is_empty() {
-        return Err("No documents provided".to_string());
-    }
-    if documents.len() > MAX_BATCH_SIZE {
-        return Err(format!(
-            "Batch size exceeded: max {} documents per request",
-            MAX_BATCH_SIZE
-        ));
-    }
-
-    let mut store = load_store(&app)?;
-    let now = Utc::now().timestamp();
-
-    let mut added = 0u32;
-    let mut updated = 0u32;
-    let mut rejected: Vec<RagRejectedItem> = Vec::new();
-
-    for (index, item) in documents.into_iter().enumerate() {
-        let source_name = normalize_source_name(&item.source_name, index);
-        let content = normalize_content(&item.content);
-        let conversation_id = normalize_optional_conversation_id(item.conversation_id);
-
-        if content.is_empty() {
-            rejected.push(RagRejectedItem {
-                source_name,
-                reason: "内容为空".to_string(),
-            });
-            continue;
+    let result = (|| {
+        if documents.is_empty() {
+            return Err("No documents provided".to_string());
+        }
+        if documents.len() > MAX_BATCH_SIZE {
+            return Err(format!(
+                "Batch size exceeded: max {} documents per request",
+                MAX_BATCH_SIZE
+            ));
         }
 
-        let content_chars = content.chars().count();
-        if content_chars > MAX_DOCUMENT_CHARS {
-            rejected.push(RagRejectedItem {
-                source_name,
-                reason: format!("内容过长，最大允许 {} 字符", MAX_DOCUMENT_CHARS),
-            });
-            continue;
-        }
+        let mut store = load_store(&app)?;
+        let now = Utc::now().timestamp();
 
-        let group_id = fnv1a_64_hex(&content);
-        let source_type = normalize_source_type(&item.source_type);
-        let mime_type = normalize_optional_string(item.mime_type);
-        let scope_key = conversation_id.clone();
+        let mut added = 0u32;
+        let mut updated = 0u32;
+        let mut rejected: Vec<RagRejectedItem> = Vec::new();
 
-        // Same content already stored — only update metadata
-        if store
-            .documents
-            .iter()
-            .any(|d| d.group_id == group_id && d.conversation_id == scope_key)
-        {
-            for doc in store.documents.iter_mut() {
-                if doc.group_id == group_id && doc.conversation_id == scope_key {
-                    doc.source_name = source_name.clone();
-                    doc.source_type = source_type.clone();
-                    doc.mime_type = mime_type.clone();
-                    doc.updated_at = now;
-                }
+        for (index, item) in documents.into_iter().enumerate() {
+            let source_name = normalize_source_name(&item.source_name, index);
+            let content = normalize_content(&item.content);
+            let conversation_id = normalize_optional_conversation_id(item.conversation_id);
+
+            if content.is_empty() {
+                rejected.push(RagRejectedItem {
+                    source_name,
+                    reason: "内容为空".to_string(),
+                });
+                continue;
             }
-            updated += 1;
-            continue;
+
+            let content_chars = content.chars().count();
+            if content_chars > MAX_DOCUMENT_CHARS {
+                rejected.push(RagRejectedItem {
+                    source_name,
+                    reason: format!("内容过长，最大允许 {} 字符", MAX_DOCUMENT_CHARS),
+                });
+                continue;
+            }
+
+            let group_id = fnv1a_64_hex(&content);
+            let source_type = normalize_source_type(&item.source_type);
+            let mime_type = normalize_optional_string(item.mime_type);
+            let scope_key = conversation_id.clone();
+
+            if store
+                .documents
+                .iter()
+                .any(|d| d.group_id == group_id && d.conversation_id == scope_key)
+            {
+                for doc in store.documents.iter_mut() {
+                    if doc.group_id == group_id && doc.conversation_id == scope_key {
+                        doc.source_name = source_name.clone();
+                        doc.source_type = source_type.clone();
+                        doc.mime_type = mime_type.clone();
+                        doc.updated_at = now;
+                    }
+                }
+                updated += 1;
+                continue;
+            }
+
+            let had_previous = store
+                .documents
+                .iter()
+                .any(|d| d.source_name == source_name && d.conversation_id == scope_key);
+
+            store
+                .documents
+                .retain(|d| !(d.source_name == source_name && d.conversation_id == scope_key));
+
+            for (chunk_index, chunk_content) in split_into_chunks(&content).into_iter().enumerate()
+            {
+                let chunk_chars = chunk_content.chars().count();
+                store.documents.push(RagDocument {
+                    id: Uuid::new_v4().to_string(),
+                    source_name: source_name.clone(),
+                    source_type: source_type.clone(),
+                    mime_type: mime_type.clone(),
+                    conversation_id: conversation_id.clone(),
+                    content: chunk_content,
+                    content_chars: chunk_chars,
+                    checksum: group_id.clone(),
+                    created_at: now,
+                    updated_at: now,
+                    group_id: group_id.clone(),
+                    chunk_index: chunk_index as u32,
+                });
+            }
+
+            if had_previous {
+                updated += 1;
+            } else {
+                added += 1;
+            }
         }
 
-        // Track whether a previous version existed under this source_name
-        let had_previous = store
-            .documents
-            .iter()
-            .any(|d| d.source_name == source_name && d.conversation_id == scope_key);
-
-        // Remove any previous chunks for this source_name in scope
-        store
-            .documents
-            .retain(|d| !(d.source_name == source_name && d.conversation_id == scope_key));
-
-        // Split into chunks and insert
-        for (chunk_index, chunk_content) in split_into_chunks(&content).into_iter().enumerate() {
-            let chunk_chars = chunk_content.chars().count();
-            store.documents.push(RagDocument {
-                id: Uuid::new_v4().to_string(),
-                source_name: source_name.clone(),
-                source_type: source_type.clone(),
-                mime_type: mime_type.clone(),
-                conversation_id: conversation_id.clone(),
-                content: chunk_content,
-                content_chars: chunk_chars,
-                checksum: group_id.clone(),
-                created_at: now,
-                updated_at: now,
-                group_id: group_id.clone(),
-                chunk_index: chunk_index as u32,
-            });
+        if added > 0 || updated > 0 {
+            save_store(&app, &store)?;
         }
 
-        if had_previous {
-            updated += 1;
-        } else {
-            added += 1;
-        }
-    }
-
-    if added > 0 || updated > 0 {
-        save_store(&app, &store)?;
-    }
-
-    let stats = calculate_stats(&store.documents);
-    Ok(RagUpsertResult {
-        added,
-        updated,
-        rejected,
-        total_documents: stats.document_count,
-        total_chars: stats.total_chars,
-    })
+        let stats = calculate_stats(&store.documents);
+        Ok(RagUpsertResult {
+            added,
+            updated,
+            rejected,
+            total_documents: stats.document_count,
+            total_chars: stats.total_chars,
+        })
+    })();
+    report_backend_result(&app, "command.rag.rag_upsert_documents", result, None)
 }
 
 #[tauri::command]
@@ -688,8 +707,18 @@ pub fn rag_upsert_conversation_documents(
     conversation_id: String,
     documents: Vec<RagDocumentInput>,
 ) -> Result<RagUpsertResult, String> {
-    let normalized_conversation_id = normalize_optional_conversation_id(Some(conversation_id))
-        .ok_or_else(|| "conversation_id is required".to_string())?;
+    let normalized_conversation_id = match normalize_optional_conversation_id(Some(conversation_id))
+    {
+        Some(value) => value,
+        None => {
+            return report_backend_result(
+                &app,
+                "command.rag.rag_upsert_conversation_documents",
+                Err("conversation_id is required".to_string()),
+                None,
+            );
+        }
+    };
 
     let scoped_documents = documents
         .into_iter()
@@ -699,7 +728,14 @@ pub fn rag_upsert_conversation_documents(
         })
         .collect::<Vec<_>>();
 
-    rag_upsert_documents(app, scoped_documents)
+    let app_handle = app.clone();
+    let result = rag_upsert_documents(app, scoped_documents);
+    report_backend_result(
+        &app_handle,
+        "command.rag.rag_upsert_conversation_documents",
+        result,
+        None,
+    )
 }
 
 pub fn rag_remove_conversation_documents(
@@ -741,31 +777,37 @@ pub fn rag_remove_all_conversation_documents(app: &AppHandle) -> Result<usize, S
 
 #[tauri::command]
 pub fn rag_remove_document(app: AppHandle, document_id: String) -> Result<bool, String> {
-    let id = document_id.trim();
-    if id.is_empty() {
-        return Err("document_id is required".to_string());
-    }
+    let result = (|| {
+        let id = document_id.trim();
+        if id.is_empty() {
+            return Err("document_id is required".to_string());
+        }
 
-    let mut store = load_store(&app)?;
-    let before = store.documents.len();
-    store.documents.retain(|doc| doc.group_id != id);
-    let removed = before != store.documents.len();
+        let mut store = load_store(&app)?;
+        let before = store.documents.len();
+        store.documents.retain(|doc| doc.group_id != id);
+        let removed = before != store.documents.len();
 
-    if removed {
-        save_store(&app, &store)?;
-    }
+        if removed {
+            save_store(&app, &store)?;
+        }
 
-    Ok(removed)
+        Ok(removed)
+    })();
+    report_backend_result(&app, "command.rag.rag_remove_document", result, None)
 }
 
 #[tauri::command]
 pub fn rag_clear_documents(app: AppHandle) -> Result<(), String> {
-    let mut store = load_store(&app)?;
-    let before = store.documents.len();
-    store.documents.retain(|doc| doc.conversation_id.is_some());
-    if store.documents.len() == before {
-        return Ok(());
-    }
+    let result = (|| {
+        let mut store = load_store(&app)?;
+        let before = store.documents.len();
+        store.documents.retain(|doc| doc.conversation_id.is_some());
+        if store.documents.len() == before {
+            return Ok(());
+        }
 
-    save_store(&app, &store)
+        save_store(&app, &store)
+    })();
+    report_backend_result(&app, "command.rag.rag_clear_documents", result, None)
 }

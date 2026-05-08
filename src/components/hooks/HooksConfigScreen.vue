@@ -138,11 +138,7 @@ async function loadHookConfig() {
     const hookEnv = extractHookEnv(settings ?? {});
     applyHookEnvToForm(hookEnv);
   } catch (err) {
-    emitToast({
-      variant: "error",
-      source: "hooks",
-      message: `读取钩子配置失败: ${String(err)}`,
-    });
+    console.error("Failed to load hook config:", err);
   } finally {
     loading.value = false;
   }
@@ -175,11 +171,7 @@ async function saveHookConfig() {
       message: "钩子配置已保存并生效。",
     });
   } catch (err) {
-    emitToast({
-      variant: "error",
-      source: "hooks",
-      message: `保存钩子配置失败: ${String(err)}`,
-    });
+    console.error("Failed to save hook config:", err);
   } finally {
     saving.value = false;
   }

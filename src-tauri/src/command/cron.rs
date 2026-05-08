@@ -6,7 +6,10 @@ use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use tauri::{AppHandle, Emitter};
 use tokio::time::{self, Duration};
+use tracing::{error, warn};
 use uuid::Uuid;
+
+use crate::llm::utils::error_event::report_backend_result;
 
 const SCHEDULER_TICK_SECONDS: u64 = 15;
 
@@ -311,7 +314,7 @@ pub async fn run_scheduler_loop(app: AppHandle) {
         let jobs = match list_jobs(&app) {
             Ok(v) => v,
             Err(e) => {
-                eprintln!("[cron.scheduler] Failed to list jobs: {}", e);
+                error!(operation = "command.cron.run_scheduler_loop", error = %e, "failed to list scheduled jobs");
                 continue;
             }
         };
@@ -335,9 +338,11 @@ pub async fn run_scheduler_loop(app: AppHandle) {
 
             if let Err(e) = append_trigger_prompt_to_bound_conversation(&app, &job, &now_utc).await
             {
-                eprintln!(
-                    "[cron.scheduler] Failed to append trigger prompt to conversation for {}: {}",
-                    job.id, e
+                error!(
+                    operation = "command.cron.append_trigger_prompt_to_bound_conversation",
+                    job_id = %job.id,
+                    error = %e,
+                    "failed to append scheduled trigger prompt"
                 );
             }
 
@@ -352,7 +357,12 @@ pub async fn run_scheduler_loop(app: AppHandle) {
                 )
                 .await
                 {
-                    eprintln!("[cron.scheduler] {}", e);
+                    error!(
+                        operation = "command.cron.execute_scheduled_prompt_in_bound_conversation",
+                        job_id = %job_for_turn.id,
+                        error = %e,
+                        "failed to execute scheduled prompt"
+                    );
                 }
             });
 
@@ -383,24 +393,31 @@ pub async fn run_scheduler_loop(app: AppHandle) {
                                 fired_minute_by_id.remove(&job.id);
                             }
                             Ok(false) => {
-                                eprintln!(
-                                    "[cron.scheduler] One-shot job {} was not removed after trigger; keeping minute guard {}",
-                                    job.id, minute_key
+                                warn!(
+                                    operation = "command.cron.run_scheduler_loop",
+                                    job_id = %job.id,
+                                    minute_key = %minute_key,
+                                    "one-shot job was not removed after trigger; keeping minute guard"
                                 );
                             }
                             Err(e) => {
-                                eprintln!(
-                                    "[cron.scheduler] Failed to remove one-shot job {}: {}. Keeping minute guard {}",
-                                    job.id, e, minute_key
+                                error!(
+                                    operation = "command.cron.run_scheduler_loop",
+                                    job_id = %job.id,
+                                    minute_key = %minute_key,
+                                    error = %e,
+                                    "failed to remove one-shot job after trigger"
                                 );
                             }
                         }
                     }
                 }
                 Err(e) => {
-                    eprintln!(
-                        "[cron.scheduler] Failed to emit scheduled-task-trigger for {}: {}",
-                        job.id, e
+                    error!(
+                        operation = "command.cron.run_scheduler_loop",
+                        job_id = %job.id,
+                        error = %e,
+                        "failed to emit scheduled-task-trigger event"
                     );
                 }
             }
@@ -412,7 +429,7 @@ pub async fn run_scheduler_loop(app: AppHandle) {
 
 #[tauri::command]
 pub fn list_scheduled_tasks(app: AppHandle) -> Result<Vec<CronJob>, String> {
-    list_jobs(&app)
+    report_backend_result(&app, "command.cron.list_scheduled_tasks", list_jobs(&app), None)
 }
 
 #[tauri::command]
@@ -423,55 +440,64 @@ pub async fn create_scheduled_task(
     recurring: Option<bool>,
     durable: Option<bool>,
 ) -> Result<CronJob, String> {
-    let cron_value = cron.trim();
-    if cron_value.is_empty() {
-        return Err("cron is required".to_string());
-    }
-    validate_cron_expression(cron_value)?;
+    let result = async {
+        let cron_value = cron.trim();
+        if cron_value.is_empty() {
+            return Err("cron is required".to_string());
+        }
+        validate_cron_expression(cron_value)?;
 
-    let prompt_value = prompt.trim();
-    if prompt_value.is_empty() {
-        return Err("prompt is required".to_string());
-    }
+        let prompt_value = prompt.trim();
+        if prompt_value.is_empty() {
+            return Err("prompt is required".to_string());
+        }
 
-    let raw_uuid = Uuid::new_v4().simple().to_string();
-    let id = format!("cron-{}", &raw_uuid[..12]);
+        let raw_uuid = Uuid::new_v4().simple().to_string();
+        let id = format!("cron-{}", &raw_uuid[..12]);
 
-    let conversation_id =
-        create_bound_conversation_for_task(&app, cron_value, prompt_value).await?;
+        let conversation_id =
+            create_bound_conversation_for_task(&app, cron_value, prompt_value).await?;
 
-    let job = CronJob {
-        id,
-        cron: cron_value.to_string(),
-        prompt: prompt_value.to_string(),
-        conversation_id: Some(conversation_id.clone()),
-        recurring: recurring.unwrap_or(true),
-        durable: durable.unwrap_or(false),
-        created_at: Utc::now().to_rfc3339(),
-    };
+        let job = CronJob {
+            id,
+            cron: cron_value.to_string(),
+            prompt: prompt_value.to_string(),
+            conversation_id: Some(conversation_id.clone()),
+            recurring: recurring.unwrap_or(true),
+            durable: durable.unwrap_or(false),
+            created_at: Utc::now().to_rfc3339(),
+        };
 
-    match add_job(&app, job) {
-        Ok(saved) => Ok(saved),
-        Err(e) => {
-            if let Err(cleanup_error) =
-                crate::llm::history::delete_conversation(&app, &conversation_id).await
-            {
-                eprintln!(
-                    "[cron.create] Failed to cleanup conversation {} after add_job error: {}",
-                    conversation_id, cleanup_error
-                );
+        match add_job(&app, job) {
+            Ok(saved) => Ok(saved),
+            Err(e) => {
+                if let Err(cleanup_error) =
+                    crate::llm::history::delete_conversation(&app, &conversation_id).await
+                {
+                    error!(
+                        operation = "command.cron.create_scheduled_task.cleanup",
+                        conversation_id = %conversation_id,
+                        error = %cleanup_error,
+                        "failed to cleanup conversation after add_job error"
+                    );
+                }
+                Err(e)
             }
-            Err(e)
         }
     }
+    .await;
+    report_backend_result(&app, "command.cron.create_scheduled_task", result, None)
 }
 
 #[tauri::command]
 pub fn delete_scheduled_task(app: AppHandle, id: String) -> Result<bool, String> {
-    let task_id = id.trim();
-    if task_id.is_empty() {
-        return Err("id is required".to_string());
-    }
+    let result = (|| {
+        let task_id = id.trim();
+        if task_id.is_empty() {
+            return Err("id is required".to_string());
+        }
 
-    remove_job(&app, task_id)
+        remove_job(&app, task_id)
+    })();
+    report_backend_result(&app, "command.cron.delete_scheduled_task", result, None)
 }

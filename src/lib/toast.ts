@@ -1,3 +1,7 @@
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { formatUserFacingError } from './error-display';
+import { formatBackendErrorEvent } from './error-display';
+
 export const NOVA_TOAST_EVENT = 'nova-toast';
 
 export type ToastVariant = 'error' | 'success' | 'info' | 'warning';
@@ -9,6 +13,8 @@ export type ToastPayload = {
 };
 
 let handlersInstalled = false;
+let backendErrorListenerInstalled = false;
+let unlistenBackendError: UnlistenFn | null = null;
 
 export function normalizeErrorMessage(err: unknown): string {
   if (err instanceof Error) {
@@ -32,9 +38,9 @@ export function emitToast(payload: ToastPayload): void {
 }
 
 export function emitErrorToast(action: string, err: unknown, source?: string): void {
-  const detail = normalizeErrorMessage(err);
+  const detail = formatUserFacingError(err);
   emitToast({
-    message: detail ? `${action}: ${detail}` : action,
+    message: detail ? `${action}：${detail}` : action,
     variant: 'error',
     source,
   });
@@ -46,19 +52,6 @@ export function installGlobalErrorToastHandlers(): void {
   }
   handlersInstalled = true;
 
-  const originalConsoleError = console.error.bind(console);
-  console.error = (...args: unknown[]) => {
-    originalConsoleError(...args);
-    const message = args
-      .map((arg) => normalizeErrorMessage(arg))
-      .filter(Boolean)
-      .join(' | ')
-      .slice(0, 500);
-    if (message) {
-      emitToast({ message, variant: 'error', source: 'console.error' });
-    }
-  };
-
   window.addEventListener('error', (event) => {
     const detail = event.error ?? event.message ?? '未知运行时错误';
     emitErrorToast('前端运行时错误', detail, 'window.error');
@@ -67,4 +60,31 @@ export function installGlobalErrorToastHandlers(): void {
   window.addEventListener('unhandledrejection', (event) => {
     emitErrorToast('未处理的异步错误', event.reason, 'window.unhandledrejection');
   });
+}
+
+export async function installBackendErrorToastListener(): Promise<void> {
+  if (backendErrorListenerInstalled || typeof window === 'undefined') {
+    return;
+  }
+
+  backendErrorListenerInstalled = true;
+  unlistenBackendError = await listen<{
+    source?: string;
+    code?: string;
+    title?: string;
+    message?: string;
+    stage?: string | null;
+  }>('backend-error', (event) => {
+    emitToast({
+      variant: 'error',
+      source: 'backend-error',
+      message: formatBackendErrorEvent(event.payload ?? {}),
+    });
+  });
+}
+
+export function disposeBackendErrorToastListener(): void {
+  unlistenBackendError?.();
+  unlistenBackendError = null;
+  backendErrorListenerInstalled = false;
 }

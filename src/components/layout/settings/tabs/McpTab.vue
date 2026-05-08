@@ -107,7 +107,7 @@ const refresh = async () => {
   try { servers.value = await getServerStatuses() }
   catch (e) {
     servers.value = []
-    pushToast(`MCP 加载失败: ${String(e)}`, 'error')
+    console.error('Failed to load MCP statuses:', e)
   }
   finally { loading.value = false }
 }
@@ -121,7 +121,7 @@ const handleEdit = async (name: string) => {
     showForm.value = true
   }
   catch (e) {
-    pushToast(`读取配置失败(${name}): ${String(e)}`, 'error')
+    console.error(`Failed to load MCP config (${name}):`, e)
   }
   finally {
     loadingEditName.value = null
@@ -166,7 +166,7 @@ const submit = async () => {
   catch (e) {
     const msg = `${isEditing ? '更新失败' : '添加失败'}: ${String(e)}`
     error.value = msg
-    pushToast(msg, 'error')
+    console.error('Failed to submit MCP server:', e)
   }
   finally { adding.value = false }
 }
@@ -179,7 +179,7 @@ const handleRemove = async (name: string) => {
     pushToast(`已删除 MCP 服务: ${name}`, 'success')
   }
   catch (e) {
-    pushToast(`删除失败(${name}): ${String(e)}`, 'error')
+    console.error(`Failed to remove MCP server (${name}):`, e)
   }
   finally { removingName.value = null }
 }
@@ -192,7 +192,7 @@ const handleReload = async () => {
     pushToast('MCP 服务重连完成。', 'success')
   }
   catch (e) {
-    pushToast(`MCP 重连失败: ${String(e)}`, 'error')
+    console.error('Failed to reload MCP servers:', e)
   }
   finally { reloading.value = false }
 }
@@ -205,7 +205,7 @@ const handleToggleEnabled = async (name: string, enabled: boolean) => {
     pushToast(`${enabled ? '已启用' : '已停用'} MCP 服务: ${name}`, 'success')
   }
   catch (e) {
-    pushToast(`更新状态失败(${name}): ${String(e)}`, 'error')
+    console.error(`Failed to toggle MCP server (${name}):`, e)
   }
   finally { togglingName.value = null }
 }

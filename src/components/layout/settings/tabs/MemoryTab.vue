@@ -113,11 +113,7 @@ const loadGlobalMemory = async () => {
     const entries = await invoke<GlobalMemoryEntry[]>('list_global_memory', { limit: 50 })
     globalMemoryEntries.value = Array.isArray(entries) ? entries : []
   } catch (error) {
-    emitToast({
-      variant: 'error',
-      source: 'global-memory',
-      message: `${t.value.loadFailed}${String(error)}`,
-    })
+    console.error('Failed to load global memory:', error)
   } finally {
     isLoadingGlobalMemory.value = false
   }
@@ -142,11 +138,7 @@ const saveGlobalMemory = async () => {
       message: t.value.addDone,
     })
   } catch (error) {
-    emitToast({
-      variant: 'error',
-      source: 'global-memory',
-      message: `${t.value.addFailed}${String(error)}`,
-    })
+    console.error('Failed to save global memory:', error)
   } finally {
     isSavingGlobalMemory.value = false
   }
@@ -167,11 +159,7 @@ const removeGlobalMemory = async (id: string) => {
       message: t.value.deleteDone,
     })
   } catch (error) {
-    emitToast({
-      variant: 'error',
-      source: 'global-memory',
-      message: `${t.value.deleteFailed}${String(error)}`,
-    })
+    console.error('Failed to delete global memory:', error)
   } finally {
     isRemovingGlobalMemoryId.value = null
   }
@@ -190,11 +178,7 @@ const clearGlobalMemory = async () => {
       message: formatClearDone(clearedCount || 0),
     })
   } catch (error) {
-    emitToast({
-      variant: 'error',
-      source: 'global-memory',
-      message: `${t.value.clearFailed}${String(error)}`,
-    })
+    console.error('Failed to clear global memory:', error)
   } finally {
     isClearingGlobalMemory.value = false
     confirmDialogOpen.value = false

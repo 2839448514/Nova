@@ -50,11 +50,7 @@ async function loadTasks() {
   try {
     tasks.value = await listScheduledTasks();
   } catch (err) {
-    emitToast({
-      variant: "error",
-      source: "schedule",
-      message: `读取定时任务失败: ${String(err)}`,
-    });
+    console.error("Failed to load scheduled tasks:", err);
   } finally {
     loading.value = false;
   }
@@ -82,11 +78,7 @@ async function handleCreateTask() {
       message: "定时任务已创建。",
     });
   } catch (err) {
-    emitToast({
-      variant: "error",
-      source: "schedule",
-      message: `创建定时任务失败: ${String(err)}`,
-    });
+    console.error("Failed to create scheduled task:", err);
   } finally {
     creating.value = false;
   }
@@ -120,11 +112,7 @@ async function handleDeleteTask(id: string) {
       message: `已删除任务 ${id}。`,
     });
   } catch (err) {
-    emitToast({
-      variant: "error",
-      source: "schedule",
-      message: `删除定时任务失败: ${String(err)}`,
-    });
+    console.error("Failed to delete scheduled task:", err);
   } finally {
     const next = { ...deletingIds.value };
     delete next[id];

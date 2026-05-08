@@ -22,7 +22,6 @@ import type {
 } from "../../../lib/chat-types";
 import {
   type LiveTurnStage,
-  type BackendErrorEvent,
   type ChatScreenHandle,
   type ConversationTurnRuntimeState,
   type MainView,
@@ -126,7 +125,6 @@ export function useChatController() {
   });
 
   let unlistenChatStream: UnlistenFn | null = null;
-  let unlistenBackendError: UnlistenFn | null = null;
   let unlistenScheduledTaskTrigger: UnlistenFn | null = null;
 
   function persistToolExecutionLog(entry: ToolExecutionEntry, conversationId = activeConversationId.value) {
@@ -263,21 +261,6 @@ export function useChatController() {
     }
 
     try {
-      unlistenBackendError = await listen<BackendErrorEvent>("backend-error", (event) => {
-        const payload = event.payload ?? {};
-        const prefix = [payload.source, payload.stage].filter(Boolean).join(" / ");
-        const message = payload.message || "后端工作流发生未知错误";
-        emitToast({
-          variant: "error",
-          source: "backend-error",
-          message: prefix ? `[${prefix}] ${message}` : message,
-        });
-      });
-    } catch (err) {
-      console.error("Failed to setup backend-error listener:", err);
-    }
-
-    try {
       unlistenScheduledTaskTrigger = await listen<ScheduledTaskTriggerEvent>(
         "scheduled-task-trigger",
         (event) => {
@@ -304,7 +287,6 @@ export function useChatController() {
 
   onUnmounted(() => {
     if (unlistenChatStream) unlistenChatStream();
-    if (unlistenBackendError) unlistenBackendError();
     if (unlistenScheduledTaskTrigger) unlistenScheduledTaskTrigger();
     window.removeEventListener("history-cleared", conversationOps.handleHistoryCleared as EventListener);
   });

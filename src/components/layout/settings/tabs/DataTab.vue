@@ -136,11 +136,7 @@ const clearHistory = async () => {
       message: t.value.historyDone,
     })
   } catch (error) {
-    emitToast({
-      variant: 'error',
-      source: 'history',
-      message: `${t.value.historyFailed}${String(error)}`,
-    })
+    console.error('Failed to clear history:', error)
   } finally {
     isClearingHistory.value = false
     pendingConfirmAction.value = null
@@ -185,11 +181,7 @@ const clearApiKeys = async () => {
       message: formatApiDoneMessage(cleared),
     })
   } catch (error) {
-    emitToast({
-      variant: 'error',
-      source: 'settings',
-      message: `${t.value.apiFailed}${String(error)}`,
-    })
+    console.error('Failed to clear API keys:', error)
   } finally {
     isClearingApiKeys.value = false
     pendingConfirmAction.value = null

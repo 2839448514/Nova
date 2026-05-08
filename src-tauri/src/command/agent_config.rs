@@ -2,6 +2,7 @@ use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Manager};
+use crate::llm::utils::error_event::report_backend_result;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -177,7 +178,12 @@ fn resolve_default_profile_path(app: &AppHandle) -> Result<PathBuf, String> {
 
 #[tauri::command]
 pub fn list_agent_profiles(app: AppHandle) -> Result<Vec<AgentProfileMeta>, String> {
-    list_agent_profiles_internal(&app)
+    report_backend_result(
+        &app,
+        "command.agent_config.list_agent_profiles",
+        list_agent_profiles_internal(&app),
+        None,
+    )
 }
 
 #[tauri::command]
@@ -185,48 +191,62 @@ pub fn create_agent_profile(
     app: AppHandle,
     name: Option<String>,
 ) -> Result<AgentProfileMeta, String> {
-    let root = ensure_agents_root_dir(&app)?;
-    let now = system_time_to_unix_secs(Some(SystemTime::now()));
-    let default_name = format!("agent-{}", now);
-    let requested_name = name.unwrap_or(default_name);
-    let safe_name = sanitize_agent_name(&requested_name);
-    let profile_path = unique_profile_path(&root, &safe_name);
+    let result = (|| {
+        let root = ensure_agents_root_dir(&app)?;
+        let now = system_time_to_unix_secs(Some(SystemTime::now()));
+        let default_name = format!("agent-{}", now);
+        let requested_name = name.unwrap_or(default_name);
+        let safe_name = sanitize_agent_name(&requested_name);
+        let profile_path = unique_profile_path(&root, &safe_name);
 
-    let title = requested_name.trim();
-    let initial_title = if title.is_empty() {
-        safe_name.as_str()
-    } else {
-        title
-    };
-    let initial_content = format!("# {}\n\n", initial_title);
+        let title = requested_name.trim();
+        let initial_title = if title.is_empty() {
+            safe_name.as_str()
+        } else {
+            title
+        };
+        let initial_content = format!("# {}\n\n", initial_title);
 
-    std::fs::write(&profile_path, initial_content).map_err(|e| e.to_string())?;
-    build_profile_meta(&profile_path)
+        std::fs::write(&profile_path, initial_content).map_err(|e| e.to_string())?;
+        build_profile_meta(&profile_path)
+    })();
+    report_backend_result(&app, "command.agent_config.create_agent_profile", result, None)
 }
 
 #[tauri::command]
 pub fn delete_agent_profile(app: AppHandle, profile_id: String) -> Result<(), String> {
-    let path = resolve_profile_path(&app, &profile_id)?;
-    if !path.exists() {
-        return Err(format!("Agent profile not found: {}", profile_id));
-    }
+    let result = (|| {
+        let path = resolve_profile_path(&app, &profile_id)?;
+        if !path.exists() {
+            return Err(format!("Agent profile not found: {}", profile_id));
+        }
 
-    let metadata = std::fs::metadata(&path).map_err(|e| e.to_string())?;
-    if !metadata.is_file() {
-        return Err("profile path is not a file".to_string());
-    }
+        let metadata = std::fs::metadata(&path).map_err(|e| e.to_string())?;
+        if !metadata.is_file() {
+            return Err("profile path is not a file".to_string());
+        }
 
-    std::fs::remove_file(path).map_err(|e| e.to_string())
+        std::fs::remove_file(path).map_err(|e| e.to_string())
+    })();
+    report_backend_result(&app, "command.agent_config.delete_agent_profile", result, None)
 }
 
 #[tauri::command]
 pub fn load_agent_profile_markdown(app: AppHandle, profile_id: String) -> Result<String, String> {
-    let path = resolve_profile_path(&app, &profile_id)?;
-    if !path.exists() {
-        return Err(format!("Agent profile not found: {}", profile_id));
-    }
+    let result = (|| {
+        let path = resolve_profile_path(&app, &profile_id)?;
+        if !path.exists() {
+            return Err(format!("Agent profile not found: {}", profile_id));
+        }
 
-    std::fs::read_to_string(path).map_err(|e| e.to_string())
+        std::fs::read_to_string(path).map_err(|e| e.to_string())
+    })();
+    report_backend_result(
+        &app,
+        "command.agent_config.load_agent_profile_markdown",
+        result,
+        None,
+    )
 }
 
 #[tauri::command]
@@ -235,38 +255,57 @@ pub fn save_agent_profile_markdown(
     profile_id: String,
     content: String,
 ) -> Result<(), String> {
-    let path = resolve_profile_path(&app, &profile_id)?;
+    let result = (|| {
+        let path = resolve_profile_path(&app, &profile_id)?;
 
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
 
-    std::fs::write(path, content).map_err(|e| e.to_string())
+        std::fs::write(path, content).map_err(|e| e.to_string())
+    })();
+    report_backend_result(
+        &app,
+        "command.agent_config.save_agent_profile_markdown",
+        result,
+        None,
+    )
 }
 
 #[tauri::command]
 pub fn get_agent_markdown_path(app: AppHandle) -> Result<String, String> {
-    let path = resolve_default_profile_path(&app)?;
-    Ok(path.to_string_lossy().to_string())
+    let result = resolve_default_profile_path(&app).map(|path| path.to_string_lossy().to_string());
+    report_backend_result(
+        &app,
+        "command.agent_config.get_agent_markdown_path",
+        result,
+        None,
+    )
 }
 
 #[tauri::command]
 pub fn load_agent_markdown(app: AppHandle) -> Result<String, String> {
-    let path = resolve_default_profile_path(&app)?;
-    if !path.exists() {
-        return Err("Agent profile not found: default.md".to_string());
-    }
+    let result = (|| {
+        let path = resolve_default_profile_path(&app)?;
+        if !path.exists() {
+            return Err("Agent profile not found: default.md".to_string());
+        }
 
-    std::fs::read_to_string(path).map_err(|e| e.to_string())
+        std::fs::read_to_string(path).map_err(|e| e.to_string())
+    })();
+    report_backend_result(&app, "command.agent_config.load_agent_markdown", result, None)
 }
 
 #[tauri::command]
 pub fn save_agent_markdown(app: AppHandle, content: String) -> Result<(), String> {
-    let path = resolve_default_profile_path(&app)?;
+    let result = (|| {
+        let path = resolve_default_profile_path(&app)?;
 
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
 
-    std::fs::write(path, content).map_err(|e| e.to_string())
+        std::fs::write(path, content).map_err(|e| e.to_string())
+    })();
+    report_backend_result(&app, "command.agent_config.save_agent_markdown", result, None)
 }

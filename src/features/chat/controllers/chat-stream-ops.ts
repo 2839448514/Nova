@@ -393,11 +393,7 @@ export function createChatStreamOperations(deps: StreamOpsDeps) {
 
         if (isActive) {
           void cancelActiveConversation().catch((err) => {
-            emitToast({
-              variant: "error",
-              source: "permission-request",
-              message: `取消异常权限请求失败: ${String(err)}`,
-            });
+            console.error("Failed to cancel malformed permission request:", err);
           });
           resetPendingPromptState(activeRuntimeRefs);
         }
@@ -417,13 +413,7 @@ export function createChatStreamOperations(deps: StreamOpsDeps) {
           requestId,
           "deny_session",
         ).catch((err) => {
-          emitToast({
-            variant: "error",
-            source: "permission-request",
-            message: isActive
-              ? `自动拒绝权限请求失败: ${String(err)}`
-              : `会话 ${conversationId} 自动拒绝权限请求失败: ${String(err)}`,
-          });
+          console.error("Failed to auto-deny malformed permission request:", err);
         });
         if (isActive) {
           resetPendingPromptState(activeRuntimeRefs);

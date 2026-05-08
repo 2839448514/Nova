@@ -1,5 +1,8 @@
 pub mod command;
 pub mod llm;
+pub mod logging;
+
+use tracing::{info, warn};
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -12,21 +15,34 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
+            if let Err(error) = crate::logging::init(app.handle()) {
+                eprintln!("[logging.init] {}", error);
+            }
+            info!("application setup started");
+
             // 启动时自动创建 workspace 目录，确保 AI 有默认工作区。
             let ws = crate::llm::utils::system_prompt::workspace_dir(app.handle());
             if !ws.exists() {
-                let _ = std::fs::create_dir_all(&ws);
+                match std::fs::create_dir_all(&ws) {
+                    Ok(()) => info!(path = %ws.display(), "workspace directory created"),
+                    Err(error) => warn!(path = %ws.display(), error = %error, "failed to create workspace directory"),
+                }
             }
 
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                let _ = crate::command::mcp::warmup_runtime(app_handle).await;
+                match crate::command::mcp::warmup_runtime(app_handle).await {
+                    Ok(()) => info!("mcp runtime warmup completed"),
+                    Err(error) => warn!(error = %error, "mcp runtime warmup failed"),
+                }
             });
 
             let scheduler_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
+                info!("scheduler loop starting");
                 crate::command::cron::run_scheduler_loop(scheduler_handle).await;
             });
+            info!("application setup completed");
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

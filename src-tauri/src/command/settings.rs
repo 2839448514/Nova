@@ -2,6 +2,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
+use tracing::{error, warn};
+
+use crate::llm::utils::error_event::report_backend_result;
 
 fn default_custom_models() -> HashMap<String, Vec<String>> {
     // custom_models 默认空映射。
@@ -40,6 +43,10 @@ fn default_ui_language() -> String {
 
 fn default_ui_theme() -> String {
     "system".to_string()
+}
+
+fn default_enable_app_log() -> bool {
+    true
 }
 
 const STOP_HOOK_MAX_ASSISTANT_MESSAGES_KEY: &str = "NOVA_STOP_HOOK_MAX_ASSISTANT_MESSAGES";
@@ -161,6 +168,9 @@ pub struct AppSettings {
     #[serde(default = "default_ui_theme")]
     // UI 主题（system/light/dark）。
     pub ui_theme: String,
+    #[serde(default = "default_enable_app_log")]
+    // 是否记录统一软件日志到文件。
+    pub enable_app_log: bool,
 }
 
 impl Default for AppSettings {
@@ -175,6 +185,7 @@ impl Default for AppSettings {
             rag: RagSettings::default(),
             ui_language: default_ui_language(),
             ui_theme: default_ui_theme(),
+            enable_app_log: default_enable_app_log(),
         }
     }
 }
@@ -305,7 +316,7 @@ pub fn get_settings(app: AppHandle) -> AppSettings {
     let path = match get_settings_path(&app) {
         Ok(path) => path,
         Err(e) => {
-            eprintln!("{}", e);
+            error!(operation = "command.settings.get_settings", error = %e, "failed to resolve settings path");
             let mut settings = AppSettings::default();
             settings.normalize_for_runtime();
             return settings;
@@ -313,11 +324,29 @@ pub fn get_settings(app: AppHandle) -> AppSettings {
     };
     // 文件存在时尝试读取并反序列化。
     if path.exists() {
-        if let Ok(content) = std::fs::read_to_string(path) {
-            if let Ok(mut settings) = serde_json::from_str::<AppSettings>(&content) {
-                // 运行时规范化后返回。
-                settings.normalize_for_runtime();
-                return settings;
+        match std::fs::read_to_string(&path) {
+            Ok(content) => match serde_json::from_str::<AppSettings>(&content) {
+                Ok(mut settings) => {
+                    // 运行时规范化后返回。
+                    settings.normalize_for_runtime();
+                    return settings;
+                }
+                Err(error) => {
+                    warn!(
+                        operation = "command.settings.get_settings",
+                        path = %path.display(),
+                        error = %error,
+                        "failed to parse settings file, falling back to defaults"
+                    );
+                }
+            },
+            Err(error) => {
+                warn!(
+                    operation = "command.settings.get_settings",
+                    path = %path.display(),
+                    error = %error,
+                    "failed to read settings file, falling back to defaults"
+                );
             }
         }
     }
@@ -329,23 +358,28 @@ pub fn get_settings(app: AppHandle) -> AppSettings {
 
 #[tauri::command]
 pub fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), String> {
-    // 获取 settings.json 路径。
-    let path = get_settings_path(&app)?;
-    // 确保父目录存在。
-    if let Some(parent) = path.parent() {
-        if let Err(e) = std::fs::create_dir_all(parent) {
-            return Err(e.to_string());
+    let result = (|| {
+        // 获取 settings.json 路径。
+        let path = get_settings_path(&app)?;
+        // 确保父目录存在。
+        if let Some(parent) = path.parent() {
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                return Err(e.to_string());
+            }
         }
-    }
-    // 对传入设置做运行时规范化。
-    let mut normalized = settings;
-    normalized.normalize_for_runtime();
-    validate_hook_env(&normalized)?;
-    validate_rag_settings(&normalized)?;
-    // 序列化为美化 JSON。
-    let content = serde_json::to_string_pretty(&normalized).map_err(|e| e.to_string())?;
-    // 写入文件。
-    std::fs::write(path, content).map_err(|e| e.to_string())
+        // 对传入设置做运行时规范化。
+        let mut normalized = settings;
+        normalized.normalize_for_runtime();
+        validate_hook_env(&normalized)?;
+        validate_rag_settings(&normalized)?;
+        // 序列化为美化 JSON。
+        let content = serde_json::to_string_pretty(&normalized).map_err(|e| e.to_string())?;
+        // 写入文件。
+        std::fs::write(path, content).map_err(|e| e.to_string())?;
+        crate::logging::set_file_logging_enabled(normalized.enable_app_log);
+        Ok(())
+    })();
+    report_backend_result(&app, "command.settings.save_settings", result, None)
 }
 
 /// 返回指定模型名对应的上下文窗口大小（token 数）。

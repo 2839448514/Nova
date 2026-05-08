@@ -674,13 +674,21 @@ async fn try_model_driven_full_compact(
             updated_at: handover.updated_at,
         };
 
-        let _ = crate::command::history::record_compact_boundary(
+        if let Err(error) = crate::command::history::record_compact_boundary(
             app.clone(),
             &compact_context,
             &summary,
             &Vec::new(),
         )
-        .await;
+        .await
+        {
+            tracing::warn!(
+                operation = "llm.services.compact.record_compact_boundary",
+                conversation_id = %conversation_id,
+                error = %error,
+                "failed to persist compact boundary"
+            );
+        }
     }
 
     let mut prepared = Vec::with_capacity(
@@ -714,9 +722,12 @@ async fn apply_full_compact_with_limits(
             Ok(None) => {}
             Err(error) => {
                 let failures = state::record_auto_compact_failure(Some(conversation_id));
-                eprintln!(
-                    "[compact] model-driven auto compact failed consecutive_failures={} error={}",
-                    failures, error
+                tracing::warn!(
+                    operation = "llm.services.compact.model_driven_auto_compact",
+                    conversation_id = %conversation_id,
+                    consecutive_failures = failures,
+                    error = %error,
+                    "model-driven auto compact failed"
                 );
                 crate::llm::utils::error_event::emit_backend_error(
                     app,
@@ -731,7 +742,11 @@ async fn apply_full_compact_with_limits(
             }
         }
     } else {
-        eprintln!("[compact] model-driven auto compact skipped because circuit breaker is open");
+        tracing::warn!(
+            operation = "llm.services.compact.model_driven_auto_compact",
+            conversation_id = %conversation_id,
+            "model-driven auto compact skipped because circuit breaker is open"
+        );
         return messages.to_vec();
     }
     messages.to_vec()
