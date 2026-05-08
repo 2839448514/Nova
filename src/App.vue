@@ -29,6 +29,7 @@ const {
   conversationFiles,
   pendingUploads,
   currentContextUsage,
+  currentContextCompacts,
   currentContextTokens,
   pendingQuestion,
   pendingPermissionRequestId,
@@ -148,6 +149,7 @@ const openWorkspaceFile = (fileId: string) => {
           :agentMode="agentMode"
           :pendingUploads="pendingUploads"
           :contextUsage="currentContextUsage"
+          :contextCompacts="currentContextCompacts"
           :contextTokens="currentContextTokens"
           @send="handleSendMessage" 
           @mode-change="handleAgentModeChange"
@@ -170,6 +172,7 @@ const openWorkspaceFile = (fileId: string) => {
           :planMode="planMode"
           :pendingUploads="pendingUploads"
           :contextUsage="currentContextUsage"
+          :contextCompacts="currentContextCompacts"
           :contextTokens="currentContextTokens"
           @send="handleSendMessage"
           @cancel="handleCancelGeneration"

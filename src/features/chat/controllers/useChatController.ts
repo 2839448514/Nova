@@ -11,6 +11,7 @@ import type {
   AgentMode,
   ChatMessage,
   ChatMessageEvent,
+  ContextCompactSummary,
   ConversationMemory,
   ConversationMeta,
   NeedsUserInputPayload,
@@ -53,6 +54,7 @@ export function useChatController() {
   const currentToolCalls = ref(0);
   const currentToolDurationMs = ref(0);
   const currentContextUsage = ref<ContextUsage | undefined>(undefined);
+  const currentContextCompacts = ref<ContextCompactSummary[]>([]);
   const currentContextTokens = ref(0);
   const currentInputTokens = ref(0);
   const currentOutputTokens = ref(0);
@@ -78,6 +80,7 @@ export function useChatController() {
     currentToolCalls,
     currentToolDurationMs,
     currentContextUsage,
+    currentContextCompacts,
     currentContextTokens,
     currentInputTokens,
     currentOutputTokens,
@@ -197,6 +200,7 @@ export function useChatController() {
     currentToolCalls,
     currentToolDurationMs,
     currentContextUsage,
+    currentContextCompacts,
     currentContextTokens,
     currentInputTokens,
     currentOutputTokens,
@@ -316,6 +320,7 @@ export function useChatController() {
     pendingUploads,
     conversationFiles,
     currentContextUsage: displayContextUsage,
+    currentContextCompacts,
     currentContextTokens: displayContextTokens,
     agentMode,
     planMode,

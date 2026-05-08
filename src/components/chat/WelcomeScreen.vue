@@ -1,12 +1,18 @@
 <script setup lang="ts">
 import InputArea from '../layout/InputArea.vue';
-import type { AgentMode, ContextUsage, PendingUploadFile } from '../../lib/chat-types';
+import type {
+  AgentMode,
+  ContextCompactSummary,
+  ContextUsage,
+  PendingUploadFile,
+} from '../../lib/chat-types';
 
 defineProps<{
   isGenerating?: boolean;
   agentMode?: AgentMode;
   pendingUploads?: PendingUploadFile[];
   contextUsage?: ContextUsage;
+  contextCompacts?: ContextCompactSummary[];
   contextTokens?: number;
 }>();
 

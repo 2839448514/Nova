@@ -1,5 +1,6 @@
 import type {
   NeedsUserInputPayload,
+  ContextCompactSummary,
   ContextUsage,
   ToolExecutionEntry,
   TurnCost,
@@ -63,6 +64,7 @@ export type ConversationTurnRuntimeState = {
   currentToolCalls: number;
   currentToolDurationMs: number;
   currentContextUsage?: ContextUsage;
+  currentContextCompacts: ContextCompactSummary[];
   currentContextTokens: number;
   currentInputTokens: number;
   currentOutputTokens: number;

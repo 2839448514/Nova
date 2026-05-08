@@ -2,6 +2,7 @@
 import { Button } from '@/components/ui/button';
 import MarkdownRenderer from '../MarkdownRenderer.vue';
 import type { ChatMessage } from '../../../lib/chat-types';
+import ContextCompactNotice from './ContextCompactNotice.vue';
 import TurnActivitySummaryCard from './TurnActivitySummaryCard.vue';
 
 defineProps<{
@@ -48,6 +49,10 @@ const emit = defineEmits<{
       <TurnActivitySummaryCard
         v-if="message.cost?.toolSummary && message.cost.toolSummary.totalCalls > 0"
         :summary="message.cost.toolSummary"
+      />
+      <ContextCompactNotice
+        v-if="(message.cost?.contextCompacts?.length ?? 0) > 0"
+        :items="message.cost?.contextCompacts || []"
       />
       <MarkdownRenderer :content="message.content" />
       <div class="msg-toolbar">

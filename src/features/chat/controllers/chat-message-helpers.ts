@@ -2,6 +2,7 @@ import { estimateTokens } from "../utils/session-memory";
 import type {
   ChatAttachment,
   ChatMessage,
+  ContextCompactSummary,
   ConversationMemory,
   PendingUploadFile,
   ToolTurnSummary,
@@ -21,6 +22,7 @@ export function buildAssistantCost(
   currentOutputTokens: number,
   currentToolCalls: number,
   currentToolDurationMs: number,
+  contextCompacts?: ContextCompactSummary[],
   toolSummary?: ToolTurnSummary,
 ): TurnCost {
   return {
@@ -28,6 +30,7 @@ export function buildAssistantCost(
     outputTokens: currentOutputTokens,
     toolCalls: currentToolCalls,
     toolDurationMs: currentToolDurationMs,
+    contextCompacts: contextCompacts ?? [],
     toolSummary,
   };
 }
@@ -41,6 +44,7 @@ export function buildAssistantCostForState(
     outputTokens: state.currentOutputTokens,
     toolCalls: state.currentToolCalls,
     toolDurationMs: state.currentToolDurationMs,
+    contextCompacts: state.currentContextCompacts,
     toolSummary,
   };
 }

@@ -9,6 +9,7 @@ import type {
   AgentMode,
   ChatMessage,
   ChatMessageEvent,
+  ContextCompactSummary,
   ContextUsage,
   ToolExecutionEntry,
 } from "../../../lib/chat-types";
@@ -95,17 +96,27 @@ function parseContextCompactPayload(raw?: string): ContextCompactPayload | null 
   }
 }
 
-function formatCompactTokens(value?: number): string {
-  if (typeof value !== "number" || value <= 0) {
-    return "0";
+function toContextCompactSummary(
+  compact: ContextCompactPayload | null,
+): ContextCompactSummary | null {
+  const beforeTokens = compact?.beforeTokens ?? 0;
+  const afterTokens = compact?.afterTokens ?? 0;
+  const savedTokens =
+    typeof compact?.savedTokens === "number"
+      ? compact.savedTokens
+      : Math.max(0, beforeTokens - afterTokens);
+
+  if (savedTokens <= 0) {
+    return null;
   }
-  if (value >= 1_000_000) {
-    return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1)}m`;
-  }
-  if (value >= 1_000) {
-    return `${(value / 1_000).toFixed(value >= 100_000 ? 0 : 1)}k`;
-  }
-  return String(Math.round(value));
+
+  return {
+    level: compact?.level,
+    reason: compact?.reason,
+    beforeTokens: typeof compact?.beforeTokens === "number" ? compact.beforeTokens : undefined,
+    afterTokens: typeof compact?.afterTokens === "number" ? compact.afterTokens : undefined,
+    savedTokens,
+  };
 }
 
 type StreamOpsDeps = {
@@ -202,6 +213,7 @@ export function createChatStreamOperations(deps: StreamOpsDeps) {
     state.currentToolCalls = 0;
     state.currentToolDurationMs = 0;
     state.currentContextUsage = undefined;
+    state.currentContextCompacts = [];
     state.currentContextTokens = 0;
     state.currentInputTokens = 0;
     state.currentOutputTokens = 0;
@@ -245,6 +257,7 @@ export function createChatStreamOperations(deps: StreamOpsDeps) {
       activeRuntimeRefs.currentOutputTokens.value,
       activeRuntimeRefs.currentToolCalls.value,
       activeRuntimeRefs.currentToolDurationMs.value,
+      activeRuntimeRefs.currentContextCompacts.value,
       toolSummary,
     );
     activeRuntimeRefs.assistantTurnCost.value = cost;
@@ -286,6 +299,7 @@ export function createChatStreamOperations(deps: StreamOpsDeps) {
     state.currentToolCalls = 0;
     state.currentToolDurationMs = 0;
     state.currentContextUsage = undefined;
+    state.currentContextCompacts = [];
     state.currentContextTokens = 0;
     state.currentInputTokens = 0;
     state.currentOutputTokens = 0;
@@ -505,24 +519,11 @@ export function createChatStreamOperations(deps: StreamOpsDeps) {
 
     if (payload.type === "context-compact") {
       const compact = parseContextCompactPayload(payload.text);
-      const beforeTokens = compact?.beforeTokens ?? 0;
-      const afterTokens = compact?.afterTokens ?? 0;
-      const savedTokens =
-        typeof compact?.savedTokens === "number"
-          ? compact.savedTokens
-          : Math.max(0, beforeTokens - afterTokens);
-      if (savedTokens <= 0) {
+      const summary = toContextCompactSummary(compact);
+      if (!summary) {
         return;
       }
-      const detail =
-        beforeTokens > 0 || afterTokens > 0
-          ? `上下文 ${formatCompactTokens(beforeTokens)} -> ${formatCompactTokens(afterTokens)}，节省约 ${formatCompactTokens(savedTokens)} tokens。`
-          : "已减少发送给模型的历史上下文。";
-      emitToast({
-        variant: "info",
-        source: "context-compact",
-        message: `${compact?.reason || "Nova 已自动压缩对话上下文。"} ${detail}`,
-      });
+      state.currentContextCompacts = [...state.currentContextCompacts, summary];
       return;
     }
 

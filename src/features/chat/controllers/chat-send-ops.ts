@@ -9,6 +9,7 @@ import type {
   AskUserAnswerSubmission,
   ChatAttachment,
   ChatMessage,
+  ContextCompactSummary,
   ContextUsage,
   PendingUploadFile,
   TurnCost,
@@ -52,6 +53,7 @@ type SendOpsDeps = {
   currentToolCalls: Ref<number>;
   currentToolDurationMs: Ref<number>;
   currentContextUsage: Ref<ContextUsage | undefined>;
+  currentContextCompacts: Ref<ContextCompactSummary[]>;
   currentContextTokens: Ref<number>;
   currentInputTokens: Ref<number>;
   currentOutputTokens: Ref<number>;
@@ -86,6 +88,7 @@ export function createSendOperations(deps: SendOpsDeps) {
     currentToolCalls,
     currentToolDurationMs,
     currentContextUsage,
+    currentContextCompacts,
     currentContextTokens,
     currentInputTokens,
     currentOutputTokens,
@@ -200,6 +203,7 @@ export function createSendOperations(deps: SendOpsDeps) {
     currentToolCalls.value = 0;
     currentToolDurationMs.value = 0;
     currentContextUsage.value = undefined;
+    currentContextCompacts.value = [];
     currentContextTokens.value = 0;
     currentOutputTokens.value = 0;
     currentInputTokens.value = 0;

@@ -4,6 +4,15 @@ export interface TurnCost {
   toolCalls: number;
   toolDurationMs: number;
   toolSummary?: ToolTurnSummary;
+  contextCompacts: ContextCompactSummary[];
+}
+
+export interface ContextCompactSummary {
+  level?: string;
+  reason?: string;
+  beforeTokens?: number;
+  afterTokens?: number;
+  savedTokens: number;
 }
 
 export interface ContextUsage {

@@ -4,6 +4,7 @@ import type {
   AgentMode,
   AskUserAnswerSubmission,
   ChatMessage,
+  ContextCompactSummary,
   ContextUsage,
   NeedsUserInputPayload,
   PendingUploadFile,
@@ -12,6 +13,7 @@ import type {
 import InputArea from '../layout/InputArea.vue';
 import AskUserInputDialog from './AskUserInputDialog.vue';
 import AssistantMessageBubble from './messages/AssistantMessageBubble.vue';
+import ContextCompactNotice from './messages/ContextCompactNotice.vue';
 import CurrentTurnActivityRail from './messages/CurrentTurnActivityRail.vue';
 import MarkdownRenderer from './MarkdownRenderer.vue';
 import UserMessageBubble from './messages/UserMessageBubble.vue';
@@ -29,6 +31,7 @@ const props = defineProps<{
   agentMode?: AgentMode;
   pendingUploads?: PendingUploadFile[];
   contextUsage?: ContextUsage;
+  contextCompacts?: ContextCompactSummary[];
   contextTokens?: number;
 }>();
 
@@ -265,6 +268,11 @@ defineExpose({
                 <summary>AI 思考过程</summary>
                 <MarkdownRenderer :content="props.assistantReasoning || ''" />
               </details>
+              <ContextCompactNotice
+                v-if="(props.contextCompacts?.length ?? 0) > 0"
+                :items="props.contextCompacts || []"
+                compact
+              />
               <CurrentTurnActivityRail
                 v-if="props.currentTurnToolEntries.length > 0 || !!liveWaitKind()"
                 :entries="props.currentTurnToolEntries"

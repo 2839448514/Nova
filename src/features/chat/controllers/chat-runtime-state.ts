@@ -1,6 +1,7 @@
 import type { Ref } from "vue";
 import type {
   NeedsUserInputPayload,
+  ContextCompactSummary,
   ContextUsage,
   ToolExecutionEntry,
   TurnCost,
@@ -9,6 +10,10 @@ import type { ConversationTurnRuntimeState } from "./chat-controller-types";
 
 function cloneContextUsage(usage: ContextUsage | undefined): ContextUsage | undefined {
   return usage ? { ...usage } : undefined;
+}
+
+function cloneContextCompacts(items: ContextCompactSummary[]): ContextCompactSummary[] {
+  return items.map((item) => ({ ...item }));
 }
 
 export type ActiveRuntimeRefs = {
@@ -23,6 +28,7 @@ export type ActiveRuntimeRefs = {
   currentToolCalls: Ref<number>;
   currentToolDurationMs: Ref<number>;
   currentContextUsage: Ref<ContextUsage | undefined>;
+  currentContextCompacts: Ref<ContextCompactSummary[]>;
   currentContextTokens: Ref<number>;
   currentInputTokens: Ref<number>;
   currentOutputTokens: Ref<number>;
@@ -100,6 +106,12 @@ export function bindActiveRuntimeState(active: ActiveRuntimeRefs): ConversationT
     set currentContextUsage(value: ContextUsage | undefined) {
       active.currentContextUsage.value = value;
     },
+    get currentContextCompacts() {
+      return active.currentContextCompacts.value;
+    },
+    set currentContextCompacts(value: ContextCompactSummary[]) {
+      active.currentContextCompacts.value = cloneContextCompacts(value);
+    },
     get currentContextTokens() {
       return active.currentContextTokens.value;
     },
@@ -164,6 +176,7 @@ export function createEmptyRuntimeState(): ConversationTurnRuntimeState {
     currentToolCalls: 0,
     currentToolDurationMs: 0,
     currentContextUsage: undefined,
+    currentContextCompacts: [],
     currentContextTokens: 0,
     currentInputTokens: 0,
     currentOutputTokens: 0,
@@ -184,6 +197,7 @@ export function cloneRuntimeState(
 ): ConversationTurnRuntimeState {
   return {
     ...state,
+    currentContextCompacts: cloneContextCompacts(state.currentContextCompacts),
     toolExecutionLogs: state.toolExecutionLogs.map((entry) => ({ ...entry })),
     currentTurnToolIds: [...state.currentTurnToolIds],
     toolInputById: new Map(state.toolInputById),
@@ -206,6 +220,7 @@ export function snapshotActiveRuntimeState(
     currentToolCalls: active.currentToolCalls.value,
     currentToolDurationMs: active.currentToolDurationMs.value,
     currentContextUsage: cloneContextUsage(active.currentContextUsage.value),
+    currentContextCompacts: cloneContextCompacts(active.currentContextCompacts.value),
     currentContextTokens: active.currentContextTokens.value,
     currentInputTokens: active.currentInputTokens.value,
     currentOutputTokens: active.currentOutputTokens.value,
@@ -231,6 +246,7 @@ export function applyRuntimeStateToActive(
   active.currentToolCalls.value = state.currentToolCalls;
   active.currentToolDurationMs.value = state.currentToolDurationMs;
   active.currentContextUsage.value = cloneContextUsage(state.currentContextUsage);
+  active.currentContextCompacts.value = cloneContextCompacts(state.currentContextCompacts);
   active.currentContextTokens.value = state.currentContextTokens;
   active.currentInputTokens.value = state.currentInputTokens;
   active.currentOutputTokens.value = state.currentOutputTokens;
@@ -260,6 +276,7 @@ export function clearActiveRuntimeState(active: ActiveRuntimeRefs) {
   active.currentToolCalls.value = 0;
   active.currentToolDurationMs.value = 0;
   active.currentContextUsage.value = undefined;
+  active.currentContextCompacts.value = [];
   active.currentContextTokens.value = 0;
   active.currentInputTokens.value = 0;
   active.currentOutputTokens.value = 0;
