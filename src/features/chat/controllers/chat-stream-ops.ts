@@ -621,16 +621,6 @@ export function createChatStreamOperations(deps: StreamOpsDeps) {
         resetBackgroundRuntimeState(conversationId, state);
       }
 
-      const detail = (payload.text ?? "").trim();
-      emitToast({
-        variant: "error",
-        source: "chat-stream",
-        message:
-          detail ||
-          (isActive
-            ? `Provider error: ${stopReason || "unknown"}`
-            : `会话 ${conversationId} 回复失败: ${stopReason || "unknown"}`),
-      });
       return;
     }
 

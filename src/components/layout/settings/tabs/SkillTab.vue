@@ -41,7 +41,7 @@ const refresh = async () => {
       enabled: !disabled.has(normalize(s.name)),
     }))
   } catch (e) {
-    error.value = `加载技能失败: ${String(e)}`
+    console.error('Failed to load skills:', e)
     skills.value = []
   } finally {
     loading.value = false
@@ -75,7 +75,7 @@ const save = async () => {
     savedTip.value = true
     setTimeout(() => (savedTip.value = false), 2000)
   } catch (e) {
-    error.value = `保存失败: ${String(e)}`
+    console.error('Failed to save skill settings:', e)
   } finally {
     saving.value = false
   }
@@ -91,7 +91,7 @@ const deleteSkill = async (skill: SkillItem) => {
     await invoke('delete_skill', { path: skill.path })
     await refresh()
   } catch (e) {
-    deleteError.value = `删除失败: ${String(e)}`
+    console.error(`Failed to delete skill (${skill.path}):`, e)
   } finally {
     deletingPath.value = null
   }

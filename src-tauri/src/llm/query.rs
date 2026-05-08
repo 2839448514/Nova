@@ -759,8 +759,8 @@ pub async fn send_chat_message(
                     ChatMessageEvent {
                         // 事件类型为 stop。
                         r#type: "stop".into(),
-                        // 把错误文本透传给前端。
-                        text: Some(error_text.clone()),
+                        // 错误文案统一走 backend-error 事件，这里不再透传原始错误文本。
+                        text: None,
                         // 以下字段在 stop 事件中均为空。
                         tool_use_id: None,
                         tool_use_name: None,
