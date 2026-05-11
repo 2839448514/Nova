@@ -1,8 +1,8 @@
+use crate::llm::utils::error_event::report_backend_result;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Manager};
-use crate::llm::utils::error_event::report_backend_result;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -210,7 +210,12 @@ pub fn create_agent_profile(
         std::fs::write(&profile_path, initial_content).map_err(|e| e.to_string())?;
         build_profile_meta(&profile_path)
     })();
-    report_backend_result(&app, "command.agent_config.create_agent_profile", result, None)
+    report_backend_result(
+        &app,
+        "command.agent_config.create_agent_profile",
+        result,
+        None,
+    )
 }
 
 #[tauri::command]
@@ -228,7 +233,12 @@ pub fn delete_agent_profile(app: AppHandle, profile_id: String) -> Result<(), St
 
         std::fs::remove_file(path).map_err(|e| e.to_string())
     })();
-    report_backend_result(&app, "command.agent_config.delete_agent_profile", result, None)
+    report_backend_result(
+        &app,
+        "command.agent_config.delete_agent_profile",
+        result,
+        None,
+    )
 }
 
 #[tauri::command]
@@ -293,7 +303,12 @@ pub fn load_agent_markdown(app: AppHandle) -> Result<String, String> {
 
         std::fs::read_to_string(path).map_err(|e| e.to_string())
     })();
-    report_backend_result(&app, "command.agent_config.load_agent_markdown", result, None)
+    report_backend_result(
+        &app,
+        "command.agent_config.load_agent_markdown",
+        result,
+        None,
+    )
 }
 
 #[tauri::command]
@@ -307,5 +322,10 @@ pub fn save_agent_markdown(app: AppHandle, content: String) -> Result<(), String
 
         std::fs::write(path, content).map_err(|e| e.to_string())
     })();
-    report_backend_result(&app, "command.agent_config.save_agent_markdown", result, None)
+    report_backend_result(
+        &app,
+        "command.agent_config.save_agent_markdown",
+        result,
+        None,
+    )
 }

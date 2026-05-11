@@ -2,6 +2,8 @@ pub mod command;
 pub mod llm;
 pub mod logging;
 
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::OnceLock;
 use tracing::{info, warn};
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
@@ -12,7 +14,9 @@ fn greet(name: &str) -> String {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    static SHELL_CLEANUP_ON_EXIT: OnceLock<AtomicBool> = OnceLock::new();
+
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             if let Err(error) = crate::logging::init(app.handle()) {
@@ -105,6 +109,19 @@ pub fn run() {
             command::settings::get_model_window_tokens,
             command::settings::estimate_text_tokens
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    app.run(|_app_handle, event| {
+        if matches!(event, tauri::RunEvent::Exit) {
+            let already_cleaned = SHELL_CLEANUP_ON_EXIT
+                .get_or_init(|| AtomicBool::new(false))
+                .swap(true, Ordering::Relaxed);
+            if !already_cleaned {
+                tauri::async_runtime::block_on(
+                    crate::llm::services::shell_sessions::close_all_sessions(),
+                );
+            }
+        }
+    });
 }

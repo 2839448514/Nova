@@ -137,10 +137,7 @@ pub async fn list_global_memory(
     crate::llm::services::memory_dir::list_global_memory(app, limit).await
 }
 
-pub async fn delete_global_memory(
-    app: &AppHandle,
-    id: i64,
-) -> Result<bool, String> {
+pub async fn delete_global_memory(app: &AppHandle, id: i64) -> Result<bool, String> {
     crate::llm::services::memory_dir::delete_global_memory(app, id).await
 }
 
@@ -188,14 +185,16 @@ pub async fn create_conversation(
         .filter(|t| !t.is_empty())
         .unwrap_or_default();
 
-    sqlx::query("INSERT INTO conversations (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)")
-        .bind(&id)
-        .bind(&conv_title)
-        .bind(now)
-        .bind(now)
-        .execute(&pool)
-        .await
-        .map_err(|e| e.to_string())?;
+    sqlx::query(
+        "INSERT INTO conversations (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
+    )
+    .bind(&id)
+    .bind(&conv_title)
+    .bind(now)
+    .bind(now)
+    .execute(&pool)
+    .await
+    .map_err(|e| e.to_string())?;
 
     Ok(ConversationMeta {
         id,
@@ -225,9 +224,9 @@ pub async fn list_conversations(app: &AppHandle) -> Result<Vec<ConversationMeta>
         ORDER BY c.updated_at DESC
         "#,
     )
-        .fetch_all(&pool)
-        .await
-        .map_err(|e| e.to_string())?;
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| e.to_string())?;
 
     let items = rows
         .into_iter()
@@ -235,7 +234,8 @@ pub async fn list_conversations(app: &AppHandle) -> Result<Vec<ConversationMeta>
             id: row.get::<String, _>("id"),
             title: resolved_conversation_title(
                 &row.get::<String, _>("title"),
-                row.get::<Option<String>, _>("first_user_content").as_deref(),
+                row.get::<Option<String>, _>("first_user_content")
+                    .as_deref(),
             ),
             updated_at: row.get::<i64, _>("updated_at"),
         })
@@ -327,11 +327,12 @@ pub async fn append_history(
 
     // Auto-title whenever a placeholder title is still present.
     if role.eq_ignore_ascii_case("user") {
-        let current_title: Option<String> = sqlx::query_scalar("SELECT title FROM conversations WHERE id = ?")
-            .bind(normalized_conversation_id)
-            .fetch_optional(&pool)
-            .await
-            .map_err(|e| e.to_string())?;
+        let current_title: Option<String> =
+            sqlx::query_scalar("SELECT title FROM conversations WHERE id = ?")
+                .bind(normalized_conversation_id)
+                .fetch_optional(&pool)
+                .await
+                .map_err(|e| e.to_string())?;
 
         let should_update = current_title
             .as_deref()
@@ -381,7 +382,10 @@ pub async fn append_history(
             crate::llm::utils::error_event::emit_backend_error(
                 app,
                 "memory.auto_remember",
-                format!("全局记忆自动写入失败，本条消息不会被记忆模块索引：{}", error),
+                format!(
+                    "全局记忆自动写入失败，本条消息不会被记忆模块索引：{}",
+                    error
+                ),
                 Some("remember_from_user_message"),
             );
         }
@@ -444,13 +448,22 @@ pub async fn upsert_conversation_tool_log(
     }
 
     let status = log.status.trim().to_ascii_lowercase();
-    if !matches!(status.as_str(), "running" | "completed" | "error" | "cancelled") {
+    if !matches!(
+        status.as_str(),
+        "running" | "completed" | "error" | "cancelled"
+    ) {
         return Err(format!("invalid tool status: {}", log.status));
     }
 
     let now = chrono::Utc::now().timestamp_millis();
-    let started_at = if log.started_at > 0 { log.started_at } else { now };
-    let finished_at = log.finished_at.and_then(|ts| if ts > 0 { Some(ts) } else { None });
+    let started_at = if log.started_at > 0 {
+        log.started_at
+    } else {
+        now
+    };
+    let finished_at = log
+        .finished_at
+        .and_then(|ts| if ts > 0 { Some(ts) } else { None });
 
     sqlx::query(
         r#"
@@ -527,6 +540,7 @@ pub async fn clear_history(app: &AppHandle, conversation_id: Option<String>) -> 
 
         tx.commit().await.map_err(|e| e.to_string())?;
         crate::command::rag::rag_remove_conversation_documents(app, &id)?;
+        crate::llm::services::shell_sessions::close_session(Some(&id)).await;
     } else {
         sqlx::query("DELETE FROM conversation_messages")
             .execute(&mut *tx)
@@ -559,6 +573,7 @@ pub async fn clear_history(app: &AppHandle, conversation_id: Option<String>) -> 
 
         tx.commit().await.map_err(|e| e.to_string())?;
         crate::command::rag::rag_remove_all_conversation_documents(app)?;
+        crate::llm::services::shell_sessions::close_all_sessions().await;
     }
 
     Ok(())
@@ -606,6 +621,7 @@ pub async fn delete_conversation(app: &AppHandle, conversation_id: &str) -> Resu
         .map_err(|e| e.to_string())?;
 
     crate::command::rag::rag_remove_conversation_documents(app, conversation_id)?;
+    crate::llm::services::shell_sessions::close_session(Some(conversation_id)).await;
 
     Ok(())
 }
@@ -646,9 +662,8 @@ pub async fn load_turn_snapshot(
     match row {
         None => Ok(None),
         Some(json) => {
-            let messages =
-                serde_json::from_str::<Vec<crate::llm::types::Message>>(&json)
-                    .map_err(|e| e.to_string())?;
+            let messages = serde_json::from_str::<Vec<crate::llm::types::Message>>(&json)
+                .map_err(|e| e.to_string())?;
             Ok(Some(messages))
         }
     }

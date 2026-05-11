@@ -1,6 +1,6 @@
+use crate::llm::utils::error_event::report_backend_result;
 use serde_json::Value;
 use tauri::AppHandle;
-use crate::llm::utils::error_event::report_backend_result;
 
 // 复用 services 层的 MCP 对外类型。
 pub use crate::llm::services::mcp::{
@@ -54,7 +54,12 @@ pub async fn get_mcp_server_statuses(app: AppHandle) -> Result<Vec<McpServerStat
     // 获取所有 MCP server 当前状态。
     let app_handle = app.clone();
     let result = crate::llm::services::mcp::get_mcp_server_statuses(app).await;
-    report_backend_result(&app_handle, "command.mcp.get_mcp_server_statuses", result, None)
+    report_backend_result(
+        &app_handle,
+        "command.mcp.get_mcp_server_statuses",
+        result,
+        None,
+    )
 }
 
 #[tauri::command]
@@ -62,7 +67,12 @@ pub async fn reload_all_mcp_servers(app: AppHandle) -> Result<(), String> {
     // 触发所有 MCP server 重载。
     let app_handle = app.clone();
     let result = crate::llm::services::mcp::reload_all_mcp_servers(app).await;
-    report_backend_result(&app_handle, "command.mcp.reload_all_mcp_servers", result, None)
+    report_backend_result(
+        &app_handle,
+        "command.mcp.reload_all_mcp_servers",
+        result,
+        None,
+    )
 }
 
 #[tauri::command]
@@ -74,7 +84,12 @@ pub async fn set_mcp_server_enabled(
     // 启用或禁用指定 MCP server。
     let app_handle = app.clone();
     let result = crate::llm::services::mcp::set_mcp_server_enabled(app, name, enabled).await;
-    report_backend_result(&app_handle, "command.mcp.set_mcp_server_enabled", result, None)
+    report_backend_result(
+        &app_handle,
+        "command.mcp.set_mcp_server_enabled",
+        result,
+        None,
+    )
 }
 
 #[tauri::command]

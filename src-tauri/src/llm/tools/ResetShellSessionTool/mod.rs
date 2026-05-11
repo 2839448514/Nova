@@ -1,0 +1,46 @@
+use crate::llm::tools::{app_tool, AppExecuteFuture, ToolRegistration};
+use crate::llm::types::Tool;
+use serde_json::{json, Value};
+use tauri::AppHandle;
+
+pub(crate) fn registration() -> ToolRegistration {
+    app_tool(tool, execute_sync_stub, execute_with_app_boxed, false, None)
+}
+
+pub fn tool() -> Tool {
+    Tool {
+        name: "reset_shell_session".into(),
+        description: "Reset the current conversation's persistent shell session. Use this when the shell environment is polluted or background processes should be stopped before continuing.".into(),
+        input_schema: json!({
+            "type": "object",
+            "properties": {}
+        }),
+    }
+}
+
+pub fn execute_sync_stub(_input: Value) -> String {
+    json!({ "ok": false, "error": "reset_shell_session requires async execution context" })
+        .to_string()
+}
+
+fn execute_with_app_boxed(
+    _app: AppHandle,
+    conversation_id: Option<String>,
+    _input: Value,
+) -> AppExecuteFuture {
+    Box::pin(async move {
+        match crate::llm::services::shell_sessions::reset_session(conversation_id.as_deref()).await
+        {
+            Ok(()) => json!({
+                "ok": true,
+                "message": "Shell session reset."
+            })
+            .to_string(),
+            Err(error) => json!({
+                "ok": false,
+                "error": error
+            })
+            .to_string(),
+        }
+    })
+}

@@ -429,7 +429,12 @@ pub async fn run_scheduler_loop(app: AppHandle) {
 
 #[tauri::command]
 pub fn list_scheduled_tasks(app: AppHandle) -> Result<Vec<CronJob>, String> {
-    report_backend_result(&app, "command.cron.list_scheduled_tasks", list_jobs(&app), None)
+    report_backend_result(
+        &app,
+        "command.cron.list_scheduled_tasks",
+        list_jobs(&app),
+        None,
+    )
 }
 
 #[tauri::command]

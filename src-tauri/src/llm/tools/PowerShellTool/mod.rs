@@ -1,9 +1,16 @@
-use crate::llm::tools::{sync_tool, ToolPermissionDescriptor, ToolRegistration};
+use crate::llm::tools::{app_tool, AppExecuteFuture, ToolPermissionDescriptor, ToolRegistration};
 use crate::llm::types::Tool;
 use serde_json::{json, Value};
+use tauri::AppHandle;
 
 pub(crate) fn registration() -> ToolRegistration {
-    sync_tool(tool, execute, false, Some(permission))
+    app_tool(
+        tool,
+        execute_sync_stub,
+        execute_with_app_boxed,
+        false,
+        Some(permission),
+    )
 }
 
 fn permission(input: &Value) -> Option<ToolPermissionDescriptor> {
@@ -18,49 +25,86 @@ fn permission(input: &Value) -> Option<ToolPermissionDescriptor> {
 pub fn tool() -> Tool {
     Tool {
         name: "execute_powershell".into(),
-        description: "Execute a PowerShell command on Windows.".into(),
+        description: "Execute a PowerShell command in a conversation-scoped persistent PowerShell 7 session on Windows. The session keeps its working directory and environment between calls. Use background=true for long-running tasks. Interactive TUI programs are not supported.".into(),
         input_schema: json!({
             "type": "object",
             "properties": {
-                "command": { "type": "string", "description": "PowerShell command text" }
+                "command": { "type": "string", "description": "PowerShell command text" },
+                "timeout_ms": { "type": "integer", "description": "Optional foreground timeout in milliseconds. Defaults to 300000 and is capped at 1800000." },
+                "background": { "type": "boolean", "description": "When true, start the command in the background and return its pid immediately." }
             },
             "required": ["command"]
         }),
     }
 }
 
-pub fn execute(input: Value) -> String {
+pub fn execute_sync_stub(_input: Value) -> String {
+    json!({ "ok": false, "error": "PowerShellTool requires async execution context" }).to_string()
+}
+
+fn execute_with_app_boxed(
+    _app: AppHandle,
+    conversation_id: Option<String>,
+    input: Value,
+) -> AppExecuteFuture {
+    Box::pin(async move { execute_async(conversation_id.as_deref(), input).await })
+}
+
+async fn execute_async(conversation_id: Option<&str>, input: Value) -> String {
     // cmd: 用户或模型传入的 PowerShell 命令文本。
     let cmd = match input.get("command").and_then(|v| v.as_str()) {
-        Some(v) if !v.trim().is_empty() => v,
+        Some(v) if !v.trim().is_empty() => v.to_string(),
         _ => return "Error: Missing 'command' argument".into(),
     };
+    let timeout_ms = input.get("timeout_ms").and_then(|value| value.as_u64());
+    let background = input
+        .get("background")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
 
     #[cfg(target_os = "windows")]
     {
-        let out = crate::llm::tools::process::run_hidden_pwsh(cmd);
+        let result = if background {
+            crate::llm::services::shell_sessions::run_background(conversation_id, &cmd).await
+        } else {
+            crate::llm::services::shell_sessions::run_foreground(conversation_id, &cmd, timeout_ms)
+                .await
+        };
 
-        return match out {
-            Ok(output) => {
-                // stdout/stderr: PowerShell 子进程执行结果。
-                let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-                let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-                if output.status.success() {
-                    if stdout.trim().is_empty() {
-                        "(command executed with no output)".into()
-                    } else {
-                        stdout
-                    }
+        return match result {
+            Ok(result) if result.cancelled => {
+                json!({ "ok": false, "error": "cancelled" }).to_string()
+            }
+            Ok(result) if result.timed_out => {
+                let stderr = result.stderr.trim();
+                let stdout = result.stdout.trim();
+                if stderr.is_empty() && stdout.is_empty() {
+                    "Error: command timed out".to_string()
                 } else {
-                    format!("Error: {}\nStdout: {}", stderr, stdout)
+                    format!(
+                        "Error: command timed out\nStderr: {}\nStdout: {}",
+                        stderr, stdout
+                    )
                 }
             }
+            Ok(result) if result.background => result.stdout,
+            Ok(result) if result.exit_code.unwrap_or(1) == 0 => {
+                if result.stdout.trim().is_empty() {
+                    "(command executed with no output)".into()
+                } else {
+                    result.stdout
+                }
+            }
+            Ok(result) => format!("Error: {}\nStdout: {}", result.stderr, result.stdout),
             Err(e) => format!("Failed to execute PowerShell command: {}", e),
         };
     }
 
     #[cfg(not(target_os = "windows"))]
     {
-        format!("Error: execute_powershell is only available on Windows. Command was: {}", cmd)
+        format!(
+            "Error: execute_powershell is only available on Windows. Command was: {}",
+            cmd
+        )
     }
 }

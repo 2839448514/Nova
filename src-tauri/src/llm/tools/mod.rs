@@ -19,6 +19,7 @@ macro_rules! declare_builtin_tools {
 
 declare_builtin_tools! {
     bash_tool => "BashTool/mod.rs",
+    reset_shell_session_tool => "ResetShellSessionTool/mod.rs",
     write_file_tool => "WriteFileTool/mod.rs",
     grep_search_tool => "GrepSearchTool/mod.rs",
     glob_tool => "GlobTool/mod.rs",
@@ -55,15 +56,15 @@ declare_builtin_tools! {
     computer_use_tool => "ComputerUseTool/mod.rs",
 }
 
-pub mod shared;
 pub mod process;
+pub mod shared;
 
 use crate::llm::types::{Message, Tool};
+use serde_json::{json, Value};
 use std::collections::{BTreeMap, VecDeque};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::OnceLock;
-use serde_json::{json, Value};
 use tauri::AppHandle;
 use tokio::task::JoinSet;
 
@@ -216,9 +217,7 @@ fn validate_schema_fragment(value: &Value, schema: &Value, path: &str) -> Result
         if !validate_type(value, expected_type) {
             return Err(format!(
                 "Input validation failed for '{}': expected {}, got {}",
-                path,
-                expected_type,
-                value
+                path, expected_type, value
             ));
         }
     }
@@ -300,8 +299,7 @@ fn infer_is_error(output: &str) -> bool {
         return false;
     };
 
-    if v
-        .get("type")
+    if v.get("type")
         .and_then(|t| t.as_str())
         .map(|t| t == "needs_user_input")
         .unwrap_or(false)
@@ -368,11 +366,8 @@ pub(crate) async fn execute_single_tool_call(
     let mut stop_reason: Option<String> = None;
 
     if is_subagent_start_tool(&name) {
-        let subagent_start_hook = crate::llm::services::hooks::run_subagent_start_hooks(
-            app,
-            &name,
-            conversation_id,
-        );
+        let subagent_start_hook =
+            crate::llm::services::hooks::run_subagent_start_hooks(app, &name, conversation_id);
         additional_messages.extend(subagent_start_hook.additional_messages);
         if subagent_start_hook.prevent_continuation {
             prevent_continuation = true;
@@ -382,12 +377,8 @@ pub(crate) async fn execute_single_tool_call(
         }
     }
 
-    let pre_hook = crate::llm::services::hooks::run_pre_tool_use_hooks(
-        app,
-        &name,
-        &input,
-        conversation_id,
-    );
+    let pre_hook =
+        crate::llm::services::hooks::run_pre_tool_use_hooks(app, &name, &input, conversation_id);
     additional_messages.extend(pre_hook.additional_messages);
     if pre_hook.prevent_continuation {
         prevent_continuation = true;
@@ -442,12 +433,11 @@ pub(crate) async fn execute_single_tool_call(
         Ok(()) => output,
         Err(e) => json!({ "ok": false, "error": e }).to_string(),
     };
-    let (validated_output, tool_side_channel_messages) = match find_registered_tool(&name)
-        .and_then(|entry| entry.postprocess)
-    {
-        Some(postprocess) => postprocess(&validated_output),
-        None => (validated_output, Vec::new()),
-    };
+    let (validated_output, tool_side_channel_messages) =
+        match find_registered_tool(&name).and_then(|entry| entry.postprocess) {
+            Some(postprocess) => postprocess(&validated_output),
+            None => (validated_output, Vec::new()),
+        };
     additional_messages.extend(tool_side_channel_messages);
 
     let mut is_error = infer_is_error(&validated_output);
@@ -493,11 +483,8 @@ pub(crate) async fn execute_single_tool_call(
     };
 
     if is_subagent_stop_tool(&name) {
-        let subagent_stop_hook = crate::llm::services::hooks::run_subagent_stop_hooks(
-            app,
-            &name,
-            conversation_id,
-        );
+        let subagent_stop_hook =
+            crate::llm::services::hooks::run_subagent_stop_hooks(app, &name, conversation_id);
         additional_messages.extend(subagent_stop_hook.additional_messages);
         if subagent_stop_hook.prevent_continuation {
             prevent_continuation = true;
@@ -546,8 +533,7 @@ async fn execute_read_only_batch(
         return Vec::new();
     }
 
-    let mut queue: VecDeque<(usize, ToolCallRequest)> =
-        calls.into_iter().enumerate().collect();
+    let mut queue: VecDeque<(usize, ToolCallRequest)> = calls.into_iter().enumerate().collect();
     let mut in_flight: BTreeMap<usize, ToolCallRequest> = BTreeMap::new();
     let mut results_by_index: BTreeMap<usize, ToolCallResult> = BTreeMap::new();
     let mut tasks: JoinSet<(usize, ToolCallResult)> = JoinSet::new();
@@ -573,12 +559,9 @@ async fn execute_read_only_batch(
             let conversation_for_task = conversation_owned.clone();
             in_flight.insert(index, call.clone());
             tasks.spawn(async move {
-                let result = execute_single_tool_call(
-                    &app_clone,
-                    conversation_for_task.as_deref(),
-                    call,
-                )
-                .await;
+                let result =
+                    execute_single_tool_call(&app_clone, conversation_for_task.as_deref(), call)
+                        .await;
                 (index, result)
             });
         }

@@ -75,9 +75,10 @@ pub async fn await_permission_and_recheck(
     ) {
         crate::llm::utils::permissions::PermissionEnforcement::Allow => Ok(()),
         crate::llm::utils::permissions::PermissionEnforcement::Deny(e) => Err(e),
-        crate::llm::utils::permissions::PermissionEnforcement::AskUser { .. } => {
-            Err(format!("Permission decision for '{}' is still pending", tool_name))
-        }
+        crate::llm::utils::permissions::PermissionEnforcement::AskUser { .. } => Err(format!(
+            "Permission decision for '{}' is still pending",
+            tool_name
+        )),
     }
 }
 

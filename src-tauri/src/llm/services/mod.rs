@@ -3,4 +3,5 @@ pub mod hooks;
 pub mod mcp;
 pub mod mcp_tools;
 pub mod memory_dir;
+pub mod shell_sessions;
 pub mod tools;

@@ -124,7 +124,12 @@ pub async fn get_conversation_memory(
         memory::get_conversation_memory_by_pool(&pool, &conversation_id).await
     }
     .await;
-    report_backend_result(&app, "command.history.get_conversation_memory", result, None)
+    report_backend_result(
+        &app,
+        "command.history.get_conversation_memory",
+        result,
+        None,
+    )
 }
 
 #[tauri::command]
@@ -140,7 +145,12 @@ pub async fn get_conversation_handover(
         memory::get_conversation_handover_by_pool(&pool, &conversation_id, recent_limit).await
     }
     .await;
-    report_backend_result(&app, "command.history.get_conversation_handover", result, None)
+    report_backend_result(
+        &app,
+        "command.history.get_conversation_handover",
+        result,
+        None,
+    )
 }
 
 #[tauri::command]
@@ -222,12 +232,9 @@ pub async fn get_conversation_resume_context(
                 None => return Ok(None),
             };
         // 计算边界之后的 resume 上下文。
-        let ctx = resume::get_conversation_resume_context_by_pool(
-            &pool,
-            &conversation_id,
-            boundary,
-        )
-        .await?;
+        let ctx =
+            resume::get_conversation_resume_context_by_pool(&pool, &conversation_id, boundary)
+                .await?;
         // 包装为 Some 返回。
         Ok(Some(ctx))
     }
