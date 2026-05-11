@@ -7,7 +7,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 
 type ProviderProfile = {
   displayName?: string
-  protocol?: 'openai' | 'anthropic' | string
+  protocol?: 'openai' | 'anthropic' | 'openai_responses' | string
   apiKey: string
   baseUrl: string
   model: string
@@ -23,8 +23,31 @@ const pendingDeleteProfileKey = ref<string | null>(null)
 const builtinProviders = [
   { id: 'anthropic', label: 'Anthropic', protocol: 'anthropic' },
   { id: 'openai', label: 'OpenAI', protocol: 'openai' },
-  { id: 'ollama', label: 'Ollama', protocol: 'openai' },
   { id: 'dashscope-anthropic', label: 'DashScope Anthropic', protocol: 'anthropic' },
+] as const
+
+const customProviderTemplates = [
+  {
+    idPrefix: 'openai-custom',
+    label: 'OpenAI 兼容',
+    protocol: 'openai',
+    baseUrl: 'https://api.openai.com/v1',
+    description: '这个选项会按 OpenAI 兼容协议请求，但 API Key、Base URL 和模型列表独立保存。',
+  },
+  {
+    idPrefix: 'anthropic-custom',
+    label: 'Anthropic 兼容',
+    protocol: 'anthropic',
+    baseUrl: 'https://api.anthropic.com/v1',
+    description: '这个选项会按 Anthropic 兼容协议请求，但 API Key、Base URL 和模型列表独立保存。',
+  },
+  {
+    idPrefix: 'responses-custom',
+    label: 'OpenAI Responses',
+    protocol: 'openai_responses',
+    baseUrl: 'https://api.openai.com/v1',
+    description: '这个选项会按 OpenAI Responses API 请求，但 API Key、Base URL 和模型列表独立保存。',
+  },
 ] as const
 
 const builtinProviderIds: Set<string> = new Set(builtinProviders.map(provider => provider.id))
@@ -57,7 +80,13 @@ const providerOptions = computed(() => {
 
 const inferProtocol = (provider: string) => {
   const key = normalizeProviderKey(provider)
+  if (key.startsWith('responses-custom-')) {
+    return 'openai_responses'
+  }
   if (key === 'anthropic' || key === 'claude' || key === 'dashscope-anthropic') {
+    return 'anthropic'
+  }
+  if (key.startsWith('anthropic-custom-')) {
     return 'anthropic'
   }
   return 'openai'
@@ -67,8 +96,9 @@ const defaultBaseUrl = (provider: string) => {
   const key = normalizeProviderKey(provider)
   if (key === 'anthropic') return 'https://api.anthropic.com/v1'
   if (key === 'openai') return 'https://api.openai.com/v1'
-  if (key === 'ollama') return 'http://localhost:11434/v1'
   if (key === 'dashscope-anthropic') return 'https://dashscope.aliyuncs.com/api/v1/apps/anthropic'
+  if (key.startsWith('anthropic-custom-')) return 'https://api.anthropic.com/v1'
+  if (key.startsWith('responses-custom-')) return 'https://api.openai.com/v1'
   return ''
 }
 
@@ -117,21 +147,31 @@ const selectProvider = (id: string) => {
   readProviderInputs(id)
 }
 
-const addOpenAiProfile = () => {
+const addCustomProfile = (template: typeof customProviderTemplates[number]) => {
   writeProviderInputs(selectedProvider.value)
-  const baseKey = `openai-custom-${Date.now().toString(36)}`
-  const label = `OpenAI 兼容 ${providerOptions.value.filter(provider => provider.custom).length + 1}`
+  const baseKey = `${template.idPrefix}-${Date.now().toString(36)}`
+  const label = `${template.label} ${providerOptions.value.filter(provider => provider.custom && provider.protocol === template.protocol).length + 1}`
   providerProfiles.value[baseKey] = {
     displayName: label,
-    protocol: 'openai',
+    protocol: template.protocol,
     apiKey: '',
-    baseUrl: 'https://api.openai.com/v1',
+    baseUrl: template.baseUrl,
     model: '',
   }
   customModels.value[baseKey] = []
   selectedProvider.value = baseKey
   readProviderInputs(baseKey)
 }
+
+const selectedProviderProtocol = computed(() => {
+  const key = normalizeProviderKey(selectedProvider.value)
+  return (providerProfiles.value[key]?.protocol || inferProtocol(key)).trim().toLowerCase()
+})
+
+const selectedCustomProtocolDescription = computed(() => {
+  return customProviderTemplates.find(template => template.protocol === selectedProviderProtocol.value)?.description
+    || '这个选项会使用独立协议配置保存 API Key、Base URL 和模型列表。'
+})
 
 const updateSelectedDisplayName = () => {
   const key = normalizeProviderKey(selectedProvider.value)
@@ -257,13 +297,17 @@ const save = async () => {
 
     <div class="flex items-center justify-between gap-3 mb-[6px]">
       <div class="text-[13px] font-semibold text-[#1a1915] dark:text-[#e8e3db] uppercase tracking-wider">服务商</div>
-      <Button
-        size="sm"
-        class="h-7 px-3 rounded-full text-[12px] bg-[#f5f4f0] dark:bg-[#32312e] text-[#6b6456] dark:text-[#d3d0c9] border border-[#ddd9d0] dark:border-[#3b3a37] hover:bg-[#eae8e4] dark:hover:bg-[#3c3a37]"
-        @click="addOpenAiProfile"
-      >
-        + OpenAI 兼容
-      </Button>
+      <div class="flex flex-wrap gap-2">
+        <Button
+          v-for="template in customProviderTemplates"
+          :key="template.idPrefix"
+          size="sm"
+          class="h-7 px-3 rounded-full text-[12px] bg-[#f5f4f0] dark:bg-[#32312e] text-[#6b6456] dark:text-[#d3d0c9] border border-[#ddd9d0] dark:border-[#3b3a37] hover:bg-[#eae8e4] dark:hover:bg-[#3c3a37]"
+          @click="addCustomProfile(template)"
+        >
+          + {{ template.label }}
+        </Button>
+      </div>
     </div>
     <div class="flex gap-1.5 mb-5 flex-wrap">
       <Button
@@ -298,7 +342,7 @@ const save = async () => {
         class="w-full h-9 px-3 text-[14px] bg-white dark:bg-[#252422] border border-[#e8e3db] dark:border-[#3b3a37] rounded-lg text-[#1a1915] dark:text-[#d3d0c9] placeholder:text-[#b0a99f] dark:placeholder:text-[#66645e] focus:outline-none focus:border-[#d7a16f]"
       />
       <div class="mt-1 text-[12px] text-[#9a9284] dark:text-[#77736b]">
-        这个选项会按 OpenAI 兼容协议请求，但 API Key、Base URL 和模型列表独立保存。
+        {{ selectedCustomProtocolDescription }}
       </div>
     </div>
 
