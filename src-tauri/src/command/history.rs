@@ -64,6 +64,20 @@ pub async fn append_history(
 }
 
 #[tauri::command]
+pub async fn replace_history(
+    app: AppHandle,
+    conversation_id: String,
+    messages: Vec<HistoryMessage>,
+) -> Result<(), String> {
+    report_backend_result(
+        &app,
+        "command.history.replace_history",
+        history::replace_history(&app, &conversation_id, messages).await,
+        None,
+    )
+}
+
+#[tauri::command]
 pub async fn load_conversation_tool_logs(
     app: AppHandle,
     conversation_id: String,

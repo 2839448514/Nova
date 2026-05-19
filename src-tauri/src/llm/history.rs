@@ -7,6 +7,7 @@ use crate::llm::commands::memory;
 use crate::llm::commands::types::{
     ConversationMeta, GlobalMemoryEntry, HistoryMessage, HistoryToolExecution,
 };
+use crate::llm::types::{Content, ContentBlock, Message, Role};
 
 // Build sqlite database URL under app data directory.
 // Format: sqlite:<path>?mode=rwc (read/write/create).
@@ -158,6 +159,40 @@ async fn conversation_exists(pool: &SqlitePool, conversation_id: &str) -> Result
         .map_err(|e| e.to_string())?;
 
     Ok(exists != 0)
+}
+
+fn is_actual_user_message(message: &Message) -> bool {
+    if message.role != Role::User {
+        return false;
+    }
+
+    match &message.content {
+        Content::Text(text) => !text.trim().is_empty(),
+        Content::Blocks(blocks) => blocks.iter().any(|block| {
+            matches!(
+                block,
+                ContentBlock::Text { .. } | ContentBlock::Image { .. }
+            )
+        }),
+    }
+}
+
+fn snapshot_before_user_ordinal(snapshot: &[Message], user_ordinal: usize) -> Vec<Message> {
+    if user_ordinal == 0 {
+        return Vec::new();
+    }
+
+    let mut seen_users = 0usize;
+    for (index, message) in snapshot.iter().enumerate() {
+        if is_actual_user_message(message) {
+            seen_users += 1;
+            if seen_users == user_ordinal {
+                return snapshot[..index].to_vec();
+            }
+        }
+    }
+
+    snapshot.to_vec()
 }
 
 fn resolved_conversation_title(current_title: &str, first_user_message: Option<&str>) -> String {
@@ -389,6 +424,151 @@ pub async fn append_history(
                 Some("remember_from_user_message"),
             );
         }
+    }
+
+    Ok(())
+}
+
+pub async fn replace_history(
+    app: &AppHandle,
+    conversation_id: &str,
+    messages: Vec<HistoryMessage>,
+) -> Result<(), String> {
+    let pool = get_pool_with_schema(app).await?;
+    let normalized_conversation_id = conversation_id.trim();
+
+    if !conversation_exists(&pool, normalized_conversation_id).await? {
+        return Ok(());
+    }
+
+    let now = chrono::Utc::now().timestamp();
+    let current_title: Option<String> =
+        sqlx::query_scalar("SELECT title FROM conversations WHERE id = ?")
+            .bind(normalized_conversation_id)
+            .fetch_optional(&pool)
+            .await
+            .map_err(|e| e.to_string())?;
+    let replacement_snapshot = if messages
+        .last()
+        .map(|message| message.role.eq_ignore_ascii_case("user"))
+        .unwrap_or(false)
+    {
+        let user_ordinal = messages
+            .iter()
+            .filter(|message| message.role.eq_ignore_ascii_case("user"))
+            .count();
+        if user_ordinal <= 1 {
+            Some(Vec::new())
+        } else {
+            let snapshot = load_turn_snapshot(app, normalized_conversation_id)
+                .await?
+                .ok_or_else(|| {
+                    format!(
+                        "会话 {} 缺少 turn snapshot，无法从数据库可见历史安全重建，请新开对话",
+                        normalized_conversation_id
+                    )
+                })?;
+            Some(snapshot_before_user_ordinal(&snapshot, user_ordinal))
+        }
+    } else {
+        None
+    };
+
+    let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+
+    sqlx::query("DELETE FROM conversation_messages WHERE conversation_id = ?")
+        .bind(normalized_conversation_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?;
+    sqlx::query("DELETE FROM conversation_tool_logs WHERE conversation_id = ?")
+        .bind(normalized_conversation_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?;
+    sqlx::query("DELETE FROM conversation_memory WHERE conversation_id = ?")
+        .bind(normalized_conversation_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?;
+    sqlx::query("DELETE FROM conversation_compact_boundaries WHERE conversation_id = ?")
+        .bind(normalized_conversation_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?;
+    sqlx::query("DELETE FROM conversation_turn_snapshots WHERE conversation_id = ?")
+        .bind(normalized_conversation_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    for (index, message) in messages.iter().enumerate() {
+        let created_at = now + index as i64;
+        let reasoning = message
+            .reasoning
+            .as_ref()
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty());
+        let attachments_json = message
+            .attachments
+            .as_ref()
+            .and_then(|v| serde_json::to_string(v).ok());
+        let cost_json = message.cost.as_ref().and_then(|v| serde_json::to_string(v).ok());
+
+        sqlx::query(
+            "INSERT INTO conversation_messages (conversation_id, role, content, reasoning, attachments_json, token_usage, cost_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(normalized_conversation_id)
+        .bind(&message.role)
+        .bind(&message.content)
+        .bind(reasoning)
+        .bind(attachments_json)
+        .bind(message.token_usage)
+        .bind(cost_json)
+        .bind(created_at)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?;
+    }
+
+    let should_update_title = current_title
+        .as_deref()
+        .map(|title| {
+            let trimmed = title.trim();
+            trimmed.is_empty() || trimmed == "New chat"
+        })
+        .unwrap_or(true);
+
+    if should_update_title {
+        let next_title = messages
+            .iter()
+            .find(|message| message.role.eq_ignore_ascii_case("user"))
+            .map(|message| memory::derive_title_from_message(&message.content))
+            .unwrap_or_default();
+
+        sqlx::query("UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?")
+            .bind(next_title)
+            .bind(now)
+            .bind(normalized_conversation_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?;
+    } else {
+        sqlx::query("UPDATE conversations SET updated_at = ? WHERE id = ?")
+            .bind(now)
+            .bind(normalized_conversation_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+
+    tx.commit().await.map_err(|e| e.to_string())?;
+
+    if !messages.is_empty() {
+        memory::refresh_conversation_memory(&pool, normalized_conversation_id, now).await?;
+    }
+    if let Some(snapshot) = replacement_snapshot {
+        save_turn_snapshot(app, normalized_conversation_id, &snapshot).await?;
     }
 
     Ok(())

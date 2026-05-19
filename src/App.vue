@@ -41,6 +41,7 @@ const {
   chatScreenRef,
   refreshActiveConversationFiles,
   handleSendMessage,
+  handleEditMessage,
   handleUploadFiles,
   handleRemovePendingUpload,
   handleCancelGeneration,
@@ -177,6 +178,7 @@ const openWorkspaceFile = (fileId: string) => {
           :contextCompacts="currentContextCompacts"
           :contextTokens="currentContextTokens"
           @send="handleSendMessage"
+          @save-user-edit="handleEditMessage($event.index, $event.content)"
           @cancel="handleCancelGeneration"
           @mode-change="handleAgentModeChange"
           @upload-files="handleUploadFiles"

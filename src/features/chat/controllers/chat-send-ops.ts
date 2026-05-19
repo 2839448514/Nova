@@ -12,10 +12,12 @@ import type {
   ContextCompactSummary,
   ContextUsage,
   PendingUploadFile,
+  ToolExecutionEntry,
   TurnCost,
 } from "../../../lib/chat-types";
 import {
   cancelChatMessage,
+  replaceConversationHistory,
   sendChatMessage,
   submitPermissionDecision,
   upsertConversationRagDocuments,
@@ -45,6 +47,7 @@ type SendOpsDeps = {
   isGenerating: Ref<boolean>;
   currentStage: Ref<LiveTurnStage>;
   messages: Ref<ChatMessage[]>;
+  toolExecutionLogs: Ref<ToolExecutionEntry[]>;
   pendingUploads: Ref<PendingUploadFile[]>;
   pendingPermissionRequestId: Ref<string | null>;
   mainView: Ref<"chat" | "hooks" | "agent" | "schedule">;
@@ -81,6 +84,7 @@ export function createSendOperations(deps: SendOpsDeps) {
     isGenerating,
     currentStage,
     messages,
+    toolExecutionLogs,
     pendingUploads,
     pendingPermissionRequestId,
     mainView,
@@ -106,6 +110,112 @@ export function createSendOperations(deps: SendOpsDeps) {
     refreshConversationFiles,
     resetBackgroundRuntimeState,
   } = deps;
+
+  async function dispatchConversationMessages(
+    sendingConversationId: string,
+    nextMessages: ChatMessage[],
+  ) {
+    if (activeConversationId.value !== sendingConversationId) {
+      emitToast({
+        variant: "info",
+        source: "send",
+        message: "会话已切换，本次发送已取消，请在当前会话重新发送。",
+      });
+      return;
+    }
+
+    chatScreenRef.value?.scrollLastUserMessageToBottom();
+    isGenerating.value = true;
+    currentStage.value = "processing";
+    assistantResponse.value = "";
+    assistantReasoning.value = "";
+    assistantTokenUsage.value = undefined;
+    assistantTurnCost.value = undefined;
+    currentToolStartedAt.value = null;
+    currentToolCalls.value = 0;
+    currentToolDurationMs.value = 0;
+    currentContextUsage.value = undefined;
+    currentContextCompacts.value = [];
+    currentContextTokens.value = 0;
+    currentOutputTokens.value = 0;
+    currentInputTokens.value = 0;
+    resetToolTrackingState(activeRuntimeRefs);
+
+    const rustMessages = nextMessages.map((message) => buildModelMessage(message));
+
+    try {
+      await sendChatMessage(
+        sendingConversationId || null,
+        rustMessages,
+        planMode.value,
+        agentMode.value,
+      );
+    } catch (err: unknown) {
+      const isActiveFailedConversation = activeConversationId.value === sendingConversationId;
+      if (isActiveFailedConversation && !isGenerating.value) {
+        return;
+      }
+
+      console.error("Chat error:", err);
+      if (isActiveFailedConversation) {
+        emitToast({
+          variant: "error",
+          source: "send",
+          message: "消息发送失败，请检查后端日志后重试。",
+        });
+        assistantResponse.value = "";
+        assistantReasoning.value = "";
+        assistantTokenUsage.value = undefined;
+        assistantTurnCost.value = undefined;
+        isGenerating.value = false;
+        resetTurnRuntimeState(activeRuntimeRefs);
+        runtimeStateByConversation.delete(normalizeConversationId(sendingConversationId));
+      } else {
+        const backgroundState = ensureRuntimeState(
+          runtimeStateByConversation,
+          sendingConversationId,
+        );
+        resetBackgroundRuntimeState(sendingConversationId, backgroundState);
+      }
+    }
+  }
+
+  async function handleUploadFiles(files: PendingUploadFile[]) {
+    if (!files.length || isGenerating.value) {
+      return;
+    }
+
+    mainView.value = "chat";
+    pendingUploads.value = [...pendingUploads.value, ...files];
+    emitToast({
+      variant: "success",
+      source: "upload",
+      message: `已添加 ${files.length} 个附件到待发送列表。`,
+    });
+  }
+
+  function handleRemovePendingUpload(index: number) {
+    if (index < 0 || index >= pendingUploads.value.length) {
+      return;
+    }
+    pendingUploads.value.splice(index, 1);
+  }
+
+  async function handleCancelGeneration() {
+    if (!isGenerating.value) return;
+    try {
+      const hit = await cancelChatMessage(activeConversationId.value || null);
+      if (!hit) {
+        emitToast({
+          variant: "warning",
+          source: "cancel",
+          message: "取消信号已发送，但未命中活动会话。",
+        });
+      }
+    } catch (err) {
+      console.error("Failed to cancel generation:", err);
+    }
+  }
 
   async function handleSendMessage(userText: string) {
     if (isGenerating.value) return;
@@ -179,15 +289,6 @@ export function createSendOperations(deps: SendOpsDeps) {
       pendingUploads.value = [];
     }
 
-    if (activeConversationId.value !== sendingConversationId) {
-      emitToast({
-        variant: "info",
-        source: "send",
-        message: "会话已切换，本次发送已取消，请在当前会话重新发送。",
-      });
-      return;
-    }
-
     const userMessage: ChatMessage = {
       role: "user",
       content: text,
@@ -195,91 +296,44 @@ export function createSendOperations(deps: SendOpsDeps) {
     };
     messages.value.push(userMessage);
     await persistMessage(userMessage, sendingConversationId);
-    chatScreenRef.value?.scrollLastUserMessageToBottom();
-    isGenerating.value = true;
-    currentStage.value = "processing";
-    assistantResponse.value = "";
-    assistantReasoning.value = "";
-    assistantTokenUsage.value = undefined;
-    assistantTurnCost.value = undefined;
-    currentToolStartedAt.value = null;
-    currentToolCalls.value = 0;
-    currentToolDurationMs.value = 0;
-    currentContextUsage.value = undefined;
-    currentContextCompacts.value = [];
-    currentContextTokens.value = 0;
-    currentOutputTokens.value = 0;
-    currentInputTokens.value = 0;
-    resetToolTrackingState(activeRuntimeRefs);
-
-    const rustMessages = messages.value.map((message) => buildModelMessage(message));
-
-    try {
-      await sendChatMessage(
-        sendingConversationId || null,
-        rustMessages,
-        planMode.value,
-        agentMode.value,
-      );
-    } catch (err: unknown) {
-      const isActiveFailedConversation = activeConversationId.value === sendingConversationId;
-      if (isActiveFailedConversation && !isGenerating.value) {
-        return;
-      }
-
-      console.error("Chat error:", err);
-      if (isActiveFailedConversation) {
-        assistantResponse.value = "";
-        assistantReasoning.value = "";
-        assistantTokenUsage.value = undefined;
-        assistantTurnCost.value = undefined;
-        isGenerating.value = false;
-        resetTurnRuntimeState(activeRuntimeRefs);
-        runtimeStateByConversation.delete(normalizeConversationId(sendingConversationId));
-      } else {
-        const backgroundState = ensureRuntimeState(
-          runtimeStateByConversation,
-          sendingConversationId,
-        );
-        resetBackgroundRuntimeState(sendingConversationId, backgroundState);
-      }
-    }
+    await dispatchConversationMessages(sendingConversationId, messages.value);
   }
 
-  async function handleUploadFiles(files: PendingUploadFile[]) {
-    if (!files.length || isGenerating.value) {
+  async function handleEditMessage(messageIndex: number, nextContent: string) {
+    if (isGenerating.value) return;
+    const conversationId = activeConversationId.value.trim();
+    const trimmedContent = nextContent.trim();
+    if (!conversationId || !trimmedContent) return;
+
+    const originalMessage = messages.value[messageIndex];
+    if (!originalMessage || originalMessage.role !== "user") {
       return;
     }
 
     mainView.value = "chat";
-    pendingUploads.value = [...pendingUploads.value, ...files];
-    emitToast({
-      variant: "success",
-      source: "upload",
-      message: `已添加 ${files.length} 个附件到待发送列表。`,
-    });
-  }
+    resetPendingPromptState(activeRuntimeRefs);
 
-  function handleRemovePendingUpload(index: number) {
-    if (index < 0 || index >= pendingUploads.value.length) {
-      return;
-    }
-    pendingUploads.value.splice(index, 1);
-  }
+    const nextMessages = [
+      ...messages.value.slice(0, messageIndex),
+      {
+        ...originalMessage,
+        content: trimmedContent,
+      },
+    ];
 
-  async function handleCancelGeneration() {
-    if (!isGenerating.value) return;
     try {
-      const hit = await cancelChatMessage(activeConversationId.value || null);
-      if (!hit) {
-        emitToast({
-          variant: "warning",
-          source: "cancel",
-          message: "取消信号已发送，但未命中活动会话。",
-        });
-      }
+      await replaceConversationHistory(conversationId, nextMessages);
+      messages.value = nextMessages;
+      toolExecutionLogs.value = [];
+      pendingUploads.value = [];
+      await dispatchConversationMessages(conversationId, nextMessages);
     } catch (err) {
-      console.error("Failed to cancel generation:", err);
+      console.error("Failed to edit and resend message:", err);
+      emitToast({
+        variant: "error",
+        source: "edit-message",
+        message: "编辑消息失败：当前会话缺少可靠快照，请新开对话后继续。",
+      });
     }
   }
 
@@ -331,6 +385,7 @@ export function createSendOperations(deps: SendOpsDeps) {
 
   return {
     handleSendMessage,
+    handleEditMessage,
     handleUploadFiles,
     handleRemovePendingUpload,
     handleCancelGeneration,

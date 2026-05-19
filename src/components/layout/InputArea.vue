@@ -405,6 +405,7 @@ watch(
   }
 );
 
+
 const handleSettingsUpdate = () => loadSettings();
 onMounted(() => {
   loadSettings();

@@ -76,6 +76,13 @@ export async function appendConversationMessage(
   await invoke("append_history", { conversationId, message });
 }
 
+export async function replaceConversationHistory(
+  conversationId: string,
+  messages: ChatMessage[],
+): Promise<void> {
+  await invoke("replace_history", { conversationId, messages });
+}
+
 export async function loadConversationToolLogs(
   conversationId: string,
 ): Promise<ToolExecutionEntry[]> {

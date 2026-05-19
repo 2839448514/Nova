@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import { Button } from '@/components/ui/button';
 import type { ChatMessage } from '../../../lib/chat-types';
 
@@ -12,10 +12,14 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'retry', index: number): void;
+  (e: 'save-edit', payload: { index: number; content: string }): void;
   (e: 'copy', index: number): void;
 }>();
 
 const isExpanded = ref(false);
+const isEditing = ref(false);
+const editDraft = ref('');
+const editTextareaRef = ref<HTMLTextAreaElement | null>(null);
 
 const normalizedContent = computed(() => props.message.content.trim());
 const lineCount = computed(() => normalizedContent.value.split(/\r?\n/).length);
@@ -28,6 +32,42 @@ const toggleExpanded = () => {
   if (!shouldCollapse.value) return;
   isExpanded.value = !isExpanded.value;
 };
+
+const isEditUnchanged = computed(
+  () => editDraft.value.trim() === props.message.content.trim(),
+);
+
+const beginEdit = async () => {
+  editDraft.value = props.message.content;
+  isEditing.value = true;
+  await nextTick();
+  editTextareaRef.value?.focus();
+  editTextareaRef.value?.select();
+};
+
+const cancelEdit = () => {
+  isEditing.value = false;
+  editDraft.value = props.message.content;
+};
+
+const saveEdit = () => {
+  const content = editDraft.value.trim();
+  if (!content || isEditUnchanged.value) {
+    return;
+  }
+  isEditing.value = false;
+  emit('save-edit', { index: props.index, content });
+};
+
+watch(
+  () => props.message.content,
+  (next) => {
+    if (!isEditing.value) {
+      editDraft.value = next;
+    }
+  },
+  { immediate: true },
+);
 
 const formatFileSize = (bytes?: number) => {
   if (!bytes || !Number.isFinite(bytes) || bytes <= 0) {
@@ -45,9 +85,12 @@ const formatFileSize = (bytes?: number) => {
 </script>
 
 <template>
-  <div class="ml-auto max-w-[85%] flex flex-row-reverse gap-2.5 items-start">
+  <div
+    class="ml-auto flex flex-row-reverse gap-2.5 items-start"
+    :class="isEditing ? 'w-full max-w-[calc(100%-2.5rem)]' : 'max-w-[85%]'"
+  >
     <div class="w-7 h-7 rounded-full flex items-center justify-center shrink-0 bg-[#23211b] text-[#f8f6ef] text-[11px] font-medium mt-0.5">你</div>
-    <div class="flex flex-col items-end">
+    <div class="flex flex-col items-end min-w-0" :class="{ 'flex-1': isEditing }">
       <div class="flex items-center gap-2 mb-1">
         <p class="text-[11px] text-[#9b958a]">你</p>
         <span v-if="typeof message.tokenUsage === 'number'" class="token-badge">
@@ -59,7 +102,13 @@ const formatFileSize = (bytes?: number) => {
           本次 {{ message.tokenUsage ?? 0 }}
         </span>
       </div>
-      <div class="bg-[#f1eee7] dark:bg-[#2d2d2d] px-4 py-2.5 rounded-xl border border-[#e6e1d6] dark:border-[#3c3c3c]">
+      <div
+        :class="
+          isEditing
+            ? 'edit-shell'
+            : 'bg-[#f1eee7] dark:bg-[#2d2d2d] px-4 py-2.5 rounded-xl border border-[#e6e1d6] dark:border-[#3c3c3c]'
+        "
+      >
         <div v-if="message.attachments?.length" class="mb-2 flex flex-wrap gap-1.5">
           <div
             v-for="(file, i) in message.attachments"
@@ -99,28 +148,61 @@ const formatFileSize = (bytes?: number) => {
             <span v-if="formatFileSize(file.size)" class="opacity-70">{{ formatFileSize(file.size) }}</span>
           </div>
         </div>
-        <div
-          v-if="normalizedContent"
-          class="user-message-text text-[0.92rem] leading-relaxed whitespace-pre-wrap break-words text-[#23211b] dark:text-[#ececec]"
-          :class="{ 'is-collapsed': shouldCollapse && !isExpanded }"
-        >
-          {{ message.content }}
+        <div v-if="isEditing" class="edit-card">
+          <textarea
+            ref="editTextareaRef"
+            v-model="editDraft"
+            rows="3"
+            class="edit-card__textarea"
+          ></textarea>
+          <div class="edit-card__footer">
+            <div class="edit-card__notice">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="9"></circle>
+                <path d="M12 8h.01"></path>
+                <path d="M11 12h1v4h1"></path>
+              </svg>
+              <span>编辑后会从这条消息重新生成后续回复。</span>
+            </div>
+            <div class="edit-card__actions">
+              <button type="button" class="edit-card__btn edit-card__btn--ghost" @click="cancelEdit">
+                取消
+              </button>
+              <button
+                type="button"
+                class="edit-card__btn edit-card__btn--primary"
+                :disabled="!editDraft.trim() || isEditUnchanged"
+                @click="saveEdit"
+              >
+                发送
+              </button>
+            </div>
+          </div>
         </div>
-        <button
-          v-if="shouldCollapse"
-          type="button"
-          class="user-message-toggle"
-          @click="toggleExpanded"
-        >
-          {{ isExpanded ? '收起' : '展开全文' }}
-        </button>
+        <template v-else>
+          <div
+            v-if="normalizedContent"
+            class="user-message-text text-[0.92rem] leading-relaxed whitespace-pre-wrap break-words text-[#23211b] dark:text-[#ececec]"
+            :class="{ 'is-collapsed': shouldCollapse && !isExpanded }"
+          >
+            {{ message.content }}
+          </div>
+          <button
+            v-if="shouldCollapse"
+            type="button"
+            class="user-message-toggle"
+            @click="toggleExpanded"
+          >
+            {{ isExpanded ? '收起' : '展开全文' }}
+          </button>
+        </template>
       </div>
       <div class="msg-toolbar">
         <span class="msg-time">{{ timeText }}</span>
         <Button variant="ghost" size="icon-sm" class="msg-icon-btn" aria-label="Retry user message" @click="emit('retry', index)">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
         </Button>
-        <Button variant="ghost" size="icon-sm" class="msg-icon-btn" aria-label="Edit message">
+        <Button variant="ghost" size="icon-sm" class="msg-icon-btn" aria-label="Edit message" @click="beginEdit">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
         </Button>
         <Button variant="ghost" size="icon-sm" class="msg-icon-btn" :class="{ 'is-copied': copied }" aria-label="Copy message" @click="emit('copy', index)">
@@ -225,5 +307,143 @@ const formatFileSize = (bytes?: number) => {
 
 .dark .user-message-toggle:hover {
   color: #e5bd7e;
+}
+
+.edit-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.edit-card__textarea {
+  width: 100%;
+  min-height: 88px;
+  resize: vertical;
+  border-radius: 18px;
+  border: 2px solid #2f74d3;
+  background: rgba(255, 255, 255, 0.96);
+  padding: 16px 18px;
+  font-size: 14px;
+  line-height: 1.55;
+  color: #23211b;
+  outline: none;
+  box-shadow: 0 0 0 4px rgba(47, 116, 211, 0.1);
+}
+
+.edit-card__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.edit-card__notice {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: #666055;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.edit-card__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.edit-card__btn {
+  min-width: 92px;
+  height: 42px;
+  border-radius: 15px;
+  border: 1px solid transparent;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.16s ease, color 0.16s ease, border-color 0.16s ease, opacity 0.16s ease;
+}
+
+.edit-card__btn--ghost {
+  background: rgba(255, 255, 255, 0.6);
+  border-color: #cfc5b7;
+  color: #302c25;
+}
+
+.edit-card__btn--ghost:hover {
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.edit-card__btn--primary {
+  background: #908d89;
+  color: white;
+}
+
+.edit-card__btn--primary:not(:disabled):hover {
+  background: #7e7b76;
+}
+
+.edit-card__btn--primary:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.dark .edit-card__textarea {
+  background: rgba(32, 31, 28, 0.96);
+  border-color: #5d8fda;
+  box-shadow: 0 0 0 4px rgba(93, 143, 218, 0.12);
+  color: #ececec;
+}
+
+.dark .edit-card__notice {
+  color: #b7aea1;
+}
+
+.dark .edit-card__btn--ghost {
+  background: rgba(255, 255, 255, 0.02);
+  border-color: #5b5449;
+  color: #ece4d8;
+}
+
+.dark .edit-card__btn--ghost:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.dark .edit-card__btn--primary {
+  background: #8e8a84;
+  color: #f8f6f1;
+}
+
+.dark .edit-card__btn--primary:not(:disabled):hover {
+  background: #9c978f;
+}
+
+.edit-shell {
+  width: 100%;
+  padding: 14px 16px 10px;
+  border-radius: 18px;
+  border: 1px solid #ebe4d9;
+  background: #f7f3ed;
+  box-shadow: 0 8px 24px rgba(84, 73, 54, 0.08);
+}
+
+.dark .edit-shell {
+  border-color: #454036;
+  background: #2f2b25;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
+}
+
+@media (max-width: 900px) {
+  .edit-shell {
+    padding: 12px 12px 10px;
+  }
+
+  .edit-card__footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .edit-card__actions {
+    justify-content: flex-end;
+  }
 }
 </style>

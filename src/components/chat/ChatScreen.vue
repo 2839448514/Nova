@@ -39,6 +39,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'send', msg: string): void;
+  (e: 'save-user-edit', payload: { index: number; content: string }): void;
   (e: 'ask-submit', value: AskUserAnswerSubmission): void;
   (e: 'ask-skip'): void;
   (e: 'cancel'): void;
@@ -277,6 +278,7 @@ defineExpose({
             :copied="!!copiedMap[`user-${index}`]"
             :timeText="formatNowTime()"
             @retry="retryFromUser"
+            @save-edit="emit('save-user-edit', $event)"
             @copy="copyText(msg.content, `user-${index}`)"
           />
 
