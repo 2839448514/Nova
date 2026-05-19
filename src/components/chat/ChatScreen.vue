@@ -286,6 +286,7 @@ defineExpose({
             :index="index"
             :copied="!!copiedMap[`assistant-${index}`]"
             :conversationTokenUsage="conversationTokenUsage(index)"
+            :reaction="reactionMap[index]"
             @copy="copyText(buildAssistantCopyText(msg), `assistant-${index}`)"
             @retry="retryFromAssistant"
             @react="setReaction($event.index, $event.value)"

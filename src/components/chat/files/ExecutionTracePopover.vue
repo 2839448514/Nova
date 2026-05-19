@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { Button } from "@/components/ui/button";
 import type { ToolExecutionEntry } from "../../../lib/chat-types";
 
@@ -34,6 +34,14 @@ const collapsedPreview = (entry: ToolExecutionEntry) => {
   }
   return text.length > 100 ? `${text.slice(0, 100)}...` : text;
 };
+
+const displayedEntries = computed(() =>
+  [...props.entries].sort((a, b) => {
+    const timeA = a.finishedAt ?? a.startedAt ?? 0;
+    const timeB = b.finishedAt ?? b.startedAt ?? 0;
+    return timeB - timeA;
+  }),
+);
 
 const statusLabelMap: Record<ToolExecutionEntry["status"], string> = {
   running: "执行中",
@@ -114,7 +122,7 @@ onBeforeUnmount(() => {
 
       <div v-else class="max-h-[60vh] overflow-y-auto px-2.5 py-2 space-y-2">
         <div
-          v-for="entry in props.entries"
+          v-for="entry in displayedEntries"
           :key="entry.id"
           class="rounded-xl border border-[#ece6da] dark:border-[#3a3a3a] bg-[#faf8f3] dark:bg-[#2b2b2b] px-3 py-2.5"
         >

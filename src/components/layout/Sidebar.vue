@@ -260,7 +260,7 @@ onBeforeUnmount(() => {
         :key="recent.id"
         role="button"
         tabindex="0"
-        class="group flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-left text-[0.85rem]"
+        class="group flex w-full cursor-pointer select-none items-center gap-2 rounded-lg px-3 py-1.5 text-left text-[0.85rem]"
         :class="recent.id === props.activeConversationId
           ? 'bg-[#ebebeb] dark:bg-[#2d2d2d] text-[#222] dark:text-[#f2f2f2]'
           : 'hover:bg-[#ebebeb] dark:hover:bg-[#2d2d2d] text-[#333] dark:text-[#ccc]'"

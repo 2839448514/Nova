@@ -1,15 +1,17 @@
 <script setup lang="ts">
+import { ref } from 'vue';
 import { Button } from '@/components/ui/button';
 import MarkdownRenderer from '../MarkdownRenderer.vue';
 import type { ChatMessage } from '../../../lib/chat-types';
 import ContextCompactNotice from './ContextCompactNotice.vue';
 import TurnActivitySummaryCard from './TurnActivitySummaryCard.vue';
 
-defineProps<{
+const props = defineProps<{
   message: ChatMessage;
   index: number;
   copied: boolean;
   conversationTokenUsage: number;
+  reaction?: 'up' | 'down';
 }>();
 
 const emit = defineEmits<{
@@ -17,6 +19,18 @@ const emit = defineEmits<{
   (e: 'retry', index: number): void;
   (e: 'react', payload: { index: number; value: 'up' | 'down' }): void;
 }>();
+
+const animatingReaction = ref<'up' | 'down' | null>(null);
+
+const triggerReaction = (value: 'up' | 'down') => {
+  animatingReaction.value = value;
+  emit('react', { index: props.index, value });
+  window.setTimeout(() => {
+    if (animatingReaction.value === value) {
+      animatingReaction.value = null;
+    }
+  }, 320);
+};
 </script>
 
 <template>
@@ -60,10 +74,30 @@ const emit = defineEmits<{
           <svg v-if="!copied" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
           <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
         </Button>
-        <Button variant="ghost" size="icon-sm" class="msg-icon-btn" aria-label="Thumbs up" @click="emit('react', { index, value: 'up' })">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          class="msg-icon-btn reaction-btn"
+          :class="{
+            'is-active-up': props.reaction === 'up',
+            'is-animating': animatingReaction === 'up',
+          }"
+          aria-label="Thumbs up"
+          @click="triggerReaction('up')"
+        >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z"/><path d="M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg>
         </Button>
-        <Button variant="ghost" size="icon-sm" class="msg-icon-btn" aria-label="Thumbs down" @click="emit('react', { index, value: 'down' })">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          class="msg-icon-btn reaction-btn"
+          :class="{
+            'is-active-down': props.reaction === 'down',
+            'is-animating': animatingReaction === 'down',
+          }"
+          aria-label="Thumbs down"
+          @click="triggerReaction('down')"
+        >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3H10z"/><path d="M17 2h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/></svg>
         </Button>
         <Button variant="ghost" size="icon-sm" class="msg-icon-btn" aria-label="Retry" @click="emit('retry', index)">
@@ -104,6 +138,24 @@ const emit = defineEmits<{
 
 .msg-icon-btn.is-copied {
   color: #4a7c59;
+}
+
+.reaction-btn {
+  transform-origin: center;
+}
+
+.reaction-btn.is-active-up {
+  color: #4f8a62;
+  background: rgba(112, 177, 132, 0.12);
+}
+
+.reaction-btn.is-active-down {
+  color: #a3685c;
+  background: rgba(196, 122, 104, 0.12);
+}
+
+.reaction-btn.is-animating {
+  animation: reaction-pop 0.32s ease;
 }
 
 .token-badge {
@@ -169,6 +221,31 @@ const emit = defineEmits<{
 
 .dark .reasoning-panel summary {
   color: #b1ab9f;
+}
+
+.dark .reaction-btn.is-active-up {
+  color: #8fd2a4;
+  background: rgba(85, 145, 104, 0.24);
+}
+
+.dark .reaction-btn.is-active-down {
+  color: #e2a297;
+  background: rgba(125, 73, 63, 0.24);
+}
+
+@keyframes reaction-pop {
+  0% {
+    transform: scale(1);
+  }
+  35% {
+    transform: scale(1.28);
+  }
+  70% {
+    transform: scale(0.94);
+  }
+  100% {
+    transform: scale(1);
+  }
 }
 
 </style>

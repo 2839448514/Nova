@@ -1,8 +1,9 @@
 <script setup lang="ts">
+import { computed, ref } from 'vue';
 import { Button } from '@/components/ui/button';
 import type { ChatMessage } from '../../../lib/chat-types';
 
-defineProps<{
+const props = defineProps<{
   message: ChatMessage;
   index: number;
   copied: boolean;
@@ -13,6 +14,20 @@ const emit = defineEmits<{
   (e: 'retry', index: number): void;
   (e: 'copy', index: number): void;
 }>();
+
+const isExpanded = ref(false);
+
+const normalizedContent = computed(() => props.message.content.trim());
+const lineCount = computed(() => normalizedContent.value.split(/\r?\n/).length);
+const shouldCollapse = computed(() => {
+  if (!normalizedContent.value) return false;
+  return normalizedContent.value.length > 260 || lineCount.value > 8;
+});
+
+const toggleExpanded = () => {
+  if (!shouldCollapse.value) return;
+  isExpanded.value = !isExpanded.value;
+};
 
 const formatFileSize = (bytes?: number) => {
   if (!bytes || !Number.isFinite(bytes) || bytes <= 0) {
@@ -85,11 +100,20 @@ const formatFileSize = (bytes?: number) => {
           </div>
         </div>
         <div
-          v-if="message.content.trim()"
-          class="text-[0.92rem] leading-relaxed whitespace-pre-wrap break-words text-[#23211b] dark:text-[#ececec]"
+          v-if="normalizedContent"
+          class="user-message-text text-[0.92rem] leading-relaxed whitespace-pre-wrap break-words text-[#23211b] dark:text-[#ececec]"
+          :class="{ 'is-collapsed': shouldCollapse && !isExpanded }"
         >
           {{ message.content }}
         </div>
+        <button
+          v-if="shouldCollapse"
+          type="button"
+          class="user-message-toggle"
+          @click="toggleExpanded"
+        >
+          {{ isExpanded ? '收起' : '展开全文' }}
+        </button>
       </div>
       <div class="msg-toolbar">
         <span class="msg-time">{{ timeText }}</span>
@@ -166,5 +190,40 @@ const formatFileSize = (bytes?: number) => {
   color: #a09e99;
   border-color: #5a5549;
   background: rgba(60, 56, 48, 0.45);
+}
+
+.user-message-text {
+  position: relative;
+}
+
+.user-message-text.is-collapsed {
+  max-height: 9.4em;
+  overflow: hidden;
+  mask-image: linear-gradient(180deg, #000 0%, #000 72%, transparent 100%);
+  -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 72%, transparent 100%);
+}
+
+.user-message-toggle {
+  margin-top: 8px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #9a7b47;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.user-message-toggle:hover {
+  color: #7d6236;
+}
+
+.dark .user-message-toggle {
+  color: #d2aa69;
+}
+
+.dark .user-message-toggle:hover {
+  color: #e5bd7e;
 }
 </style>
