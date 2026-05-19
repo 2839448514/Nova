@@ -503,12 +503,19 @@ pub(crate) async fn execute_single_tool_call(
                     .map(|s| s.to_string())
             })
             .unwrap_or_else(|| final_output.clone());
-        crate::llm::utils::error_event::emit_backend_error(
-            app,
-            "tool.execute",
-            format!("工具 {} 执行失败：{}", name, error_text),
-            Some(name.as_str()),
-        );
+        let is_cancelled = error_text.trim().eq_ignore_ascii_case("cancelled")
+            || error_text
+                .trim()
+                .to_ascii_lowercase()
+                .starts_with("cancelled:");
+        if !is_cancelled {
+            crate::llm::utils::error_event::emit_backend_error(
+                app,
+                "tool.execute",
+                format!("工具 {} 执行失败：{}", name, error_text),
+                Some(name.as_str()),
+            );
+        }
     }
 
     ToolCallResult {

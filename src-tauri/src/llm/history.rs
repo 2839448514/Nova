@@ -410,22 +410,6 @@ pub async fn append_history(
     // Keep summary memory in sync after each append.
     memory::refresh_conversation_memory(&pool, normalized_conversation_id, now).await?;
 
-    if role.eq_ignore_ascii_case("user") {
-        if let Err(error) =
-            crate::llm::services::memory_dir::remember_from_user_message(app, &content).await
-        {
-            crate::llm::utils::error_event::emit_backend_error(
-                app,
-                "memory.auto_remember",
-                format!(
-                    "全局记忆自动写入失败，本条消息不会被记忆模块索引：{}",
-                    error
-                ),
-                Some("remember_from_user_message"),
-            );
-        }
-    }
-
     Ok(())
 }
 

@@ -10,7 +10,6 @@ use crate::llm::commands::types::GlobalMemoryEntry;
 const MEMORY_ROOT_DIR: &str = "memory";
 const MEMORY_INDEX_FILE: &str = "MEMORY.md";
 const MEMORY_KINDS: [&str; 3] = ["preference", "fact", "rule"];
-const AUTO_MEMORY_MAX_PER_MESSAGE: usize = 3;
 
 #[derive(Debug, Clone)]
 struct MemoryFileRecord {
@@ -657,93 +656,4 @@ pub async fn relevant_global_memory(
         .filter(|record| selected_ids.contains(&record.entry.id))
         .map(|record| record.entry)
         .collect())
-}
-
-fn classify_auto_memory_kind(line: &str) -> Option<&'static str> {
-    let lower = line.to_ascii_lowercase();
-    if [
-        "不要",
-        "别再",
-        "务必",
-        "必须",
-        "总是",
-        "始终",
-        "always",
-        "never",
-        "must",
-        "do not",
-    ]
-    .iter()
-    .any(|token| line.contains(token) || lower.contains(token))
-    {
-        return Some("rule");
-    }
-
-    if [
-        "记住",
-        "以后",
-        "默认",
-        "优先",
-        "我更喜欢",
-        "prefer",
-        "default to",
-        "from now on",
-        "use chinese",
-        "用中文",
-    ]
-    .iter()
-    .any(|token| line.contains(token) || lower.contains(token))
-    {
-        return Some("preference");
-    }
-
-    if [
-        "我是",
-        "我的角色",
-        "i am ",
-        "my role is",
-        "我通常",
-        "i usually",
-    ]
-    .iter()
-    .any(|token| line.contains(token) || lower.contains(token))
-    {
-        return Some("fact");
-    }
-
-    None
-}
-
-pub async fn remember_from_user_message(
-    app: &AppHandle,
-    content: &str,
-) -> Result<Vec<GlobalMemoryEntry>, String> {
-    let mut remembered = Vec::new();
-    let mut seen = HashSet::new();
-
-    for line in content.lines() {
-        let normalized = normalize_content(line);
-        if normalized.len() < 10 || normalized.len() > 180 {
-            continue;
-        }
-
-        let Some(kind) = classify_auto_memory_kind(&normalized) else {
-            continue;
-        };
-
-        let dedupe_key = normalized.to_ascii_lowercase();
-        if !seen.insert(dedupe_key) {
-            continue;
-        }
-
-        remembered.push(
-            upsert_global_memory(app, &normalized, Some(kind), Some("auto_user_message")).await?,
-        );
-
-        if remembered.len() >= AUTO_MEMORY_MAX_PER_MESSAGE {
-            break;
-        }
-    }
-
-    Ok(remembered)
 }
